@@ -542,9 +542,10 @@ type PageTranslateTabProps = {
 };
 
 /**
- * In-page translate / hide tab, sitting inside the page's top-right corner.
- * Match PDF chrome (left toolbar / bottom bar): Callout `text-xs`, `size-3.5`
- * icons, `h-7`-wide hit target, shared surface. Rem sizes keep Windows
+ * In-page translate / hide tab, inside the page's top-left corner (just
+ * inward of the old outside-left hang). Mounted only while the page is
+ * hovered. Match PDF chrome: Callout `text-xs`, `size-3.5` icons,
+ * `h-7`-wide hit target, shared surface. Rem sizes keep Windows
  * non-integer DPR from drifting the tab.
  */
 function labelCharacters(label: string): { key: string; char: string }[] {
@@ -577,7 +578,7 @@ const PageTranslateTab = memo(function PageTranslateTab({
 			type="button"
 			data-pdf-chrome
 			className={cn(
-				"pointer-events-auto absolute top-2 right-2 z-[8] flex w-7 min-h-16 flex-col items-center justify-center gap-1 rounded-md px-1 py-2 font-medium text-xs text-foreground transition-colors duration-100 hover:bg-muted/80 active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+				"pointer-events-auto absolute top-2 left-2 z-[8] flex w-7 min-h-16 flex-col items-center justify-center gap-1 rounded-md px-1 py-2 font-medium text-xs text-foreground transition-colors duration-100 hover:bg-muted/80 active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
 				PDF_CHROME_CHIP,
 				active && "border-primary/30 bg-primary/10 text-primary",
 			)}
@@ -633,6 +634,8 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 	 * off-screen buffer pages unloaded.
 	 */
 	const [selectionArmed, setSelectionArmed] = useState(false);
+	/** Show the in-page translate/hide tab only while the pointer is on this page. */
+	const [pageHovered, setPageHovered] = useState(false);
 	const armSelection = () => {
 		if (!selectionArmed) setSelectionArmed(true);
 	};
@@ -938,9 +941,15 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 				PDF_PAPER_SHELL_CLASS[tone],
 			)}
 			style={{ width, height }}
-			onPointerEnter={armSelection}
+			onPointerEnter={() => {
+				armSelection();
+				setPageHovered(true);
+			}}
 			onPointerMove={handlePagePointerMove}
-			onPointerLeave={handlePagePointerLeave}
+			onPointerLeave={() => {
+				setPageHovered(false);
+				handlePagePointerLeave();
+			}}
 			onClickCapture={handlePageClickCapture}
 			{...{ [EMBED_PAGE_ATTR]: pageIndex }}
 		>
@@ -1024,7 +1033,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 						/>
 					</div>
 				) : null}
-				{!mode.plainViewer ? (
+				{!mode.plainViewer && pageHovered ? (
 					<PageTranslateTab
 						pageIndex={pageIndex}
 						active={pageTranslateState.active}
