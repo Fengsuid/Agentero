@@ -16,6 +16,7 @@
 | 关 panel | dockview X → `closeTab`；焦点 `onDidActivePanelChange` |
 | 循环 | `⌥⌘←/→` 按 `api.panels` **视觉序** |
 | 移至新窗口 | 文档 tab **右键** → **移动至新窗口** → 独立 `doc-*` Webview；源 panel 关闭（Library / Trash 除外）；弹出窗自带 Vault watcher，Markdown / PDF 外部改盘就地重载；URL `mode` 参数与主窗口一致参与 PDF 模式保护（探测失败不降级 Markdown） |
+| 复制路径 | 文档 tab **右键** → **复制路径**。剪贴板用 `displayPath`（Windows 去掉 `\\?\` 前缀）。Library / Trash / 广场和 `agentero:` 虚拟路径不显示该项 |
 | Split pane | `⌘\` / `Ctrl+\` 向右新增 pane；当前论文未开 NOTES 时默认打开 NOTES，否则复制当前 pane；横向 pane 重新等宽 |
 | NOTES 开关 | Layout 菜单；优先叠右列。重复打开保持比例；重建标准 PDF / Notes 双列时恢复共用比例，没有记录时使用 Dockview 默认分配 |
 | 打开笔记 | 论文 tab 右键 /文件树论文行右键 → NOTES 进右侧阅读列（已开则聚焦；菜单显示 `⌘\` / `Ctrl+\`） |

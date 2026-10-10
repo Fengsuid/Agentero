@@ -46,10 +46,13 @@ import {
 import { DocView, type DocViewProps } from "@/components/workspace/doc-view";
 import { PaperPathBar } from "@/components/workspace/paper-path-bar";
 import { AgenteroTabGroupChip } from "@/components/workspace/tab-group-chip";
+import { copyTextToClipboard } from "@/lib/core/clipboard";
 import { errorText } from "@/lib/core/error";
 import { notifyError } from "@/lib/core/notify";
+import { displayPath } from "@/lib/core/path";
 import { cn } from "@/lib/core/utils";
 import { isLibraryVirtualPath, isTrashVirtualPath } from "@/lib/paper/api";
+import { isPlazaVirtualPath } from "@/lib/plaza/sources";
 import { moveDocToWindow } from "@/lib/shell/leaf";
 import { formatShortcutById } from "@/lib/shell/shortcuts";
 import { TAG_COLOR_IDS, tagSwatchStyle } from "@/lib/ui/tag-colors";
@@ -122,6 +125,23 @@ function buildTabContextMenuItem(opts: {
 		});
 	}
 	return { element: el };
+}
+
+/** Virtual rows and `agentero:` paths have no filesystem location to copy. */
+function tabPathCopyable(tab: DocTab | null): tab is DocTab {
+	if (!tab?.path) return false;
+	if (tab.kind === "library" || tab.kind === "trash" || tab.kind === "plaza") {
+		return false;
+	}
+	if (tab.path.startsWith("agentero:")) return false;
+	if (
+		isLibraryVirtualPath(tab.path) ||
+		isTrashVirtualPath(tab.path) ||
+		isPlazaVirtualPath(tab.path)
+	) {
+		return false;
+	}
+	return true;
 }
 
 export type WorkspaceExternalDrop = {
@@ -985,6 +1005,20 @@ export const DockWorkspace = memo(
 							},
 						});
 					}
+				}
+				if (tabPathCopyable(tab)) {
+					menu.push(
+						buildTabContextMenuItem({
+							label: t("tabs.contextCopyPath"),
+							action: () => {
+								void copyTextToClipboard(displayPath(tab.path), {
+									successMessage: t("tabs.copiedPath"),
+									errorMessage: t("tabs.copyPathFailed"),
+									successNotify: { duration: 2000 },
+								});
+							},
+						}),
+					);
 				}
 				menu.push(
 					buildTabContextMenuItem({
