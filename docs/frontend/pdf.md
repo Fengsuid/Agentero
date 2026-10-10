@@ -29,7 +29,7 @@ PDFium engine 由窗口共享。默认优先 **worker 引擎**（PDFium WASM 跑
 | 导航 | 底部页码 pill、PageUp/Down、Home/End |
 | 版式 | 设置 → 通用：「PDF 滚动方向」纵向连续 / 横向连续（EmbedPDF `ScrollStrategy`）与「PDF 页面版式」单页 / 双页奇数 / 双页偶数（`@embedpdf/plugin-spread` 的 `SpreadMode`）。偏好存 Host `settings.json`（`pdfScrollStrategy` / `pdfSpreadMode`），经 `settings:changed` 广播，已打开的阅读器与双栏译文面板实时跟随（`usePdfReadingMode` 按文档 scope 调 `setScrollStrategy` / `setSpreadMode`）。 |
 | 平移 | 放大后拖拽平移（临时抓手，与 Acrobat / Preview 一致）：按住**鼠标中键**拖拽，或按住**空格** + 左键拖拽；页面 1:1 跟随光标（含横向与斜向），armed 时 `grab`、拖拽中 `grabbing`。空格是无修饰裸键，归属规则与 `⌘F` 一致：**指针悬停的 viewer 优先接管**（阅读时焦点常落在 tab / 侧栏 / 笔记面板，不要求它是 dockview 的 active panel），否则由 active viewer 接管（焦点在 host 内，或点击页面后焦点仍停在 body）；输入框 / 按钮 / 链接，以及 `tab` / `option` / `checkbox` / `treeitem` 等可被空格激活的角色聚焦时保持原生行为；`⌘.` 框选模式下左键拖拽让位给 marquee，中键仍可平移；一旦 armed，左键与中键**完全等价**：除输入框等可编辑区域外，任意位置起手都平移，期间工具栏按钮与文中引用命中区的点击被暂时挂起（与 Acrobat 抓手一致），松开空格即恢复；`bindPanDragGesture` 在滚动容器 capture 阶段拦截并抑制兼容 `mousedown`，因此不会触发 EmbedPDF 划词、链接点击或 WebKit / Windows 中键自动滚动 |
-| 大纲 / 参考文献 / 版面解析 | 左侧浮层：书签、参考文献（紧凑列表）、版面解析结果（图/表/算法/公式）。侧栏与页缘「翻译本页」页签共用壳层字号阶梯（Body `text-sm` / Callout `text-xs`，见 [settings.md](settings.md)） |
+| 大纲 / 参考文献 / 版面解析 | 左侧浮层：书签、参考文献（紧凑列表）、版面解析结果（图/表/算法/公式）。侧栏与页内右上角「翻译本页」页签共用壳层字号阶梯（Body `text-sm` / Callout `text-xs`，见 [settings.md](settings.md)） |
 | 查找 | `⌘F` + 命中高亮 |
 | 页面背景 | 底部换页栏旁的调色板 popover 单选：**白纸 / 米色 `#faf9de` / 护眼绿 `#e3edcd` / 暗色**，偏好保存在本地（key 仍为 `agentero-pdf-color-scheme`，旧值 `light` 读作白纸），经 `agentero:pdf-color-scheme` 事件跨窗同步，不改变应用全局主题。EmbedPDF 尚无页面 color-scheme API：浅色 tone 在 `RenderLayer` / `TilingLayer` 之上叠一层 `mix-blend-multiply` tint（页面 shell 加 `isolate`，避免混到阅读区底色），白纸 × tint 精确落到目标色、黑字不变、插图仅轻微偏色，比 filter 更能保住图表饱和度；暗色仍对光栅做柔和反相（`PDF_PAGE_RASTER_DARK_CLASS`：`invert(0.84)` + `hue-rotate(180)` + 轻亮度/对比）。tint 层绘制在选区 / 搜索 / 批注层之下，高亮颜色与 Agent 裁剪（`renderPageRect`）均不受影响；全文翻译覆盖层按当前 tone 绘制纸面底色。扫描版/插图在暗色下会被一并反相 |
 | 沉浸 | 底部换页栏旁切换；全屏 + 限宽居中 |
@@ -64,7 +64,7 @@ PDF 链接在阅读器中只用于导航。`link-annotation.tsx` 为 EmbedPDF �
 - 提问 Agent 可与面板默认 Agent 分开配置。
 - 坐标归一化；多段 rect 支持双栏。
 - 页边针：用 PDFium `getPageTextRects` 判断是否压字。优先贴选区右侧，有字则试左侧；压字半透明，空白处实心。文字层未加载时保持实心。划词工具栏随视口滚动 / 缩放重定位，始终贴合选区；选区滚出视口时夹在屏幕边缘并半透明。
-- 页右缘控件使用固定 CSS px 尺寸：逐页翻译页签和批注评论列只随 PDF 缩放更新锚点位置，不随页面放大/缩小改变自身宽高。
+- 页缘控件使用固定 CSS px 尺寸：逐页翻译页签在纸张内侧右上角，批注评论列在页右缘外侧；两者只随 PDF 缩放更新锚点位置，不随页面放大/缩小改变自身宽高。
 - 对话 / 翻译 / 视觉卡片与**同一侧页边针**对齐（左针开左、右针开右），贴合锚点，避免卡片落到选区另一侧。
 - 普通划词只启用文本选区；选区显示使用浅透明蓝色，并按 PDFium 的紧致字形边界逐行合并，行间保留空隙，首尾严格停在实际选中文字处，不再使用 EmbedPDF 宽松字框产生的整行溢出。EmbedPDF 默认 marquee 矩形框选关闭，视觉区域批注只通过工具栏 / **⌘.** 显式进入。选择层不在页面挂载时就向选择插件注册——那会让打开文档时对 scroller 缓冲区的每一页都跑一遍 PDFium 字形几何提取（`getPageGeometry`，逐字形跨 WASM 边界），与首屏光栅/瓦片抢同一个 worker，既推迟出图也推迟可选中；改为指针进入页面（`pointerenter` / `pointermove`）或页面进入视口（`IntersectionObserver`）时才惰性注册并触发几何提取，只有真正可见、指针可达的页才会加载文字层；同时把 `usePdfPageText` 预热 `getPageTextRects` 的窗口从 ±2 收到 ±1，进一步减少同一 worker 里的排队抢占。
 - 普通划词后可通过浮动菜单的复制按钮或系统复制快捷键（macOS **⌘C** / Windows/Linux **Ctrl+C**）复制选中文本。按钮复制成功后原地换成对勾，不弹 toast，工具栏不收起；输入框和 Markdown 编辑器复制保持原生行为。

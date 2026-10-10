@@ -542,9 +542,10 @@ type PageTranslateTabProps = {
 };
 
 /**
- * Page-edge translate tab — match PDF chrome (left toolbar / bottom bar):
- * Callout `text-xs`, `size-3.5` icons, `h-7`-wide hit target, shared surface.
- * Rem sizes keep Windows non-integer DPR from drifting the tab.
+ * In-page translate / hide tab, sitting inside the page's top-right corner.
+ * Match PDF chrome (left toolbar / bottom bar): Callout `text-xs`, `size-3.5`
+ * icons, `h-7`-wide hit target, shared surface. Rem sizes keep Windows
+ * non-integer DPR from drifting the tab.
  */
 function labelCharacters(label: string): { key: string; char: string }[] {
 	const seen = new Map<string, number>();
@@ -576,7 +577,7 @@ const PageTranslateTab = memo(function PageTranslateTab({
 			type="button"
 			data-pdf-chrome
 			className={cn(
-				"absolute top-3 left-0 z-[6] flex w-7 min-h-16 -translate-x-full flex-col items-center justify-center gap-1 rounded-l-lg border-r-0 px-1 py-2 font-medium text-xs text-foreground transition-colors duration-100 hover:bg-muted/80 active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+				"pointer-events-auto absolute top-2 right-2 z-[8] flex w-7 min-h-16 flex-col items-center justify-center gap-1 rounded-md px-1 py-2 font-medium text-xs text-foreground transition-colors duration-100 hover:bg-muted/80 active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
 				PDF_CHROME_CHIP,
 				active && "border-primary/30 bg-primary/10 text-primary",
 			)}
