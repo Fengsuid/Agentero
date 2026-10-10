@@ -51,7 +51,7 @@ import {
 	ContextMenuShortcut,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useLibraryStore } from "@/hooks/use-app-stores";
+import { useLibraryStore, useSettings } from "@/hooks/use-app-stores";
 import i18n from "@/i18n";
 import { scrollBehavior } from "@/lib/core/motion";
 import { errorMessage, notifyError, notifySuccess } from "@/lib/core/notify";
@@ -213,6 +213,7 @@ export function MarkdownEditor({
 	// Body text keeps its own px font size (editorFontSize setting) so it must
 	// follow the UI zoom (uiScale) explicitly — rem-based chrome scales for free.
 	const uiScale = useUiScale();
+	const markdownMaxWidth = useSettings((s) => s.markdownMaxWidth);
 
 	/**
 	 * Body typography on the editor root. When a custom font stack is set, also
@@ -234,8 +235,11 @@ export function MarkdownEditor({
 			(style as Record<string, string>)["--font-sans"] = fontFamily;
 			(style as Record<string, string>)["--font-heading"] = fontFamily;
 		}
+		if (markdownMaxWidth > 0) {
+			style.maxWidth = markdownMaxWidth;
+		}
 		return Object.keys(style).length > 0 ? style : undefined;
-	}, [fontSize, fontFamily, lineHeight, uiScale]);
+	}, [fontSize, fontFamily, lineHeight, uiScale, markdownMaxWidth]);
 	/** Swallow the `beforeinput` insertParagraph that follows slash Enter confirm. */
 	const suppressNextEditorBreakRef = useRef(false);
 	const [findOpen, setFindOpen] = useState(false);
@@ -824,7 +828,10 @@ export function MarkdownEditor({
 												// `pr-14` reserves a right gutter for the collapsed
 												// TOC strip (`right-2 w-10`) so it never covers text.
 												// Narrow panes hide that strip, so the gutter goes too.
-												className="min-h-full pl-10 pr-14 pt-4 pb-48 @max-2xs/editor:pr-6 [&>*:first-child]:mt-0"
+												className={cn(
+													"min-h-full pl-10 pr-14 pt-4 pb-48 @max-2xs/editor:pr-6 [&>*:first-child]:mt-0",
+													markdownMaxWidth > 0 && "mx-auto w-full",
+												)}
 												style={editorTypographyStyle}
 											/>
 											{!readOnly ? (

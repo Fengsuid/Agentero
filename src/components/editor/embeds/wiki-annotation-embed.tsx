@@ -9,6 +9,10 @@ import { EmbedStatus } from "@/components/editor/embeds/embed-status";
 import { useMarkdownExportMode } from "@/components/editor/markdown-export-mode-context";
 import { createKeyedCache } from "@/lib/core/keyed-cache";
 import { cn } from "@/lib/core/utils";
+
+/** Beats MessageResponse's hardcoded `text-base` so embed body follows the setting. */
+const EMBED_BODY_TEXT = "!text-[length:var(--wiki-embed-font-size,13px)]";
+
 import { visualTraceImageAssetRelPath } from "@/lib/pdf/agent-trace/image";
 import {
 	type AnnotationRef,
@@ -332,7 +336,8 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 			{isVisual && hasComment ? (
 				<div
 					className={cn(
-						"flex min-w-0 items-start gap-1.5 text-sm text-foreground/90 leading-relaxed",
+						"flex min-w-0 items-start gap-1.5 text-foreground/90 leading-relaxed",
+						EMBED_BODY_TEXT,
 						hasQuote ? "mt-2" : "mt-1.5",
 					)}
 				>
@@ -340,7 +345,12 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 						className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
 						aria-hidden
 					/>
-					<MessageResponse className="min-w-0 flex-1 text-sm leading-relaxed [&_p]:my-0">
+					<MessageResponse
+						className={cn(
+							"min-w-0 flex-1 leading-relaxed [&_p]:my-0",
+							EMBED_BODY_TEXT,
+						)}
+					>
 						{ref.comment}
 					</MessageResponse>
 				</div>
@@ -363,11 +373,12 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 			{ref.kind === "highlight" && hasComment ? (
 				<div
 					className={cn(
-						"min-w-0 text-sm text-foreground/85 leading-relaxed",
+						"min-w-0 text-foreground/85 leading-relaxed",
+						EMBED_BODY_TEXT,
 						hasQuote || hasImage ? "mt-2" : "mt-1.5",
 					)}
 				>
-					<MessageResponse className="text-sm leading-relaxed">
+					<MessageResponse className={cn("leading-relaxed", EMBED_BODY_TEXT)}>
 						{ref.comment}
 					</MessageResponse>
 				</div>
@@ -385,7 +396,8 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 						<div
 							key={m.id}
 							className={cn(
-								"min-w-0 rounded-md px-2.5 py-1.5 text-sm leading-relaxed",
+								"min-w-0 rounded-md px-2.5 py-1.5 leading-relaxed",
+								EMBED_BODY_TEXT,
 								m.role === "user"
 									? "bg-primary/10 text-foreground/90"
 									: "bg-muted/70 text-foreground/85",
@@ -396,7 +408,9 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 									? t("embed.annotationRoleUser")
 									: t("embed.annotationRoleAssistant")}
 							</div>
-							<MessageResponse className="text-sm leading-relaxed">
+							<MessageResponse
+								className={cn("leading-relaxed", EMBED_BODY_TEXT)}
+							>
 								{m.content}
 							</MessageResponse>
 						</div>

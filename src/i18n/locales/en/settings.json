@@ -266,6 +266,15 @@
 			"label": "Line height",
 			"value": "{{value}}"
 		},
+		"wikiEmbedFontSize": {
+			"label": "Wiki embed font size",
+			"value": "{{size}} px"
+		},
+		"markdownMaxWidth": {
+			"label": "Markdown max width",
+			"full": "Full width",
+			"value": "{{width}} px"
+		},
 		"editorToolbar": {
 			"label": "Formatting toolbar"
 		}

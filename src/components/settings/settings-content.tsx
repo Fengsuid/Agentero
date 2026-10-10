@@ -494,6 +494,8 @@ export function SettingsContent({
 									monoFontFamily={settings.monoFontFamily}
 									editorLineHeight={settings.editorLineHeight}
 									showEditorToolbar={settings.showEditorToolbar}
+									wikiEmbedFontSize={settings.wikiEmbedFontSize}
+									markdownMaxWidth={settings.markdownMaxWidth}
 									patch={patch}
 								/>
 							</Suspense>

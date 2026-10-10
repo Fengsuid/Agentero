@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { PlateElement, type PlateElementProps } from "platejs/react";
 import {
+	type CSSProperties,
 	lazy,
 	Suspense,
 	useCallback,
@@ -29,11 +30,13 @@ import { EmbedStatus } from "@/components/editor/embeds/embed-status";
 import { useWikiEmbedProjection } from "@/components/editor/embeds/projection-context";
 import { WikiAnnotationEmbed } from "@/components/editor/embeds/wiki-annotation-embed";
 import { useMarkdownExportMode } from "@/components/editor/markdown-export-mode-context";
+import { useSettings } from "@/hooks/use-app-stores";
 import { useInView } from "@/hooks/use-in-view";
 import { errorText } from "@/lib/core/error";
 import { createKeyedCache } from "@/lib/core/keyed-cache";
 import { cn } from "@/lib/core/utils";
 import type { AnnotationRefKind } from "@/lib/pdf/annotation-ref";
+import { useUiScale } from "@/lib/settings";
 import { joinVaultPath } from "@/lib/vault";
 import {
 	navFromResolvedLink,
@@ -255,6 +258,8 @@ export function WikiEmbedElement({
 	...props
 }: PlateElementProps & { editing: boolean }) {
 	const { t } = useTranslation("editor");
+	const wikiEmbedFontSize = useSettings((s) => s.wikiEmbedFontSize);
+	const uiScale = useUiScale();
 	const element = props.element as unknown as WikiSlateNode;
 	const wikiNav = useWikiNav();
 	const markdownDoc = useMarkdownDoc();
@@ -466,6 +471,11 @@ export function WikiEmbedElement({
 					presentation.kind !== "ready" && "border-dashed",
 					editing && "hidden",
 				)}
+				style={
+					{
+						"--wiki-embed-font-size": `${wikiEmbedFontSize * uiScale}px`,
+					} as CSSProperties
+				}
 			>
 				{/* Shared chrome: type icon + title · open source on the right */}
 				<span

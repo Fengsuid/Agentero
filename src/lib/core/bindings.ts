@@ -1536,6 +1536,10 @@ export type AppSettings_Deserialize = {
 	editorLineHeight?: number | null,
 	uiScale?: number | null,
 	showEditorToolbar?: boolean,
+	/**  Body size of wikilink embeds, px before UI scale. Range 12–20, default 13. */
+	wikiEmbedFontSize?: number,
+	/**  Markdown column max width in CSS px. 0 = full pane. Presets only. */
+	markdownMaxWidth?: number,
 	agentPermissionMode?: string,
 	autoPaperReader?: boolean,
 	aiResponseLanguage?: string,
@@ -1662,6 +1666,10 @@ export type AppSettings_Serialize = {
 	editorLineHeight: number | null,
 	uiScale: number | null,
 	showEditorToolbar: boolean,
+	/**  Body size of wikilink embeds, px before UI scale. Range 12–20, default 13. */
+	wikiEmbedFontSize: number,
+	/**  Markdown column max width in CSS px. 0 = full pane. Presets only. */
+	markdownMaxWidth: number,
 	agentPermissionMode: string,
 	autoPaperReader: boolean,
 	aiResponseLanguage: string,

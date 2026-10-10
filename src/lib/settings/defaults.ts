@@ -126,6 +126,37 @@ export const EDITOR_LINE_HEIGHT_MAX = 2.0;
 export const EDITOR_LINE_HEIGHT_STEP = 0.1;
 export const DEFAULT_EDITOR_LINE_HEIGHT = 1.6;
 
+/** Wiki-embed body font, px before UI scale. Matches the old `text-sm` (13px). */
+export const WIKI_EMBED_FONT_SIZE_MIN = 12;
+export const WIKI_EMBED_FONT_SIZE_MAX = 20;
+export const DEFAULT_WIKI_EMBED_FONT_SIZE = 13;
+
+/** Clamp wiki-embed body size onto the settings slider (integer px). */
+export function clampWikiEmbedFontSize(value: number): number {
+	if (!Number.isFinite(value)) return DEFAULT_WIKI_EMBED_FONT_SIZE;
+	const rounded = Math.round(value);
+	return Math.min(
+		WIKI_EMBED_FONT_SIZE_MAX,
+		Math.max(WIKI_EMBED_FONT_SIZE_MIN, rounded),
+	);
+}
+
+/**
+ * Markdown column width presets (CSS px). `0` is full pane width and the
+ * default. Values outside the list fall back to full width.
+ */
+export const MARKDOWN_MAX_WIDTH_PRESETS = [640, 720, 800, 960, 1120] as const;
+export const DEFAULT_MARKDOWN_MAX_WIDTH = 0;
+
+/** Keep only full width or a listed preset. */
+export function clampMarkdownMaxWidth(value: number): number {
+	if (!Number.isFinite(value) || value <= 0) return DEFAULT_MARKDOWN_MAX_WIDTH;
+	const rounded = Math.round(value);
+	return (MARKDOWN_MAX_WIDTH_PRESETS as readonly number[]).includes(rounded)
+		? rounded
+		: DEFAULT_MARKDOWN_MAX_WIDTH;
+}
+
 /** Clamp and snap line-height to the supported slider range (0.1 steps). */
 export function clampEditorLineHeight(value: number): number {
 	if (!Number.isFinite(value)) return DEFAULT_EDITOR_LINE_HEIGHT;
@@ -180,6 +211,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	editorLineHeight: DEFAULT_EDITOR_LINE_HEIGHT,
 	uiScale: 1,
 	showEditorToolbar: true,
+	wikiEmbedFontSize: DEFAULT_WIKI_EMBED_FONT_SIZE,
+	markdownMaxWidth: DEFAULT_MARKDOWN_MAX_WIDTH,
 	agentPermissionMode: "restricted",
 	autoPaperReader: false,
 	aiResponseLanguage: "auto",
