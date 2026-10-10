@@ -92,7 +92,20 @@ function CodeLanguageSelect() {
 				<PopoverContent
 					align="end"
 					className="w-48 p-0"
-					onOpenAutoFocus={(e) => e.preventDefault()}
+					onOpenAutoFocus={(event) => {
+						// Keep the editor selection, then focus the language search
+						// so "Plain text" / 纯文本 opens ready to filter.
+						event.preventDefault();
+						const root = event.currentTarget;
+						if (!(root instanceof HTMLElement)) return;
+						const focusSearch = () => {
+							root
+								.querySelector<HTMLElement>("[data-slot='command-input']")
+								?.focus();
+						};
+						focusSearch();
+						window.requestAnimationFrame(focusSearch);
+					}}
 				>
 					<Command value={value}>
 						<CommandInput placeholder={t("codeBlock.search")} />
