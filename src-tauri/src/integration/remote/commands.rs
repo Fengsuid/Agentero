@@ -278,6 +278,10 @@ pub async fn remote_paper_get(
     args: RemotePaperGetArgs,
 ) -> Result<ApiResult<PaperRecord>, String> {
     let session = try_session!(registry, &args.session_id);
+    let mut catalog = session.catalog.lock().await;
+    if let Err(e) = catalog.refresh(session.fs.clone()).await {
+        return Ok(map_err(e));
+    }
     let work = session.work_root.clone();
     let result = if let Some(path) = args
         .path
@@ -306,6 +310,10 @@ pub async fn remote_paper_list(
     args: RemoteSessionArgs,
 ) -> Result<ApiResult<Vec<PaperRecord>>, String> {
     let session = try_session!(registry, &args.session_id);
+    let mut catalog = session.catalog.lock().await;
+    if let Err(e) = catalog.refresh(session.fs.clone()).await {
+        return Ok(map_err(e));
+    }
     let work = session.work_root.clone();
     match papers::list_all(&work) {
         Ok(rows) => Ok(ApiResult::ok(rows)),
@@ -332,15 +340,16 @@ pub async fn remote_paper_set_tags(
     if path.is_empty() {
         return Ok(map_err(AppError::message("path is required")));
     }
+    let mut cat = session.catalog.lock().await;
+    if let Err(e) = cat.ensure_publishable(session.fs.as_ref()).await {
+        return Ok(map_err(e));
+    }
     let row = match papers::set_tags(&session.work_root, &path, &args.tags) {
         Ok(r) => r,
         Err(e) => return Ok(map_err(e)),
     };
-    {
-        let mut cat = session.catalog.lock().await;
-        if let Err(e) = cat.push(session.fs.clone()).await {
-            return Ok(map_err(e));
-        }
+    if let Err(e) = cat.push(session.fs.clone()).await {
+        return Ok(map_err(e));
     }
     Ok(ApiResult::ok(row))
 }
@@ -364,15 +373,16 @@ pub async fn remote_paper_set_is_read(
     if path.is_empty() {
         return Ok(map_err(AppError::message("path is required")));
     }
+    let mut cat = session.catalog.lock().await;
+    if let Err(e) = cat.ensure_publishable(session.fs.as_ref()).await {
+        return Ok(map_err(e));
+    }
     let row = match papers::set_is_read(&session.work_root, &path, args.is_read) {
         Ok(r) => r,
         Err(e) => return Ok(map_err(e)),
     };
-    {
-        let mut cat = session.catalog.lock().await;
-        if let Err(e) = cat.push(session.fs.clone()).await {
-            return Ok(map_err(e));
-        }
+    if let Err(e) = cat.push(session.fs.clone()).await {
+        return Ok(map_err(e));
     }
     Ok(ApiResult::ok(row))
 }
@@ -522,6 +532,8 @@ async fn remote_rescan_impl(
 ) -> Result<RemotePaperRescanResult, AppError> {
     use papers::PaperRecord;
 
+    let mut cat = session.catalog.lock().await;
+    cat.ensure_publishable(session.fs.as_ref()).await?;
     let mut count = 0usize;
     let now = crate::core::time::now_rfc3339_millis();
 
@@ -574,10 +586,7 @@ async fn remote_rescan_impl(
         }
     }
 
-    {
-        let mut cat = session.catalog.lock().await;
-        cat.push(session.fs.clone()).await?;
-    }
+    cat.push(session.fs.clone()).await?;
 
     Ok(RemotePaperRescanResult { count })
 }

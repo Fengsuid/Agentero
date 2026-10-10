@@ -4,6 +4,7 @@
 pub mod agent_exec;
 pub mod blob_cache;
 pub mod catalog_mirror;
+mod catalog_snapshot;
 pub mod import_bridge;
 pub mod launch;
 pub(crate) mod paper_commit;
