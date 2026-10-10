@@ -10,6 +10,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { presentAgentComposer } from "@/lib/agent/composer-focus";
 import { broadcastAgentAttachContext } from "@/lib/agent/context-attach";
 import { copyTextToClipboard } from "@/lib/core/clipboard";
 import { displayPath } from "@/lib/core/path";
@@ -271,6 +272,7 @@ export function useTreeContextMenu({
 				? () => {
 						setMenu(null);
 						broadcastAgentAttachContext([menu.path]);
+						presentAgentComposer();
 					}
 				: undefined,
 		onNewFile:

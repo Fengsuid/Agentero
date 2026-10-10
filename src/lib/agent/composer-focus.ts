@@ -1,3 +1,5 @@
+import { openRightTab } from "@/lib/shell/ui-window-actions";
+
 /**
  * Focus the Agent composer input (⌘K / ⇧⌘A / palette). React `autoFocus` only fires
  * on mount, and the rail composer stays mounted while hidden, so callers that
@@ -34,6 +36,12 @@ function placeCaretAtEnd(el: HTMLElement) {
 	range.collapse(false);
 	selection.removeAllRanges();
 	selection.addRange(range);
+}
+
+/** Open the Agent rail and put the caret in the composer. */
+export function presentAgentComposer(): void {
+	openRightTab("agent");
+	focusAgentComposer();
 }
 
 export function focusAgentComposer(): void {

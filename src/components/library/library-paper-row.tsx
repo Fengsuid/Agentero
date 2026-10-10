@@ -32,6 +32,7 @@ import {
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { presentAgentComposer } from "@/lib/agent/composer-focus";
 import { broadcastAgentAttachContext } from "@/lib/agent/context-attach";
 import { notifyError } from "@/lib/core/notify";
 import type { PaperMetadata } from "@/lib/paper";
@@ -131,7 +132,10 @@ export const LibraryPaperRow = memo(function LibraryPaperRow({
 					<>
 						<ContextMenuSeparator />
 						<ContextMenuItem
-							onSelect={() => broadcastAgentAttachContext([paperAbsPath])}
+							onSelect={() => {
+								broadcastAgentAttachContext([paperAbsPath]);
+								presentAgentComposer();
+							}}
 						>
 							<MessageSquarePlus className="size-3.5" />
 							{ctx.t("fileTree.addToChat")}

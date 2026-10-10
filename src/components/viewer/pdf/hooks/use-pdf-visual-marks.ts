@@ -25,6 +25,7 @@ import type {
 	RailEditState,
 	VisualDraftEditorState,
 } from "@/components/viewer/pdf/types";
+import { presentAgentComposer } from "@/lib/agent/composer-focus";
 import { addVisualDraft } from "@/lib/agent/visual-context-store";
 import { errorText } from "@/lib/core/error";
 import { notifyError } from "@/lib/core/notify";
@@ -36,7 +37,6 @@ import {
 } from "@/lib/pdf/agent-trace";
 import { loadPdfVisualTraceImage } from "@/lib/pdf/agent-trace/image";
 import { DEFAULT_HIGHLIGHT_COLOR } from "@/lib/pdf/highlight/palette";
-import { openRightTab } from "@/lib/shell/ui-window-actions";
 
 export type UsePdfVisualMarksOptions = {
 	/** Sidecar root for `marks/<id>.json` (null for loose PDFs — nothing persists). */
@@ -184,7 +184,7 @@ export function usePdfVisualMarks({
 						mimeType: image.mimeType || "image/png",
 					},
 				});
-				openRightTab("agent");
+				presentAgentComposer();
 			})();
 		},
 		[paperAbsPath, paperRelPath, t, visualTracesRef],

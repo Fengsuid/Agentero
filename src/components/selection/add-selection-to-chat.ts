@@ -5,15 +5,15 @@
  * dismissal / selection-clearing choreography before calling this.
  */
 
+import { presentAgentComposer } from "@/lib/agent/composer-focus";
 import {
 	type PublishSelectionInput,
 	pinActiveSelection,
 	publishSelection,
 } from "@/lib/agent/selection-store";
-import { openRightTab } from "@/lib/shell/ui-window-actions";
 
 export function addSelectionToChat(payload: PublishSelectionInput): void {
 	publishSelection(payload);
 	pinActiveSelection();
-	openRightTab("agent");
+	presentAgentComposer();
 }
