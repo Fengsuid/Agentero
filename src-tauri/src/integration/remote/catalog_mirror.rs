@@ -6,7 +6,7 @@ use super::catalog_snapshot::CatalogSource;
 use crate::core::error::AppError;
 use crate::core::fs::{FsFileMeta, VaultFs, WriteOpts};
 use crate::features::paper::catalog::{
-    ensure_catalog, evict_catalog_conn, schema_version, SCHEMA_VERSION,
+    ensure_catalog, schema_version, with_catalog, SCHEMA_VERSION,
 };
 use rusqlite::{Connection, OpenFlags};
 use sha2::{Digest, Sha256};
@@ -35,7 +35,6 @@ impl From<FsFileMeta> for RemoteFileStamp {
 pub struct CatalogMirror {
     work_db: PathBuf,
     source: CatalogSource,
-    remote_wal: Option<Vec<u8>>,
     local_digest: Vec<u8>,
     /// Stamp of the remote file at last successful GET/PUT.
     remote_stamp: RemoteFileStamp,
@@ -60,10 +59,11 @@ impl CatalogMirror {
         std::fs::create_dir_all(&work_agentero)?;
         let work_db = work_agentero.join("catalog.sqlite");
 
-        let (stamp, remote_wal) = if fs.exists(CATALOG_REL).await? {
-            let (bytes, stamp, wal) = read_snapshot(fs.as_ref(), &source).await?;
+        let stamp = if fs.exists(CATALOG_REL).await? {
+            let meta = fs.stat(CATALOG_REL).await?;
+            let bytes = source.read().await?;
             std::fs::write(&work_db, &bytes)?;
-            (stamp, wal)
+            RemoteFileStamp::from(meta)
         } else {
             // Initialize empty catalog locally then push as authority on remote.
             if work_db.exists() {
@@ -83,7 +83,7 @@ impl CatalogMirror {
             )
             .await?;
             let meta = fs.stat(CATALOG_REL).await?;
-            (RemoteFileStamp::from(meta), read_wal(fs.as_ref()).await?)
+            RemoteFileStamp::from(meta)
         };
 
         // Ensure schema is current on work copy
@@ -101,7 +101,6 @@ impl CatalogMirror {
         Ok(Self {
             work_db,
             source,
-            remote_wal,
             local_digest,
             remote_stamp: stamp,
         })
@@ -118,48 +117,57 @@ impl CatalogMirror {
     /// Refresh an unchanged work copy without discarding failed/unpublished writes.
     pub async fn refresh(&mut self, fs: Arc<dyn VaultFs>) -> Result<(), AppError> {
         let stamp = RemoteFileStamp::from(fs.stat(CATALOG_REL).await?);
-        let wal = read_wal(fs.as_ref()).await?;
-        if stamp == self.remote_stamp && wal == self.remote_wal {
-            return Ok(());
-        }
-        if Sha256::digest(snapshot_catalog(&self.work_db)?).as_slice() != self.local_digest {
-            return Err(AppError::message(
-                "remote catalog changed with unpublished local changes; reopen the remote vault",
-            ));
-        }
-        let (bytes, stamp, wal) = read_snapshot(fs.as_ref(), &self.source).await?;
+        let bytes = self.source.read().await?;
         let root = self
             .work_db
             .parent()
             .and_then(Path::parent)
             .expect("work catalog root");
-        evict_catalog_conn(root);
-        // Update through SQLite so existing readers and local sidecars stay valid.
         let snapshot = tempfile::NamedTempFile::new()?;
         std::fs::write(snapshot.path(), bytes)?;
         let source =
             Connection::open_with_flags(snapshot.path(), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        let mut destination = self.open()?;
-        {
+        let version = schema_version(&source)?;
+        if version > SCHEMA_VERSION {
+            return Err(AppError::message(format!(
+                "catalog schema version {version} is newer than this app supports ({SCHEMA_VERSION})"
+            )));
+        }
+        // Serialize the dirty check and restore with existing catalog readers/writers.
+        self.local_digest = with_catalog(root, |_| {
+            if Sha256::digest(snapshot_catalog(&self.work_db)?).as_slice() != self.local_digest {
+                return Err(AppError::message(
+                    "work catalog has unpublished changes; retry publishing before refreshing",
+                ));
+            }
+            let mut destination = self.open()?;
             let backup = rusqlite::backup::Backup::new(&source, &mut destination)?;
             if backup.step(-1)? != rusqlite::backup::StepResult::Done {
                 return Err(AppError::message(
                     "work catalog is busy; retry refreshing the remote vault",
                 ));
             }
-        }
-        drop(destination);
-        let _conn = ensure_catalog(root)?;
-        self.local_digest = Sha256::digest(snapshot_catalog(&self.work_db)?).to_vec();
+            drop(backup);
+            drop(destination);
+            let _conn = ensure_catalog(root)?;
+            Ok(Sha256::digest(snapshot_catalog(&self.work_db)?).to_vec())
+        })?;
         self.remote_stamp = stamp;
-        self.remote_wal = wal;
         Ok(())
     }
 
-    /// Reject unsupported concurrent writers before changing catalog rows or files.
-    pub async fn ensure_publishable(&self, fs: &dyn VaultFs) -> Result<(), AppError> {
-        if read_wal(fs).await?.is_some() {
-            return Err(AppError::message("remote catalog has an active WAL; stop the remote writer and reopen the remote vault before writing"));
+    /// Optimistic lock + atomic-ish push (tmp then rename on remote when possible).
+    pub async fn push(&mut self, fs: Arc<dyn VaultFs>) -> Result<(), AppError> {
+        let bytes = snapshot_catalog(&self.work_db)?;
+        let digest = Sha256::digest(&bytes).to_vec();
+        if digest == self.local_digest {
+            return Ok(());
+        }
+        // Replacing the main database while its WAL remains can corrupt the catalog.
+        if fs.exists(CATALOG_WAL_REL).await? && fs.stat(CATALOG_WAL_REL).await?.size > 0 {
+            return Err(AppError::message(
+                "remote catalog WAL remains; close remote database connections and reopen the vault before publishing",
+            ));
         }
         if fs.exists(CATALOG_REL).await? {
             let meta = fs.stat(CATALOG_REL).await?;
@@ -170,18 +178,6 @@ impl CatalogMirror {
                 ));
             }
         }
-
-        Ok(())
-    }
-
-    /// Optimistic lock + atomic-ish push (tmp then rename on remote when possible).
-    pub async fn push(&mut self, fs: Arc<dyn VaultFs>) -> Result<(), AppError> {
-        let bytes = snapshot_catalog(&self.work_db)?;
-        if Sha256::digest(&bytes).as_slice() == self.local_digest {
-            return Ok(());
-        }
-        self.ensure_publishable(fs.as_ref()).await?;
-
         // Write tmp then rename
         fs.write(
             CATALOG_TMP_REL,
@@ -208,34 +204,9 @@ impl CatalogMirror {
         }
         let meta = fs.stat(CATALOG_REL).await?;
         self.remote_stamp = RemoteFileStamp::from(meta);
-        self.remote_wal = read_wal(fs.as_ref()).await?;
-        self.local_digest = Sha256::digest(snapshot_catalog(&self.work_db)?).to_vec();
+        self.local_digest = digest;
         Ok(())
     }
-}
-
-async fn read_wal(fs: &dyn VaultFs) -> Result<Option<Vec<u8>>, AppError> {
-    if fs.exists(CATALOG_WAL_REL).await? {
-        let bytes = fs.read(CATALOG_WAL_REL).await?;
-        Ok((!bytes.is_empty()).then(|| Sha256::digest(bytes).to_vec()))
-    } else {
-        Ok(None)
-    }
-}
-
-async fn read_snapshot(
-    fs: &dyn VaultFs,
-    source: &CatalogSource,
-) -> Result<(Vec<u8>, RemoteFileStamp, Option<Vec<u8>>), AppError> {
-    let stamp = RemoteFileStamp::from(fs.stat(CATALOG_REL).await?);
-    let wal = read_wal(fs).await?;
-    let bytes = source.read().await?;
-    if RemoteFileStamp::from(fs.stat(CATALOG_REL).await?) != stamp || read_wal(fs).await? != wal {
-        return Err(AppError::message(
-            "remote catalog changed during snapshot; retry opening or refreshing the remote vault",
-        ));
-    }
-    Ok((bytes, stamp, wal))
 }
 
 /// Read a consistent, standalone SQLite image, including committed WAL pages.
@@ -257,7 +228,7 @@ pub(super) fn snapshot_catalog(db: &Path) -> Result<Vec<u8>, AppError> {
 mod tests {
     use super::*;
     use crate::core::fs::LocalFs;
-    use crate::features::paper::catalog::papers;
+    use crate::features::paper::catalog::evict_catalog_conn;
     use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -273,6 +244,10 @@ mod tests {
 
     #[tokio::test]
     async fn checkout_and_refresh_read_remote_wal_and_protect_unpublished_writes() {
+        let value = |conn: &Connection| {
+            conn.query_row("SELECT value FROM _probe", [], |r| r.get::<_, String>(0))
+                .unwrap()
+        };
         let remote = tempfile::tempdir().unwrap();
         let work = tempfile::tempdir().unwrap();
         let writer = ensure_catalog(remote.path()).unwrap();
@@ -291,32 +266,18 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            mirror
-                .open()
-                .unwrap()
-                .query_row("SELECT value FROM _probe", [], |r| r.get::<_, String>(0))
-                .unwrap(),
+            with_catalog(work.path(), |c| Ok(value(c))).unwrap(),
             "latest"
         );
-        // Prime the actual catalog connection cache and retain an independent reader.
-        let _rows = papers::list_all(work.path()).unwrap();
+        // Retain a reader in addition to the cached catalog connection.
         let reader = mirror.open().unwrap();
         writer
             .execute("UPDATE _probe SET value='refreshed'", [])
             .unwrap();
         mirror.refresh(fs.clone()).await.unwrap();
+        assert_eq!(value(&reader), "refreshed");
         assert_eq!(
-            reader
-                .query_row("SELECT value FROM _probe", [], |r| r.get::<_, String>(0))
-                .unwrap(),
-            "refreshed"
-        );
-        assert_eq!(
-            mirror
-                .open()
-                .unwrap()
-                .query_row("SELECT value FROM _probe", [], |r| r.get::<_, String>(0))
-                .unwrap(),
+            with_catalog(work.path(), |c| Ok(value(c))).unwrap(),
             "refreshed"
         );
         let remote_wal = std::fs::read(remote.path().join(CATALOG_WAL_REL)).unwrap();
@@ -325,17 +286,17 @@ mod tests {
             std::fs::read(remote.path().join(CATALOG_WAL_REL)).unwrap(),
             remote_wal
         );
-        mirror
-            .open()
-            .unwrap()
-            .execute("UPDATE _probe SET value='local'", [])
-            .unwrap();
+        with_catalog(work.path(), |c| {
+            c.execute("UPDATE _probe SET value='local'", [])?;
+            Ok(())
+        })
+        .unwrap();
         assert!(mirror
             .push(fs.clone())
             .await
             .unwrap_err()
             .to_string()
-            .contains("active WAL"));
+            .contains("WAL remains"));
         writer
             .execute("UPDATE _probe SET value='remote'", [])
             .unwrap();
@@ -345,20 +306,8 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("unpublished"));
-        assert_eq!(
-            mirror
-                .open()
-                .unwrap()
-                .query_row("SELECT value FROM _probe", [], |r| r.get::<_, String>(0))
-                .unwrap(),
-            "local"
-        );
-        assert_eq!(
-            writer
-                .query_row("SELECT value FROM _probe", [], |r| r.get::<_, String>(0))
-                .unwrap(),
-            "remote"
-        );
+        assert_eq!(value(&reader), "local");
+        assert_eq!(value(&writer), "remote");
         evict_catalog_conn(work.path());
     }
 

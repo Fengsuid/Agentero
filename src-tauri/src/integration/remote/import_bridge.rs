@@ -162,14 +162,13 @@ pub async fn download_paper_assets_remote(
     .await?;
 
     // Upload new assets — don't re-upload whole tree if huge; upload all staged
-    let mut cat = session.catalog.lock().await;
-    cat.ensure_publishable(session.fs.as_ref()).await?;
     upload_tree(session.fs.as_ref(), &staging, &path_rel).await?;
 
     // Touch catalog updated_at if row exists
     if let Ok(Some(mut row)) = papers::get_by_path(&session.work_root, &path_rel) {
         row.updated_at = crate::core::time::now_rfc3339_millis();
         let _ = papers::upsert_paper(&session.work_root, &row);
+        let mut cat = session.catalog.lock().await;
         let _ = cat.push(session.fs.clone()).await;
     }
 

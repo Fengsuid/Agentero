@@ -81,13 +81,12 @@ pub(crate) async fn remote_paper_commit(
     };
     crate::features::paper::import::check_task_not_cancelled(opts.task_id)?;
 
-    let mut cat = session.catalog.lock().await;
-    cat.ensure_publishable(session.fs.as_ref()).await?;
     upload_tree(session.fs.as_ref(), &staging, &path_rel).await?;
 
     let record = meta.clone().at_path(&path_rel);
     papers::upsert_paper(&session.work_root, &record)?;
     if opts.push_catalog {
+        let mut cat = session.catalog.lock().await;
         cat.push(session.fs.clone()).await?;
     }
 

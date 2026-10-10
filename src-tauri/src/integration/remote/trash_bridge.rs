@@ -52,8 +52,6 @@ pub async fn trash_paths(
     session: &RemoteSession,
     rels: &[String],
 ) -> Result<TrashResult, AppError> {
-    let mut cat = session.catalog.lock().await;
-    cat.ensure_publishable(session.fs.as_ref()).await?;
     let fs = session.fs.clone();
     let now = chrono::Utc::now();
     let batch_id = format!(
@@ -127,7 +125,10 @@ pub async fn trash_paths(
     };
     write_manifest(fs.as_ref(), &batch_rel, &manifest).await?;
 
-    cat.push(fs.clone()).await?;
+    {
+        let mut cat = session.catalog.lock().await;
+        cat.push(fs.clone()).await?;
+    }
 
     Ok(TrashResult {
         batch_id: manifest.batch_id,
@@ -138,8 +139,6 @@ pub async fn trash_paths(
 
 pub async fn restore_batch(session: &RemoteSession, batch_id: &str) -> Result<usize, AppError> {
     validate_batch_id(batch_id)?;
-    let mut cat = session.catalog.lock().await;
-    cat.ensure_publishable(session.fs.as_ref()).await?;
     let fs = session.fs.clone();
     let batch_rel = format!("{TRASH_REL}/{batch_id}");
     let manifest = read_manifest(fs.as_ref(), &batch_rel).await?;
@@ -169,7 +168,10 @@ pub async fn restore_batch(session: &RemoteSession, batch_id: &str) -> Result<us
     }
 
     let _ = fs.remove(&batch_rel, true).await;
-    cat.push(fs.clone()).await?;
+    {
+        let mut cat = session.catalog.lock().await;
+        cat.push(fs.clone()).await?;
+    }
     Ok(manifest.items.len())
 }
 
@@ -221,8 +223,6 @@ pub async fn restore_item(
     stored: &str,
 ) -> Result<String, AppError> {
     validate_batch_id(batch_id)?;
-    let mut cat = session.catalog.lock().await;
-    cat.ensure_publishable(session.fs.as_ref()).await?;
     let fs = session.fs.clone();
     let batch_rel = format!("{TRASH_REL}/{batch_id}");
     let mut manifest = read_manifest(fs.as_ref(), &batch_rel).await?;
@@ -258,7 +258,10 @@ pub async fn restore_item(
         write_manifest(fs.as_ref(), &batch_rel, &manifest).await?;
     }
 
-    cat.push(fs.clone()).await?;
+    {
+        let mut cat = session.catalog.lock().await;
+        cat.push(fs.clone()).await?;
+    }
     Ok(item.rel)
 }
 

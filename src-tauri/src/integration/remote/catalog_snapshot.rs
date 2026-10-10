@@ -3,7 +3,6 @@
 use crate::core::error::AppError;
 use std::path::PathBuf;
 
-#[derive(Clone)]
 pub enum CatalogSource {
     Local(PathBuf),
     #[cfg(unix)]
@@ -107,15 +106,11 @@ mod tests {
         let reader = Connection::open(target).unwrap();
         assert_eq!(
             reader
-                .query_row("SELECT value FROM probe", [], |r| r.get::<_, String>(0))
+                .query_row("SELECT group_concat(value) FROM probe", [], |r| {
+                    r.get::<_, String>(0)
+                })
                 .unwrap(),
             "latest"
-        );
-        assert_eq!(
-            reader
-                .query_row("SELECT count(*) FROM probe", [], |r| r.get::<_, i64>(0))
-                .unwrap(),
-            1
         );
         assert_eq!(std::fs::read(db.with_extension("sqlite-wal")).unwrap(), wal);
         writer.execute_batch("ROLLBACK").unwrap();

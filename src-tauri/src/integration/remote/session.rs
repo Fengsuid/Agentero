@@ -108,6 +108,7 @@ impl RemoteRegistry {
             return Err(AppError::message("host and remotePath are required"));
         }
 
+        let source;
         let (kind, fs, display_name): (String, Arc<dyn VaultFs>, String) = if host == LOCAL_SIM_HOST
         {
             let root = PathBuf::from(remote_path);
@@ -118,6 +119,7 @@ impl RemoteRegistry {
                 )));
             }
             let display = format!("local-sim:{}", root.display());
+            source = CatalogSource::Local(root.clone());
             ("local-sim".into(), Arc::new(LocalFs::new(root)), display)
         } else {
             #[cfg(unix)]
@@ -129,6 +131,10 @@ impl RemoteRegistry {
                 };
                 let sftp = SftpFs::connect(&destination, remote_path).await?;
                 let display = format!("{destination}:{remote_path}");
+                source = CatalogSource::Ssh {
+                    destination,
+                    root: remote_path.to_string(),
+                };
                 ("ssh".into(), Arc::new(sftp) as Arc<dyn VaultFs>, display)
             }
             #[cfg(not(unix))]
@@ -154,25 +160,6 @@ impl RemoteRegistry {
         std::fs::create_dir_all(&work_root)?;
         std::fs::create_dir_all(&blob_root)?;
 
-        let source = if host == LOCAL_SIM_HOST {
-            CatalogSource::Local(PathBuf::from(remote_path))
-        } else {
-            #[cfg(unix)]
-            {
-                let destination = match user.map(str::trim).filter(|s| !s.is_empty()) {
-                    Some(u) => format!("{u}@{host}"),
-                    None => host.to_string(),
-                };
-                CatalogSource::Ssh {
-                    destination,
-                    root: remote_path.to_string(),
-                }
-            }
-            #[cfg(not(unix))]
-            {
-                unreachable!("SSH rejected above")
-            }
-        };
         let catalog = CatalogMirror::checkout(fs.clone(), &work_root, source).await?;
 
         let session = Arc::new(RemoteSession {
@@ -213,37 +200,6 @@ mod tests {
         std::fs::write(p.join("AGENTS.md"), "# agents\n").unwrap();
         std::fs::write(p.join("papers/demo/NOTES.md"), "# Demo paper\n\nhello\n").unwrap();
         p
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    #[ignore = "set AGENTERO_REMOTE_SSH_HOST + AGENTERO_REMOTE_SSH_PATH for read-only live SSH"]
-    async fn live_ssh_catalog_read_only() {
-        use crate::features::paper::catalog::papers;
-        let host = std::env::var("AGENTERO_REMOTE_SSH_HOST").unwrap();
-        let path = std::env::var("AGENTERO_REMOTE_SSH_PATH").unwrap();
-        let fs = super::super::sftp_fs::SftpFs::connect(&host, &path)
-            .await
-            .unwrap();
-        assert!(fs.exists(".agentero/catalog.sqlite").await.unwrap());
-        let registry = RemoteRegistry::new();
-        let info = registry.connect(&host, None, &path).await.unwrap();
-        let session = registry.get(&info.session_id).await.unwrap();
-        let rows = papers::list_all(&session.work_root).unwrap();
-        assert!(!rows.is_empty());
-        for row in &rows {
-            assert!(session.fs.exists(&row.path).await.unwrap(), "{}", row.path);
-            eprintln!("{}: {}", row.path, row.title);
-        }
-        session
-            .catalog
-            .lock()
-            .await
-            .refresh(session.fs.clone())
-            .await
-            .unwrap();
-        eprintln!("Read {} catalog records over SSH", rows.len());
-        registry.disconnect(&info.session_id).await.unwrap();
     }
 
     #[tokio::test]
