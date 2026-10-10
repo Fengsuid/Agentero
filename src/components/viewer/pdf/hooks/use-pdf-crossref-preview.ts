@@ -204,6 +204,8 @@ export function usePdfCrossrefPreview({
 	/** Monotonic token so a stale crop never lands over a newer hover. */
 	const renderTokenRef = useRef(0);
 	const activeLinkRef = useRef<PdfLinkAnnoObject | null>(null);
+	/** True while the pointer is still on the link that opened the card. */
+	const linkHoveringRef = useRef(false);
 	/** Page text / rendered crops of `cachedDocRef`'s document. */
 	const cachedDocRef = useRef<PdfDocumentObject | null>(null);
 	const textRectsCacheRef = useRef(
@@ -279,6 +281,7 @@ export function usePdfCrossrefPreview({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: docId is the effect trigger, not a value read inside the effect.
 	useEffect(() => {
 		activeLinkRef.current = null;
+		linkHoveringRef.current = false;
 		cachedDocRef.current = null;
 		textRectsCacheRef.current.clear();
 		cropCacheRef.current.clear();
@@ -304,6 +307,9 @@ export function usePdfCrossrefPreview({
 			kind: CrossrefKind,
 			clientPoint?: ScreenPoint | null,
 		) => {
+			// A crop that resolves after the pointer has left both the link and
+			// the card must not cancel the hide timer and stick the preview.
+			if (!linkHoveringRef.current && !crossrefHoverSurfaceRef.current) return;
 			cancelCrossrefHide();
 			// Treat show as an active hover surface so mount-under-cursor skips
 			// pointerenter do not auto-close.
@@ -448,10 +454,13 @@ export function usePdfCrossrefPreview({
 	const handleCrossrefLinkHover = useCallback(
 		(link: PdfLinkAnnoObject | null, clientPoint?: ScreenPoint | null) => {
 			if (!link) {
-				activeLinkRef.current = null;
-				clearCrossrefPreview();
+				// Keep activeLinkRef so re-entering the same link does not
+				// immediately dismiss a card the pointer is moving toward.
+				linkHoveringRef.current = false;
+				scheduleCrossrefHide();
 				return;
 			}
+			linkHoveringRef.current = true;
 			if (activeLinkRef.current !== link) {
 				activeLinkRef.current = link;
 				clearCrossrefPreview();
@@ -679,6 +688,7 @@ export function usePdfCrossrefPreview({
 			docCapRef,
 			cancelCrossrefHide,
 			clearCrossrefPreview,
+			scheduleCrossrefHide,
 			showPreview,
 			showDestinationCrop,
 			pageTextRects,
