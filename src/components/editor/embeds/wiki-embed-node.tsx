@@ -443,8 +443,11 @@ export function WikiEmbedElement({
 			{...props}
 			as="span"
 			className={cn(
-				"relative max-w-full align-top",
-				editing ? "inline text-foreground" : "my-2 block w-full",
+				// Layout (inline vs full-width block, and the blank line Slate's
+				// placeholder leaves would otherwise open) lives in index.css
+				// under `.agentero-wiki-embed`.
+				"agentero-wiki-embed relative max-w-full align-top",
+				editing && "inline text-foreground",
 			)}
 			attributes={{
 				...props.attributes,
