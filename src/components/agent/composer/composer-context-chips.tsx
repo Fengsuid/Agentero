@@ -1,11 +1,28 @@
 import { Quote, ScanSearch, X } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ContextPathIcon } from "@/components/agent/context-path-icon";
+import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { selectionLineLabel } from "@/lib/agent/selection-line-label";
 import type { SelectionContext } from "@/lib/agent/selection-store";
-import type { PdfVisualDraft } from "@/lib/agent/visual-context-store";
+import {
+	type PdfVisualDraft,
+	updateVisualDraftComment,
+} from "@/lib/agent/visual-context-store";
 import { basenameOf } from "@/lib/core/path";
 import { cn, truncateToChars } from "@/lib/core/utils";
+
+/** Matches `normalizeComment` in the visual draft store. */
+const MAX_VISUAL_COMMENT_CHARS = 2000;
 
 const MAX_CHIP_TITLE_CHARS = 9;
 
@@ -79,7 +96,10 @@ export function ComposerContextChips({
 	labelForPath: (path: string) => string;
 	onRemoveContextPath: (path: string) => void;
 }) {
-	const { t } = useTranslation("agent");
+	const { t } = useTranslation(["agent", "common"]);
+	const [openVisualId, setOpenVisualId] = useState<string | null>(null);
+	const openVisual =
+		visualDrafts.find((draft) => draft.id === openVisualId) ?? null;
 	if (
 		!currentFilePath &&
 		mentionChipPaths.length === 0 &&
@@ -157,7 +177,7 @@ export function ComposerContextChips({
 					</button>
 				);
 			})}
-			{visualDrafts.map((draft) => {
+			{visualDrafts.map((draft, index) => {
 				const pageLabel = t("composer.visualAnnotationPage", {
 					page: draft.page,
 				});
@@ -171,8 +191,12 @@ export function ComposerContextChips({
 						key={draft.id}
 						type="button"
 						className={chipShellClass()}
-						onClick={() => onRemoveVisualDraft(draft.id)}
-						aria-label={t("composer.removeVisualDraft")}
+						onClick={() => setOpenVisualId(draft.id)}
+						title={t("composer.visualAnnotationOpen")}
+						aria-label={t("composer.visualAnnotationOpenAria", {
+							index: index + 1,
+							label: shortLabel,
+						})}
 					>
 						{thumb ? (
 							<img
@@ -183,10 +207,139 @@ export function ComposerContextChips({
 						) : (
 							<ScanSearch className="size-3.5 shrink-0 text-muted-foreground" />
 						)}
-						<ChipExpandTrail label={shortLabel} withRemove />
+						<ChipExpandTrail label={shortLabel} />
 					</button>
 				);
 			})}
+			<VisualDraftDialog
+				draft={openVisual}
+				index={
+					openVisual
+						? visualDrafts.findIndex((draft) => draft.id === openVisual.id) + 1
+						: 1
+				}
+				onClose={() => setOpenVisualId(null)}
+				onRemove={onRemoveVisualDraft}
+			/>
+		</>
+	);
+}
+
+/**
+ * Enlarge a pending visual annotation. The note is edited here and delete is
+ * explicit — clicking the chip itself must not drop the draft.
+ */
+function VisualDraftDialog({
+	draft,
+	index,
+	onClose,
+	onRemove,
+}: {
+	draft: PdfVisualDraft | null;
+	index: number;
+	onClose: () => void;
+	onRemove: (id: string) => void;
+}) {
+	const { t } = useTranslation(["agent", "common"]);
+	return (
+		<Dialog
+			open={draft != null}
+			onOpenChange={(next) => {
+				if (!next) onClose();
+			}}
+		>
+			<DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+				{draft ? (
+					<VisualDraftDialogBody
+						key={draft.id}
+						draft={draft}
+						onClose={onClose}
+						onRemove={onRemove}
+						title={t("composer.visualAnnotationDetailTitle", { index })}
+						pageLabel={t("composer.visualAnnotationPage", {
+							page: draft.page,
+						})}
+						commentLabel={t("composer.visualAnnotationCommentLabel")}
+						previewAlt={t("composer.visualAnnotationPreviewAlt", {
+							page: draft.page,
+						})}
+						removeLabel={t("common:remove")}
+					/>
+				) : null}
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function VisualDraftDialogBody({
+	draft,
+	onClose,
+	onRemove,
+	title,
+	pageLabel,
+	commentLabel,
+	previewAlt,
+	removeLabel,
+}: {
+	draft: PdfVisualDraft;
+	onClose: () => void;
+	onRemove: (id: string) => void;
+	title: string;
+	pageLabel: string;
+	commentLabel: string;
+	previewAlt: string;
+	removeLabel: string;
+}) {
+	const [comment, setComment] = useState(draft.comment);
+	const thumb =
+		draft.image.data.length > 0
+			? `data:${draft.image.mimeType || "image/png"};base64,${draft.image.data}`
+			: null;
+	return (
+		<>
+			<DialogHeader>
+				<DialogTitle>{title}</DialogTitle>
+				<DialogDescription>
+					{pageLabel}
+					{draft.paperPath ? ` · ${draft.paperPath}` : ""}
+				</DialogDescription>
+			</DialogHeader>
+			{thumb ? (
+				<img
+					src={thumb}
+					alt={previewAlt}
+					className="max-h-[min(60vh,28rem)] w-full rounded-lg border border-border/70 bg-muted/30 object-contain"
+				/>
+			) : null}
+			<div className="space-y-1">
+				<label
+					className="font-medium text-muted-foreground text-xs"
+					htmlFor={`visual-draft-comment-${draft.id}`}
+				>
+					{commentLabel}
+				</label>
+				<Textarea
+					id={`visual-draft-comment-${draft.id}`}
+					value={comment}
+					onChange={(event) => {
+						const next = event.target.value.slice(0, MAX_VISUAL_COMMENT_CHARS);
+						setComment(next);
+						updateVisualDraftComment(draft.id, next);
+					}}
+				/>
+			</div>
+			<DialogFooter>
+				<Button
+					type="button"
+					variant="destructive"
+					onClick={() => {
+						onRemove(draft.id);
+						onClose();
+					}}
+				>
+					{removeLabel}
+				</Button>
+			</DialogFooter>
 		</>
 	);
 }
