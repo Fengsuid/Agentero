@@ -460,6 +460,11 @@ export type PdfPageHandlers = {
 		link: PdfLinkAnnoObject | null,
 		clientPoint?: ScreenPoint | null,
 	) => void;
+	/** External URL hover (annotation URI / Launch, or detected page text). */
+	onLinkUrlHover?: (
+		url: string | null,
+		clientPoint?: ScreenPoint | null,
+	) => void;
 	onRegionSelect: (page: number, region: PdfAskNormalizedRect) => void;
 	/** Click a figure / table / algorithm / formula hit target → crop + draft card. */
 	onLayoutRegionClick: (region: PdfLayoutRegion) => void;
@@ -1035,6 +1040,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 					onActivate={handlers.onCitationActivate}
 					onTextActivate={handlers.onTextLinkActivate}
 					onHover={handlers.onCitationHover}
+					onUrlHover={handlers.onLinkUrlHover}
 				/>
 				<PdfRegionSelectLayer
 					active={mode.regionSelecting && !mode.visualCropPending}

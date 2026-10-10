@@ -8,6 +8,7 @@ import {
 	detectPdfTextLinks,
 	excludeOverlappingPdfTextLinks,
 	getLinkDestination,
+	linkTargetUrl,
 } from "@/components/viewer/pdf/layers/citation-links";
 
 function dest(mode: PdfZoomMode, view: number[]): PdfDestinationObject {
@@ -273,6 +274,41 @@ describe("CitationLinkLayer", () => {
 		);
 
 		expect(html).toContain('aria-label="https://example.com"');
-		expect(html).toContain('title="https://example.com"');
+		expect(html).toContain('data-url="https://example.com"');
+		expect(html).not.toContain("title=");
+	});
+});
+
+describe("linkTargetUrl", () => {
+	it("returns null when the link has no external address", () => {
+		expect(linkTargetUrl(undefined)).toBeNull();
+		expect(
+			linkTargetUrl({
+				type: "action",
+				action: { type: PdfActionType.URI, uri: "   " },
+			}),
+		).toBeNull();
+	});
+
+	it("returns the full URI, including a long address", () => {
+		const url = `https://example.com/${"a".repeat(180)}`;
+		expect(
+			linkTargetUrl({
+				type: "action",
+				action: { type: PdfActionType.URI, uri: `  ${url}  ` },
+			}),
+		).toBe(url);
+	});
+
+	it("returns a launch path", () => {
+		expect(
+			linkTargetUrl({
+				type: "action",
+				action: {
+					type: PdfActionType.LaunchAppOrOpenFile,
+					path: "C:\\papers\\a.pdf",
+				},
+			}),
+		).toBe("C:\\papers\\a.pdf");
 	});
 });

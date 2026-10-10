@@ -126,6 +126,7 @@ export const CitationLinkLayer = memo(function CitationLinkLayer({
 	onActivate,
 	onTextActivate,
 	onHover,
+	onUrlHover,
 }: {
 	links: PdfLinkAnnoObject[];
 	textLinks: readonly PdfTextLink[];
@@ -140,6 +141,8 @@ export const CitationLinkLayer = memo(function CitationLinkLayer({
 		link: PdfLinkAnnoObject | null,
 		clientPoint?: ScreenPoint | null,
 	) => void;
+	/** Full external URL (annotation URI / Launch, or detected page text). */
+	onUrlHover?: (url: string | null, clientPoint?: ScreenPoint | null) => void;
 }) {
 	if (
 		(!links.length && !textLinks.length) ||
@@ -174,14 +177,20 @@ export const CitationLinkLayer = memo(function CitationLinkLayer({
 					onPointerEnter={(e) => {
 						if ((e.buttons & 1) === 1) return;
 						const box = e.currentTarget.getBoundingClientRect();
-						onHover(link, {
+						const point = {
 							x: box.left + box.width / 2,
 							y: box.bottom,
 							top: box.top,
 							bottom: box.bottom,
-						});
+						};
+						onHover(link, point);
+						const url = linkTargetUrl(link.target);
+						onUrlHover?.(url, url ? point : null);
 					}}
-					onPointerLeave={() => onHover(null)}
+					onPointerLeave={() => {
+						onHover(null);
+						onUrlHover?.(null);
+					}}
 				/>
 			))}
 			{textLinks.map((link) => (
@@ -190,7 +199,7 @@ export const CitationLinkLayer = memo(function CitationLinkLayer({
 					type="button"
 					tabIndex={-1}
 					aria-label={link.url}
-					title={link.url}
+					data-url={link.url}
 					className="absolute z-[2] cursor-pointer rounded-[2px] border-0 bg-transparent p-0 hover:bg-primary/10"
 					style={{
 						left: `${(link.rect.origin.x / pageWidthPt) * 100}%`,
@@ -202,6 +211,17 @@ export const CitationLinkLayer = memo(function CitationLinkLayer({
 						e.stopPropagation();
 						onTextActivate(link.url);
 					}}
+					onPointerEnter={(e) => {
+						if ((e.buttons & 1) === 1) return;
+						const box = e.currentTarget.getBoundingClientRect();
+						onUrlHover?.(link.url, {
+							x: box.left + box.width / 2,
+							y: box.bottom,
+							top: box.top,
+							bottom: box.bottom,
+						});
+					}}
+					onPointerLeave={() => onUrlHover?.(null)}
 				/>
 			))}
 		</>
@@ -246,4 +266,25 @@ export function getLinkDestination(
 		return { pageIndex: destination.pageIndex, pdfX: null, pdfY: view[0] };
 	}
 	return { pageIndex: destination.pageIndex, pdfX: null, pdfY: 0 };
+}
+
+/**
+ * External address carried by a link annotation, if any.
+ * URI actions and Launch file paths are shown in the hover tip; GoTo
+ * destinations stay on the citation / crossref cards.
+ */
+export function linkTargetUrl(
+	target: PdfLinkTarget | undefined,
+): string | null {
+	const action = target?.type === "action" ? target.action : null;
+	if (!action) return null;
+	if (action.type === PdfActionType.URI) {
+		const uri = action.uri.trim();
+		return uri || null;
+	}
+	if (action.type === PdfActionType.LaunchAppOrOpenFile) {
+		const path = action.path.trim();
+		return path || null;
+	}
+	return null;
 }

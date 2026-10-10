@@ -6,9 +6,11 @@ import {
 	PdfCitationPreview,
 } from "@/components/viewer/pdf/cards/citation-preview";
 import { PdfCrossrefPreview } from "@/components/viewer/pdf/cards/crossref-preview";
+import { PdfLinkUrlTip } from "@/components/viewer/pdf/cards/link-url-tip";
 import { SelectionMenu } from "@/components/viewer/pdf/cards/selection-menu";
 import { TranslateCard } from "@/components/viewer/pdf/cards/translate-card";
 import { VisualTraceCard } from "@/components/viewer/pdf/cards/visual-trace-card";
+import type { LinkUrlTipState } from "@/components/viewer/pdf/hooks/use-pdf-link-url-tip";
 import type {
 	CardScreenPoint,
 	CitationPreviewState,
@@ -40,6 +42,11 @@ type PdfCardStackProps = {
 	};
 	crossrefPreview: {
 		state: CrossrefPreviewState | null;
+		onHoverEnter: () => void;
+		onHoverLeave: () => void;
+	};
+	linkUrlTip: {
+		state: LinkUrlTipState | null;
 		onHoverEnter: () => void;
 		onHoverLeave: () => void;
 	};
@@ -92,6 +99,7 @@ export function PdfCardStack({
 	selectionMenu,
 	citationPreview,
 	crossrefPreview,
+	linkUrlTip,
 	cardScreen,
 	onCardHoverEnter,
 	onCardHoverLeave,
@@ -136,6 +144,15 @@ export function PdfCardStack({
 					targetSize={crossrefPreview.state.targetSize}
 					onPointerEnter={crossrefPreview.onHoverEnter}
 					onPointerLeave={crossrefPreview.onHoverLeave}
+				/>
+			) : null}
+
+			{linkUrlTip.state ? (
+				<PdfLinkUrlTip
+					url={linkUrlTip.state.url}
+					screen={linkUrlTip.state.screen}
+					onPointerEnter={linkUrlTip.onHoverEnter}
+					onPointerLeave={linkUrlTip.onHoverLeave}
 				/>
 			) : null}
 
