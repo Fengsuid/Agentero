@@ -3,6 +3,7 @@
 import { ImagePlugin } from "@platejs/media/react";
 import { BlockSelectionPlugin } from "@platejs/selection/react";
 import { TocPlugin } from "@platejs/toc/react";
+import type { SlateEditor } from "platejs";
 import { Plate, usePlateEditor, usePluginOption } from "platejs/react";
 import {
 	type CSSProperties,
@@ -56,7 +57,11 @@ import { scrollBehavior } from "@/lib/core/motion";
 import { errorMessage, notifyError, notifySuccess } from "@/lib/core/notify";
 import { isTauri } from "@/lib/core/tauri";
 import { cn } from "@/lib/core/utils";
-import { insertBreakAfterSelectedVoidBlocks } from "@/lib/markdown/block-selection";
+import {
+	insertBreakAfterSelectedVoidBlocks,
+	selectCurrentBlockThenAll,
+	selectTopLevelBlockThenAll,
+} from "@/lib/markdown/block-selection";
 import { deserializeMarkdownBody } from "@/lib/markdown/deserialize-md";
 import { editorContextMenuCapabilities } from "@/lib/markdown/editor-context-menu";
 import {
@@ -164,6 +169,20 @@ function hasEnoughHeadings(children: readonly unknown[]): boolean {
 		if (count >= MINIMUM_TOC_HEADINGS) return true;
 	}
 	return false;
+}
+
+/** Cmd+A inside a non-editable island (Mermaid preview, embed card) selects that block. */
+function selectEnclosingTopBlock(
+	editor: SlateEditor,
+	target: HTMLElement,
+): boolean {
+	const host = target.closest("[data-slate-node='element']");
+	if (!host) return false;
+	const node = editor.api.toSlateNode(host);
+	if (!node) return false;
+	const path = editor.api.findPath(node);
+	if (!path) return false;
+	return selectTopLevelBlockThenAll(editor, path);
 }
 
 export function MarkdownEditor({
@@ -427,12 +446,12 @@ export function MarkdownEditor({
 	const handleKeyDown = useCallback(
 		(event: KeyboardEvent<HTMLDivElement>) => {
 			const target = event.target;
-			const isEditorTarget =
-				target instanceof HTMLElement &&
-				target.closest("[data-slate-editor]") !== null &&
-				target.closest("input, textarea, select, [contenteditable='false']") ===
-					null;
-			if (!isEditorTarget) return;
+			if (!(target instanceof HTMLElement)) return;
+			if (target.closest("[data-slate-editor]") === null) return;
+			// Find bar, callout title, equation source: native select-all.
+			if (target.closest("input, textarea, select") !== null) return;
+			const inNonEditable =
+				target.closest("[contenteditable='false']") !== null;
 
 			if (!event.nativeEvent.isComposing) {
 				if (
@@ -441,18 +460,22 @@ export function MarkdownEditor({
 					!event.altKey &&
 					event.key.toLowerCase() === "a"
 				) {
-					// Handle Select All before browser/Slate default handling so
-					// the editor selection and the native DOM selection stay in sync.
-					// BlockSelectionPlugin two-steps: current block, then all blocks.
+					// Current top-level block first (code / Mermaid preview / callout),
+					// then every block. Plate's selectAll treats a caret in a nested
+					// code_line as "already selected" and jumps to the whole note.
 					event.preventDefault();
 					event.stopPropagation();
 					const scrollRoot = editorContainerRef.current;
 					const scrollTop = scrollRoot?.scrollTop ?? 0;
 					const scrollLeft = scrollRoot?.scrollLeft ?? 0;
-					editor.tf.selectAll();
+					const selected = inNonEditable
+						? selectEnclosingTopBlock(editor, target) ||
+							selectCurrentBlockThenAll(editor)
+						: selectCurrentBlockThenAll(editor);
+					if (!selected) editor.tf.selectAll();
 					if (scrollRoot) {
-						// The selection focus is the document end, so Plate may
-						// scroll there while synchronizing the native selection.
+						// Selecting through the document end can scroll the note there
+						// while Plate synchronizes the native selection.
 						const restoreScroll = () => {
 							scrollRoot.scrollTop = scrollTop;
 							scrollRoot.scrollLeft = scrollLeft;
@@ -465,6 +488,7 @@ export function MarkdownEditor({
 					}
 					return;
 				}
+				if (inNonEditable) return;
 				if (handleMenuKeyDown(event)) {
 					event.stopPropagation();
 					return;
@@ -496,6 +520,8 @@ export function MarkdownEditor({
 					setFindOpen(false);
 				}
 			}
+			// Mermaid preview and other non-editable islands stay out of find/save.
+			if (inNonEditable) return;
 			if (
 				(event.metaKey || event.ctrlKey) &&
 				!event.shiftKey &&

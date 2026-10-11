@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
 import { Button } from "@/components/ui/button";
 import { agentSessionStore } from "@/lib/agent/agent-session-store";
+import { presentAgentComposer } from "@/lib/agent/composer-focus";
 import {
 	annotationRanges,
 	editAnnotation,
@@ -297,7 +298,13 @@ function SelectionChatCard({ draft }: { draft: SelectionChatDraft }) {
 		),
 	);
 	const confirm = () => {
-		if (confirmSelectionChat(comment)) openRightTab("agent");
+		const editing = Boolean(selectionChatStore.getState().draft?.editing);
+		if (!confirmSelectionChat(comment)) return;
+		if (editing) {
+			openRightTab("agent");
+			return;
+		}
+		presentAgentComposer();
 	};
 	return (
 		<div

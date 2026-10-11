@@ -1111,6 +1111,41 @@ body.agentero-dockview-dragging * {
 }
 
 /*
+ * Wikilink embeds are inline Slate nodes, so a paragraph always keeps an empty
+ * text leaf on each side. Those leaves render a `<br>`, which opens a blank
+ * line above and below a block card and drops the card onto the next line.
+ * An embed that shares the paragraph with real text stays inline-block. An
+ * embed that is the paragraph's only content becomes a full-width block, and
+ * the placeholder leaves are taken out of flow.
+ */
+[data-slate-editor] .agentero-wiki-embed:not([data-wiki-source]) {
+	display: inline-block;
+	max-width: 100%;
+	vertical-align: top;
+}
+
+[data-slate-editor]
+	[data-slate-node="element"]:has(
+		> .agentero-wiki-embed:not([data-wiki-source])
+	):not(:has(> [data-slate-node="text"] [data-slate-string="true"]))
+	> .agentero-wiki-embed:not([data-wiki-source]) {
+	display: block;
+	width: 100%;
+}
+
+[data-slate-editor]
+	[data-slate-node="element"]:has(
+		> .agentero-wiki-embed:not([data-wiki-source])
+	):not(:has(> [data-slate-node="text"] [data-slate-string="true"]))
+	> [data-slate-node="text"] {
+	position: absolute;
+	width: 1px;
+	height: 0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+/*
  * Markdown reading performance (#702).
  *
  * A long note renders every block; changing the pane width (dragging a rail or

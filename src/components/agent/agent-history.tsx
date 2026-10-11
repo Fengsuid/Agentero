@@ -22,6 +22,7 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@/components/ui/popover";
+import { useImeGuard } from "@/hooks/use-ime-guard";
 import type { ChatLine, ChatSessionHistoryItem } from "@/lib/agent/chat-state";
 import { displayHistoryTitle } from "@/lib/agent/prompt-display";
 import { cn } from "@/lib/core/utils";
@@ -63,6 +64,8 @@ export function HistorySessionList({
 	const [renameTarget, setRenameTarget] =
 		useState<ChatSessionHistoryItem | null>(null);
 	const [renameTitle, setRenameTitle] = useState("");
+	// compositionend can fire before the confirming Enter (see useImeGuard).
+	const { isBlockedByIme, compositionProps } = useImeGuard();
 
 	if (sessionHistory.length === 0) {
 		return (
@@ -163,8 +166,9 @@ export function HistorySessionList({
 					<Input
 						value={renameTitle}
 						onChange={(event) => setRenameTitle(event.target.value)}
+						{...compositionProps}
 						onKeyDown={(event) => {
-							if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+							if (event.key === "Enter" && !isBlockedByIme(event)) {
 								event.preventDefault();
 								confirmRename();
 							}

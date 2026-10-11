@@ -2,10 +2,12 @@ import { expandListItemsWithChildren } from "@platejs/list";
 import { MarkdownPlugin } from "@platejs/markdown";
 import { BlockSelectionPlugin } from "@platejs/selection/react";
 import {
+	ElementApi,
 	getPluginByType,
 	KEYS,
 	NodeApi,
 	PathApi,
+	RangeApi,
 	type SlateEditor,
 	type TElement,
 } from "platejs";
@@ -129,6 +131,77 @@ function insertParagraphAfterPath(editor: SlateEditor, path: number[]): void {
 	);
 	editor.tf.select({ path: [...at, 0], offset: 0 });
 	editor.tf.focus();
+}
+
+/**
+ * True when `selection` already covers every edge of the top-level block at
+ * `path`. A collapsed caret does not count — an empty block's range is itself
+ * collapsed, so equality would skip straight to selecting the whole note.
+ */
+function selectionCoversTopBlock(editor: SlateEditor, path: number[]): boolean {
+	const selection = editor.selection;
+	const blockRange = editor.api.range(path);
+	if (!selection || !blockRange) return false;
+	if (RangeApi.isCollapsed(selection)) return false;
+	if (RangeApi.equals(selection, blockRange)) return true;
+	const [start, end] = RangeApi.edges(blockRange);
+	const [selStart, selEnd] = RangeApi.edges(selection);
+	if (selStart.path[0] !== path[0] || selEnd.path[0] !== path[0]) return false;
+	return (
+		RangeApi.includes(selection, start) && RangeApi.includes(selection, end)
+	);
+}
+
+/**
+ * Cmd+A: select this top-level block first, and the whole note only when that
+ * block is already fully selected.
+ *
+ * Plate's block-selection `selectAll` treats any caret inside one nested block
+ * (`code_line` under Mermaid / code) as "the block is selected" and immediately
+ * selects every block. Callers pass the block path (or the highest block at
+ * the caret).
+ */
+export function selectTopLevelBlockThenAll(
+	editor: SlateEditor,
+	path: number[],
+): boolean {
+	if (path.length === 0) return false;
+	const topPath = path.slice(0, 1);
+	const entry = editor.api.node(topPath);
+	if (!entry) return false;
+	const blockRange = editor.api.range(topPath);
+	if (!blockRange) return false;
+	const node = entry[0];
+	const blockSelected =
+		ElementApi.isElement(node) &&
+		isElementBlockSelected(editor, node) &&
+		selectedBlockIds(editor).size >= 1;
+	if (selectionCoversTopBlock(editor, topPath) || blockSelected) {
+		editor.getApi(BlockSelectionPlugin).blockSelection.selectAll();
+		return true;
+	}
+	const api = editor.getApi(BlockSelectionPlugin).blockSelection;
+	api.deselect();
+	// An empty block has nowhere for a text range to grow. Mark the block id
+	// so the next Cmd+A can tell this step from the still-collapsed caret.
+	if (
+		RangeApi.isCollapsed(blockRange) &&
+		ElementApi.isElement(node) &&
+		typeof node.id === "string"
+	) {
+		api.set([node.id]);
+		return true;
+	}
+	editor.tf.select(blockRange);
+	return true;
+}
+
+/** Cmd+A from the caret: current top-level block, then every block. */
+export function selectCurrentBlockThenAll(editor: SlateEditor): boolean {
+	if (!editor.selection) return false;
+	const top = editor.api.block({ highest: true });
+	if (!top) return false;
+	return selectTopLevelBlockThenAll(editor, top[1]);
 }
 
 /** Enter with the caret on a horizontal rule: break out into a paragraph below. */
