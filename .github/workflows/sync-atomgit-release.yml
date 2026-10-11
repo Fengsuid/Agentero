@@ -32,9 +32,10 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # Uploading every asset and then re-downloading it to verify runs at
-    # AtomGit's ~100 KB/s: a release with a 120 MB AppImage needs well over an
-    # hour (#694). Keep headroom below GitHub's 360-minute hard limit.
+    # Every asset crosses the AtomGit link twice: once up, then back down to
+    # verify its SHA-256. Pinning the overseas edge keeps that quick, but a
+    # degraded route can still crawl for an hour on the 120 MB AppImage (#694),
+    # so keep headroom below GitHub's 360-minute hard limit.
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
@@ -42,6 +43,41 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+      - name: Pin AtomGit to its overseas edge
+        env:
+          # Clear the variable to go back to whatever DNS resolves.
+          ATOMGIT_PROXY_IP: ${{ vars.ATOMGIT_PROXY_IP || '159.138.147.37' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ATOMGIT_PROXY_IP}" ]; then
+            echo "ATOMGIT_PROXY_IP is empty; keeping default DNS resolution"
+            exit 0
+          fi
+          # This value is written into /etc/hosts, so accept an IPv4 literal and
+          # nothing else. Bash regex, not grep: grep matches per line, so an
+          # embedded newline would inject an extra hosts entry.
+          if ! [[ "${ATOMGIT_PROXY_IP}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo "::warning::ATOMGIT_PROXY_IP is not an IPv4 literal; keeping default DNS resolution"
+            exit 0
+          fi
+          # Default DNS hands runners a China-domestic address whose route
+          # collapses on sustained large uploads: the 120 MB AppImage died with
+          # HTTP 502 after 43 minutes while 51 MB assets next to it took 6
+          # seconds (#694). Pin only hosts that answer with a certificate valid
+          # for their own name, so a retired edge address degrades to today's
+          # behaviour instead of breaking TLS.
+          for host in api.atomgit.com file.atomgit.com file.gitcode.com atomgit.com; do
+            if verified="$(curl -sS -o /dev/null --max-time 15 \
+                --resolve "${host}:443:${ATOMGIT_PROXY_IP}" \
+                -w '%{ssl_verify_result}' "https://${host}/")" \
+              && [ "${verified}" = "0" ]; then
+              echo "${ATOMGIT_PROXY_IP} ${host}" | sudo tee -a /etc/hosts >/dev/null
+              echo "Pinned ${host} -> ${ATOMGIT_PROXY_IP}"
+            else
+              echo "::warning::AtomGit edge ${ATOMGIT_PROXY_IP} is unusable for ${host}; keeping default DNS for it"
+            fi
+          done
+          getent hosts api.atomgit.com file.atomgit.com file.gitcode.com atomgit.com || true
       - name: Synchronize release notes and every uploaded asset
         env:
           GH_TOKEN: ${{ github.token }}

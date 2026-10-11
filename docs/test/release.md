@@ -22,7 +22,16 @@
 
 `.github/workflows/release.yml` 在 installers、Android、CLI 三组 job 全部成功后调用 `sync-atomgit-release.yml`，将该 tag 的 GitHub Release 标题、说明及全部已上传附件同步到 AtomGit。Android 未配置签名而主动跳过产物时，只同步实际存在的附件。任一构建 job 失败则不自动同步。
 
-配置 GitHub repository secret **`ATOMGIT_TOKEN`**：使用对目标 AtomGit 仓库有 Release / 附件读写权限的个人访问令牌。可选 repository variable **`ATOMGIT_REPOSITORY`**，默认 `poco-ai/Agentero`。令牌只通过请求头传递，不写入附件、下载清单或日志。缺少令牌时同步 job 明确失败，已完成的 GitHub 构建和附件仍保留。
+配置 GitHub repository secret **`ATOMGIT_TOKEN`**：使用对目标 AtomGit 仓库有 Release / 附件读写权限的个人访问令牌。令牌只通过请求头传递，不写入附件、下载清单或日志。缺少令牌时同步 job 明确失败，已完成的 GitHub 构建和附件仍保留。
+
+可选 repository variable：
+
+| 变量 | 默认 | 用途 |
+|---|---|---|
+| `ATOMGIT_REPOSITORY` | `poco-ai/Agentero` | 目标仓库 |
+| `ATOMGIT_PROXY_IP` | `159.138.147.37` | AtomGit 海外边缘节点 IP，置空则完全走默认 DNS |
+
+同步 job 在上传前把 `api.atomgit.com`、`file.atomgit.com`、`file.gitcode.com`、`atomgit.com` 固定解析到 `ATOMGIT_PROXY_IP`：默认 DNS 交给 runner 的是境内地址，大文件长连接会在该路由上崩溃（120 MB 的 AppImage 三次 `HTTP 502`，单次最长 43 分钟，而紧邻的 51 MB 附件只需 6 秒，见 #694）。每个域名先用 `curl --resolve` 校验该 IP 能出示**对自身域名有效**的证书，只有通过的才写入 `/etc/hosts`；全部不通过则退回默认 DNS，该步骤本身不会令 job 失败。IP 失效时改 `ATOMGIT_PROXY_IP` 即可，无需改代码。`/etc/hosts` 仅在该 runner 内生效，任务结束自动丢弃。
 
 同步在 Release 仍为 Draft 时执行：`GITHUB_TOKEN` 需要 `contents: write`（草稿仅对具备 push 权限的令牌出现在 releases 列表中），脚本通过列表接口按 tag 解析 Release，而不是只返回已发布版本的 `releases/tags/<tag>` 接口。
 
@@ -32,7 +41,7 @@
 - GitHub Release `published` / `edited` 事件会再次同步当前说明和附件；仅当来源是 GitHub 当前最新稳定版且所有附件校验通过，才标记 AtomGit `latest`。手动补传旧稳定版不会抢占最新版本；新建的历史版本保留 `pre`。
 - `scripts/sync-atomgit-release.mjs` 逐文件下载、上传并回读校验大小和 SHA-256，包括安装包、APK、CLI、`.sig`、`.sha256`、`latest.json`；GitHub 自动生成的 Source code 归档不是上传附件，不在此列表中。
 - 重跑时相同内容跳过；同名不同内容的附件按 ID 删除后重新上传。发生中断可再次运行，不删除目标仓库其他附件。网络错误有限重试，任何附件失败会令 job 失败；只有全部成功才更新最终说明和状态。跨 tag 的同步串行执行。
-- 上传与回读校验不使用固定总时长上限（AtomGit 带宽可能低到 ~100 KB/s，120 MB 的 AppImage 会超过任何固定上限而必然超时，见 #694）；只有连续 5 分钟没有任何字节流动才判定为停滞并重试，整体时长由 job 的 `timeout-minutes`（当前 180）约束。
+- 上传与回读校验不使用固定总时长上限：到 AtomGit 的路由在 ~8 MB/s 与数十分钟后 `HTTP 502` 之间摆动（#694），按快速情形定的上限必然饿死慢速情形。只有连续 5 分钟没有任何字节流动才判定为停滞并重试，整体时长由 job 的 `timeout-minutes`（当前 180）约束。日志中的 `Uploading: <name> (<size> bytes) via <host>` 只打印主机名（签名路径与 query 属于凭据），用于确认边缘节点固定是否真的覆盖了承载大文件的那个域名。
 - `latest.json` **原样镜像**，其中 URL 仍指向 GitHub。后续待办：landing 双源下载、应用 updater AtomGit 优先及下载失败回退、AtomGit 专用更新清单／稳定入口。本次不切换客户端更新源。
 
 补传／重试：GitHub Actions → **Sync release to AtomGit** → **Run workflow** → 填入已有、附件构建完成的 tag（如 `v0.11.3`）。无需重新编译。工作流须先进入默认分支；通过 `GITHUB_TOKEN` 触发的 Release 修改不会派生新的工作流，自动化改说明后需显式调用 reusable workflow 或手动补同步。

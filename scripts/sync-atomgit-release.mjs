@@ -50,10 +50,10 @@ export async function digest(stream) {
 	return { size, sha256: hash.digest("hex") };
 }
 
-// A fixed total transfer timeout kills large assets: GitHub runners push the
-// ~120 MB AppImage to AtomGit at roughly 100 KB/s, so a 10-minute cap can never
-// finish it (#694). Abort only when no bytes move for this long instead; the
-// job-level timeout still bounds the overall run.
+// A fixed total transfer timeout kills large assets: the route to AtomGit swings
+// between ~8 MB/s and a crawl that ends in HTTP 502 after tens of minutes, so
+// any cap sized for the fast case starves the slow one (#694). Abort only when no
+// bytes move for this long instead; the job-level timeout bounds the whole run.
 const TRANSFER_STALL_TIMEOUT = 300_000;
 
 class StallError extends Error {
@@ -210,11 +210,17 @@ export class AtomGit {
 			const info = await this.api(
 				`/releases/${encode(tag)}/upload_url?file_name=${encode(asset.name)}`,
 			);
-			if (new URL(info.url).protocol !== "https:" || !info.headers) {
+			const target = new URL(info.url);
+			if (target.protocol !== "https:" || !info.headers) {
 				throw new Error("Invalid AtomGit upload response");
 			}
 			const stream = createReadStream(file);
-			console.log(`Uploading: ${asset.name} (${expected.size} bytes)`);
+			// Host only: the signed path and query are credentials. Naming the
+			// host is what tells us whether the pinned edge carries the bulk
+			// bytes or only the API calls.
+			console.log(
+				`Uploading: ${asset.name} (${expected.size} bytes) via ${target.host}`,
+			);
 			const watchdog = stallWatchdog();
 			try {
 				const response = await this.request(info.url, {
