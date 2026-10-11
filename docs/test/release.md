@@ -22,7 +22,7 @@
 
 `.github/workflows/release.yml` 在 installers、Android、CLI 三组 job 全部成功后调用 `sync-atomgit-release.yml`，将该 tag 的 GitHub Release 标题、说明及全部已上传附件同步到 AtomGit。Android 未配置签名而主动跳过产物时，只同步实际存在的附件。任一构建 job 失败则不自动同步。
 
-配置 GitHub repository secret **`ATOMGIT_TOKEN`**：使用对目标 AtomGit 仓库有 Release / 附件读写权限的个人访问令牌。令牌只通过请求头传递，不写入附件、下载清单或日志。缺少令牌时同步 job 明确失败，已完成的 GitHub 构建和附件仍保留。
+配置 GitHub repository secret **`ATOMGIT_TOKEN`**：使用对目标 AtomGit 仓库有 Release / 附件读写权限的个人访问令牌。令牌只通过请求头传递，不写入附件、下载清单或日志；git 推送经 `GIT_ASKPASS` 传递，不出现在远端 URL 或命令行参数中。缺少令牌时同步 job 明确失败，已完成的 GitHub 构建和附件仍保留。
 
 可选 repository variable：
 
@@ -30,12 +30,16 @@
 |---|---|---|
 | `ATOMGIT_REPOSITORY` | `poco-ai/Agentero` | 目标仓库 |
 | `ATOMGIT_PROXY_IP` | `159.138.147.37` | AtomGit 海外边缘节点 IP，置空则完全走默认 DNS |
+| `ATOMGIT_GIT_HOST` | `atomgit.com` | git 推送主机，限定为 `atomgit.com` 及其子域 |
+| `ATOMGIT_GIT_USERNAME` | 由令牌查 `/api/v5/user` 的 `login` | 仅在自动解析失败时需要显式配置 |
 
 同步 job 在上传前把 `api.atomgit.com`、`file.atomgit.com`、`file.gitcode.com`、`atomgit.com` 固定解析到 `ATOMGIT_PROXY_IP`：默认 DNS 交给 runner 的是境内地址，大文件长连接会在该路由上崩溃（120 MB 的 AppImage 三次 `HTTP 502`，单次最长 43 分钟，而紧邻的 51 MB 附件只需 6 秒，见 #694）。每个域名先用 `curl --resolve` 校验该 IP 能出示**对自身域名有效**的证书，只有通过的才写入 `/etc/hosts`；全部不通过则退回默认 DNS，该步骤本身不会令 job 失败。IP 失效时改 `ATOMGIT_PROXY_IP` 即可，无需改代码。`/etc/hosts` 仅在该 runner 内生效，任务结束自动丢弃。
 
 同步在 Release 仍为 Draft 时执行：`GITHUB_TOKEN` 需要 `contents: write`（草稿仅对具备 push 权限的令牌出现在 releases 列表中），脚本通过列表接口按 tag 解析 Release，而不是只返回已发布版本的 `releases/tags/<tag>` 接口。
 
-目标仓库需先通过代码镜像同步对应提交。脚本在创建 Release **前**先等待 AtomGit 同名 tag 就位（有界退避轮询，约 2.5 分钟后放弃）：AtomGit 不会像 GitHub 那样用 `target_commitish` 自动建 tag，镜像落后时 `POST /releases` 只会返回无法解释的 HTTP 400，因此 tag 缺失现在会明确报 `AtomGit has not mirrored tag …`。tag 就位后再校验其 SHA 与 GitHub 一致，并用该 commit 创建 Release；不自动推送代码、不移动已有 tag。目标提交不存在或 tag 不一致时，先修复仓库镜像，再重跑同步。
+AtomGit 不会像 GitHub 那样用 `target_commitish` 自动建 tag，tag 缺失时 `POST /releases` 只返回无法解释的 HTTP 400。仓库自带镜像可以滞后 GitHub 数小时，因此同步 job 现在**自己推送该 release tag**：`git push` 到 `ATOMGIT_REPOSITORY`，不带 `--force`，所以远端已存在且指向别处的 tag 会被拒绝、原样保留，再由脚本的 SHA 校验暴露成 commit 不一致，不会被静默改写。只推这一个 tag，不推分支、不移动已有 tag。推送失败（例如令牌无仓库写权限）只告警并退回依赖镜像，不额外制造失败点。
+
+脚本在创建 Release **前**仍会等待 AtomGit 同名 tag 就位（有界退避轮询，约 2.5 分钟后放弃），作为推送不可用时的兜底；tag 缺失会明确报 `AtomGit has not mirrored tag …`。tag 就位后校验其 SHA 与 GitHub 一致，再用该 commit 创建 Release。目标提交不存在或 tag 不一致时，先修复仓库镜像，再重跑同步。
 
 - 构建完成时 GitHub 仍为 Draft，AtomGit 同步为 `pre`（**预发布可公开访问，不是私有草稿**）。
 - GitHub Release `published` / `edited` 事件会再次同步当前说明和附件；仅当来源是 GitHub 当前最新稳定版且所有附件校验通过，才标记 AtomGit `latest`。手动补传旧稳定版不会抢占最新版本；新建的历史版本保留 `pre`。

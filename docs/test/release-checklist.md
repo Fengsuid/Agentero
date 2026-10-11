@@ -62,7 +62,7 @@ cargo test -p agentero-core -p agentero-cli
 | 0.2.1 | 终端 | 跑上列命令 | 全部通过 | ☐ |
 | 0.2.2 | GitHub Actions | Release job 的 updater secret 校验 | `TAURI_SIGNING_PRIVATE_KEY` 和密码缺失时在创建 Draft 前失败 | ☐ |
 | 0.2.3 | Draft Release | 检查 updater 资产 | 有 `latest.json`、各平台 updater 包与对应 `.sig`；`latest.json` 包含每个平台的 URL 和签名 | ☐ |
-| 0.2.3a | GitHub Actions / AtomGit | 配置 `ATOMGIT_TOKEN`，确认代码镜像包含对应提交，检查构建后的同步 job 并按 tag 重跑 | 同名 tag 提交一致；说明和全部上传附件同步；每个附件回读 SHA-256 一致；重跑不重复附件；Draft 对应 `pre`，正式发布最新稳定版后才标记 `latest`；缺令牌或附件失败时 job 报错 | ☐ |
+| 0.2.3a | GitHub Actions / AtomGit | 配置 `ATOMGIT_TOKEN`，检查构建后的同步 job 并按 tag 重跑 | 同步 job 已把该 release tag 推到 AtomGit（推送失败只告警，退回等镜像）；同名 tag 提交一致；说明和全部上传附件同步；每个附件回读 SHA-256 一致；重跑不重复附件；Draft 对应 `pre`，正式发布最新稳定版后才标记 `latest`；缺令牌或附件失败时 job 报错 | ☐ |
 | 0.2.3b | GitHub Actions / AtomGit | 检查同步 job 的「Pin AtomGit to its overseas edge」步骤日志 | 四个域名全部 `Pinned <host> -> <IP>`；`getent hosts` 显示该 IP；120 MB 的 AppImage 出现 `Uploaded and verified` 而不是 `HTTP 502`；日志里的 `via <host>` 落在已固定的域名内（若是别的 OBS 域名，需把它加进固定列表） | ☐ |
 | 0.2.4 | GitHub Actions / 应用·设置 | 确认 `AGENTERO_BUILTIN_API_KEY` secret 已配且本次构建注入了它 | 缺 secret **不会**让构建失败（`option_env!` 当未设置处理），只会静默产出没有内置 provider 的包。信号：设置 → 翻译的「Agentero 内置」可选、设置 → Agent → Embedding 的来源默认「Agentero 内置」、设置 → 版面解析的正文引擎默认「Agentero 内置」。见 [release.md](release.md) §内置 Provider 构建期注入 | ☐ |
 

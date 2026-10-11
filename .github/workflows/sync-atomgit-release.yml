@@ -39,6 +39,11 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Pushing the release tag needs its commit and ancestry, and the
+          # `release` / `workflow_dispatch` events check out the default branch
+          # rather than the tag itself.
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -78,6 +83,72 @@ jobs:
             fi
           done
           getent hosts api.atomgit.com file.atomgit.com file.gitcode.com atomgit.com || true
+      - name: Publish the release tag on AtomGit
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          ATOMGIT_REPOSITORY: ${{ vars.ATOMGIT_REPOSITORY || 'poco-ai/Agentero' }}
+          ATOMGIT_GIT_HOST: ${{ vars.ATOMGIT_GIT_HOST || 'atomgit.com' }}
+          ATOMGIT_GIT_USERNAME: ${{ vars.ATOMGIT_GIT_USERNAME }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ATOMGIT_TOKEN}" ] || [ -z "${RELEASE_TAG}" ]; then
+            echo "::warning::Missing ATOMGIT_TOKEN or RELEASE_TAG; leaving ${RELEASE_TAG:-the tag} to the AtomGit repository mirror"
+            exit 0
+          fi
+          # Every value below ends up in a git refspec or in a credential-bearing
+          # URL, so reject anything that could be read as an option or that could
+          # redirect the push to another host. Bash regex, not grep: grep matches
+          # per line, so an embedded newline would smuggle a value past ^...$.
+          matches() { [[ "$2" =~ ^$1$ ]]; }
+          if ! matches '[A-Za-z0-9][A-Za-z0-9._-]*' "${RELEASE_TAG}"; then
+            echo "::error::Refusing to push an unexpected release tag shape: ${RELEASE_TAG}"
+            exit 1
+          fi
+          if ! matches '([A-Za-z0-9-]+\.)*atomgit\.com' "${ATOMGIT_GIT_HOST}" \
+            || ! matches '[A-Za-z0-9._-]+/[A-Za-z0-9._-]+' "${ATOMGIT_REPOSITORY}"; then
+            echo "::error::Invalid ATOMGIT_GIT_HOST or ATOMGIT_REPOSITORY"
+            exit 1
+          fi
+          # Fetch only when the tag is not already local: a tag-triggered run
+          # has it checked out, and re-fetching into that ref can be refused.
+          if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}" >/dev/null; then
+            git fetch --no-tags origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          fi
+          username="${ATOMGIT_GIT_USERNAME}"
+          if [ -z "${username}" ]; then
+            # The git HTTPS user is the account login, which the token can name
+            # itself; no extra secret to provision.
+            username="$(curl -sS --max-time 30 \
+              -H "Authorization: Bearer ${ATOMGIT_TOKEN}" \
+              "https://api.atomgit.com/api/v5/user" \
+              | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).login||"")}catch{console.log("")}})')"
+          fi
+          if [ -z "${username}" ]; then
+            echo "::warning::Could not resolve an AtomGit git username; leaving ${RELEASE_TAG} to the repository mirror"
+            exit 0
+          fi
+          if ! matches '[A-Za-z0-9._-]+' "${username}"; then
+            echo "::error::Resolved AtomGit git username has an unexpected shape"
+            exit 1
+          fi
+          # AtomGit neither derives a tag from a release's target_commitish nor
+          # mirrors tags promptly, so POST /releases answers an opaque HTTP 400
+          # while the tag is absent. Push it here instead of waiting.
+          # Never --force: a remote tag already pointing elsewhere must stay put
+          # and surface as a commit mismatch rather than be silently rewritten.
+          # GIT_ASKPASS keeps the token out of the remote URL and of argv.
+          askpass="$(mktemp)"
+          printf '#!/bin/sh\nprintf "%%s\\n" "$ATOMGIT_GIT_PASSWORD"\n' > "${askpass}"
+          chmod +x "${askpass}"
+          trap 'rm -f "${askpass}"' EXIT
+          export ATOMGIT_GIT_PASSWORD="${ATOMGIT_TOKEN}"
+          export GIT_ASKPASS="${askpass}"
+          export GIT_TERMINAL_PROMPT=0
+          if ! git push "https://${username}@${ATOMGIT_GIT_HOST}/${ATOMGIT_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"; then
+            echo "::warning::Could not push ${RELEASE_TAG} to AtomGit; leaving it to the repository mirror"
+          fi
       - name: Synchronize release notes and every uploaded asset
         env:
           GH_TOKEN: ${{ github.token }}
