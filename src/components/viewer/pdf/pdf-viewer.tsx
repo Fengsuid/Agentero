@@ -72,6 +72,7 @@ import { usePdfFind } from "@/components/viewer/pdf/hooks/use-pdf-find";
 import { usePdfHighlights } from "@/components/viewer/pdf/hooks/use-pdf-highlights";
 import { usePdfJumpBack } from "@/components/viewer/pdf/hooks/use-pdf-jump-back";
 import { usePdfLayoutCluster } from "@/components/viewer/pdf/hooks/use-pdf-layout-cluster";
+import { usePdfLinkUrlTip } from "@/components/viewer/pdf/hooks/use-pdf-link-url-tip";
 import { usePdfMarkActions } from "@/components/viewer/pdf/hooks/use-pdf-mark-actions";
 import { usePdfMarksIo } from "@/components/viewer/pdf/hooks/use-pdf-marks-io";
 import { usePdfNavigation } from "@/components/viewer/pdf/hooks/use-pdf-navigation";
@@ -847,6 +848,7 @@ function PdfViewerInner({
 	// a circular hook dependency (Fix #430 overlay exclusivity).
 	const clearCrossrefPreviewRef = useRef<() => void>(() => {});
 	const clearCitationPreviewRef = useRef<() => void>(() => {});
+	const clearLinkUrlTipRef = useRef<() => void>(() => {});
 
 	// Origin stack behind the "jump back" chip (#505).
 	const {
@@ -907,12 +909,16 @@ function PdfViewerInner({
 		sourceBytes,
 		isRemotePaper,
 		importIdentifier,
-		onPreviewShow: () => clearCrossrefPreviewRef.current(),
+		onPreviewShow: () => {
+			clearCrossrefPreviewRef.current();
+			clearLinkUrlTipRef.current();
+		},
 		onBeforeInternalJump: captureJumpOrigin,
 		onInternalJump: (target) => {
 			// Same as the citation card: the scroll strands a stationary pointer,
 			// so dismiss the crossref preview with the jump it caused (#528).
 			clearCrossrefPreviewRef.current();
+			clearLinkUrlTipRef.current();
 			commitJumpOrigin();
 			flashJumpTarget(target);
 		},
@@ -936,12 +942,24 @@ function PdfViewerInner({
 		sourceBytes,
 		engineRef,
 		docCapRef,
-		onPreviewShow: () => clearCitationPreviewRef.current(),
+		onPreviewShow: () => {
+			clearCitationPreviewRef.current();
+			clearLinkUrlTipRef.current();
+		},
 		hasCitationMatch,
 	});
 
+	const {
+		linkUrlTip,
+		scheduleLinkUrlHide,
+		markLinkUrlHoverEnter,
+		clearLinkUrlTip,
+		handleLinkUrlHover: hoverLinkUrl,
+	} = usePdfLinkUrlTip();
+
 	clearCitationPreviewRef.current = clearCitationPreview;
 	clearCrossrefPreviewRef.current = clearCrossrefPreview;
+	clearLinkUrlTipRef.current = clearLinkUrlTip;
 
 	const { askPinAnchors } = usePdfPinAnchors({ threads });
 	const pinnedTranslates = useStableDerived(
@@ -1253,13 +1271,20 @@ function PdfViewerInner({
 		if (!suppressLinkPreviews) return;
 		clearCitationPreview();
 		clearCrossrefPreview();
-	}, [suppressLinkPreviews, clearCitationPreview, clearCrossrefPreview]);
+		clearLinkUrlTip();
+	}, [
+		suppressLinkPreviews,
+		clearCitationPreview,
+		clearCrossrefPreview,
+		clearLinkUrlTip,
+	]);
 
 	const handleLinkHover = useCallback(
 		(link: PdfLinkAnnoObject | null, clientPoint?: ScreenPoint | null) => {
 			if (suppressLinkPreviews) {
 				clearCitationPreview();
 				clearCrossrefPreview();
+				clearLinkUrlTip();
 				return;
 			}
 			handleCitationLinkHover(link, clientPoint);
@@ -1269,9 +1294,21 @@ function PdfViewerInner({
 			suppressLinkPreviews,
 			clearCitationPreview,
 			clearCrossrefPreview,
+			clearLinkUrlTip,
 			handleCitationLinkHover,
 			handleCrossrefLinkHover,
 		],
+	);
+
+	const handleLinkUrlHover = useCallback(
+		(url: string | null, clientPoint?: ScreenPoint | null) => {
+			if (suppressLinkPreviews) {
+				clearLinkUrlTip();
+				return;
+			}
+			hoverLinkUrl(url, clientPoint);
+		},
+		[suppressLinkPreviews, clearLinkUrlTip, hoverLinkUrl],
 	);
 
 	// ---- Visual marks (draft save, agent turns, existing pins) ----
@@ -1761,6 +1798,7 @@ function PdfViewerInner({
 			onCitationActivate: handleCitationLinkActivate,
 			onTextLinkActivate: openExternalUrl,
 			onCitationHover: handleLinkHover,
+			onLinkUrlHover: handleLinkUrlHover,
 			onRegionSelect: handleVisualRegionSelect,
 			onLayoutRegionClick: handleLayoutRegionClick,
 			onTogglePageLayoutTranslate: togglePageLayoutTranslate,
@@ -1786,6 +1824,7 @@ function PdfViewerInner({
 			scheduleHoverHide,
 			handleCitationLinkActivate,
 			handleLinkHover,
+			handleLinkUrlHover,
 			handleVisualRegionSelect,
 			handleLayoutRegionClick,
 			togglePageLayoutTranslate,
@@ -1994,6 +2033,11 @@ function PdfViewerInner({
 						state: crossrefPreview,
 						onHoverEnter: markCrossrefHoverEnter,
 						onHoverLeave: scheduleCrossrefHide,
+					}}
+					linkUrlTip={{
+						state: linkUrlTip,
+						onHoverEnter: markLinkUrlHoverEnter,
+						onHoverLeave: scheduleLinkUrlHide,
 					}}
 					cardScreen={cardScreen}
 					onCardHoverEnter={markCardHoverEnter}

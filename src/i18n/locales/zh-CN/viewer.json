@@ -7,6 +7,7 @@
 		"goToPage": "跳转到页",
 		"outline": "目录",
 		"linkAria": "PDF 链接",
+		"linkUrl": "链接地址",
 		"paperTone": "页面背景",
 		"paperToneOption": {
 			"white": "白纸",

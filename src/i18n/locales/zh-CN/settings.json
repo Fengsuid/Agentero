@@ -266,6 +266,15 @@
 			"label": "行距",
 			"value": "{{value}}"
 		},
+		"wikiEmbedFontSize": {
+			"label": "双链嵌入字号",
+			"value": "{{size}} px"
+		},
+		"markdownMaxWidth": {
+			"label": "Markdown 最大宽度",
+			"full": "全宽",
+			"value": "{{width}} px"
+		},
 		"editorToolbar": {
 			"label": "格式工具栏"
 		}

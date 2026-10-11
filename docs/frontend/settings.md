@@ -99,6 +99,8 @@
 - Markdown 编辑器（Appearance → Markdown editor）：
   - `editorFontSize`：12–20 px（默认 14，阅读区可略大于 chrome）。
   - `editorLineHeight`：1.4–2.0（步长 0.1，默认 1.6）。
+  - `wikiEmbedFontSize`：批注嵌入里被引用的位置行、原文和译文，以及 Markdown 嵌入正文，12–20 px（默认 13，再乘 `uiScale`）。卡片标题栏仍用 Callout。批注备注跟 `editorFontSize`，不跟这个滑块。
+  - `markdownMaxWidth`：Markdown 编辑列最大宽度。`0`（默认）为面板全宽；可选 640 / 720 / 800 / 960 / 1120 CSS px，列居中。不乘 `uiScale`。导出面不使用该宽度。
 - `batchImportConcurrency`：魔棒批量导入及后续资源下载的并发上限，范围 1–10，默认 5。
 - `paperNoteMode`：新导入论文 NOTES.md 壳的初始化方式，四档：
   - `standard`（默认）：aliases + `# 标题` + 摘要引用块（zh-CN 机翻，失败省略）。

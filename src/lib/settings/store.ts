@@ -22,6 +22,8 @@ import {
 } from "@/lib/pdf/layout/settings";
 import {
 	clampEditorLineHeight,
+	clampMarkdownMaxWidth,
+	clampWikiEmbedFontSize,
 	DECISION_PROVIDER_PRESETS,
 	DEFAULT_DECISION_SETTINGS,
 	DEFAULT_EMBEDDING_SETTINGS,
@@ -491,6 +493,8 @@ function normalizePartial(
 		merged.textFontFamily = normalizeFontFamilyValue(legacyEditorFontFamily);
 	}
 	merged.editorLineHeight = clampEditorLineHeight(merged.editorLineHeight);
+	merged.wikiEmbedFontSize = clampWikiEmbedFontSize(merged.wikiEmbedFontSize);
+	merged.markdownMaxWidth = clampMarkdownMaxWidth(merged.markdownMaxWidth);
 	if (
 		merged.agentPermissionMode !== "restricted" &&
 		merged.agentPermissionMode !== "ask" &&

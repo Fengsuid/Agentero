@@ -183,6 +183,12 @@ pub struct AppSettings {
     pub ui_scale: f64,
     #[serde(default = "default_true")]
     pub show_editor_toolbar: bool,
+    /// Body size of wikilink embeds, px before UI scale. Range 12–20, default 13.
+    #[serde(default = "default_wiki_embed_font_size")]
+    pub wiki_embed_font_size: u32,
+    /// Markdown column max width in CSS px. 0 = full pane. Presets only.
+    #[serde(default = "default_markdown_max_width")]
+    pub markdown_max_width: u32,
     #[serde(default = "default_permission_mode")]
     pub agent_permission_mode: String,
     #[serde(default)]
@@ -445,6 +451,8 @@ impl Default for AppSettings {
             editor_line_height: default_editor_line_height(),
             ui_scale: default_ui_scale(),
             show_editor_toolbar: true,
+            wiki_embed_font_size: default_wiki_embed_font_size(),
+            markdown_max_width: default_markdown_max_width(),
             agent_permission_mode: default_permission_mode(),
             auto_paper_reader: false,
             ai_response_language: default_ai_response_language(),
@@ -537,6 +545,20 @@ fn default_editor_font_size() -> u32 {
 }
 fn default_editor_line_height() -> f64 {
     1.6
+}
+fn default_wiki_embed_font_size() -> u32 {
+    13
+}
+fn default_markdown_max_width() -> u32 {
+    0
+}
+fn normalize_markdown_max_width(value: u32) -> u32 {
+    const ALLOWED: &[u32] = &[0, 640, 720, 800, 960, 1120];
+    if ALLOWED.contains(&value) {
+        value
+    } else {
+        default_markdown_max_width()
+    }
 }
 
 fn normalize_font_family_value(raw: &str) -> String {
@@ -1244,6 +1266,10 @@ fn normalize(s: &mut AppSettings) {
     if s.editor_font_size < 10 || s.editor_font_size > 32 {
         s.editor_font_size = default_editor_font_size();
     }
+    if !(12..=20).contains(&s.wiki_embed_font_size) {
+        s.wiki_embed_font_size = default_wiki_embed_font_size();
+    }
+    s.markdown_max_width = normalize_markdown_max_width(s.markdown_max_width);
     s.interface_font_family = normalize_font_family_value(&s.interface_font_family);
     s.text_font_family = normalize_font_family_value(&s.text_font_family);
     s.mono_font_family = normalize_font_family_value(&s.mono_font_family);
@@ -1732,6 +1758,27 @@ mod tests {
         normalize(&mut s);
         assert_eq!(s.pdf_scroll_strategy, "vertical");
         assert_eq!(s.pdf_spread_mode, "none");
+    }
+
+    #[test]
+    fn normalize_reading_layout_prefs() {
+        let mut invalid = AppSettings {
+            wiki_embed_font_size: 99,
+            markdown_max_width: 500,
+            ..AppSettings::default()
+        };
+        normalize(&mut invalid);
+        assert_eq!(invalid.wiki_embed_font_size, 13);
+        assert_eq!(invalid.markdown_max_width, 0);
+
+        let mut valid = AppSettings {
+            wiki_embed_font_size: 18,
+            markdown_max_width: 800,
+            ..AppSettings::default()
+        };
+        normalize(&mut valid);
+        assert_eq!(valid.wiki_embed_font_size, 18);
+        assert_eq!(valid.markdown_max_width, 800);
     }
 
     #[test]

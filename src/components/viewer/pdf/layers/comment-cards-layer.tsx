@@ -1,7 +1,7 @@
 /**
  * Comment rail: one persistent card per annotated highlight / visual note,
  * pinned just outside the page's right edge (`left: 100%` inside the
- * overflow-visible page container, same trick as PageTranslateTab). Cards
+ * overflow-visible page container). Cards
  * stack vertically with collision avoidance and clamp into the page height.
  *
  * Click a card to edit the note in place (Notion-style): the body becomes a

@@ -9,6 +9,12 @@ import { EmbedStatus } from "@/components/editor/embeds/embed-status";
 import { useMarkdownExportMode } from "@/components/editor/markdown-export-mode-context";
 import { createKeyedCache } from "@/lib/core/keyed-cache";
 import { cn } from "@/lib/core/utils";
+
+/** Cited excerpt: location, quote, and its translation. */
+const EMBED_SOURCE_TEXT = "text-[length:var(--wiki-embed-font-size,13px)]";
+/** Notes follow the editor body size. Beats MessageResponse's `text-base`. */
+const EMBED_NOTE_TEXT = "!text-[length:inherit]";
+
 import { visualTraceImageAssetRelPath } from "@/lib/pdf/agent-trace/image";
 import {
 	type AnnotationRef,
@@ -305,7 +311,10 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 					/>
 				)}
 				<span
-					className="min-w-0 truncate font-medium text-caption text-muted-foreground tracking-wide"
+					className={cn(
+						"min-w-0 truncate font-medium text-muted-foreground tracking-wide",
+						EMBED_SOURCE_TEXT,
+					)}
 					title={locationLabel ?? undefined}
 				>
 					{locationLabel}
@@ -315,13 +324,19 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 			{hasQuote ? (
 				<blockquote
 					className={cn(
-						"mt-1.5 border-l-2 pl-2.5 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words",
+						"mt-1.5 border-l-2 pl-2.5 leading-relaxed text-muted-foreground whitespace-pre-wrap break-words",
+						EMBED_SOURCE_TEXT,
 						swatchBorderClass(color),
 					)}
 				>
 					{ref.quote}
 					{pairedTranslation && !isVisual ? (
-						<span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground/60 whitespace-pre-wrap break-words">
+						<span
+							className={cn(
+								"mt-1 block leading-relaxed text-muted-foreground/60 whitespace-pre-wrap break-words",
+								EMBED_SOURCE_TEXT,
+							)}
+						>
 							{pairedTranslation}
 						</span>
 					) : null}
@@ -332,7 +347,7 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 			{isVisual && hasComment ? (
 				<div
 					className={cn(
-						"flex min-w-0 items-start gap-1.5 text-sm text-foreground/90 leading-relaxed",
+						"flex min-w-0 items-start gap-1.5 text-foreground/90 leading-relaxed",
 						hasQuote ? "mt-2" : "mt-1.5",
 					)}
 				>
@@ -340,7 +355,12 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 						className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
 						aria-hidden
 					/>
-					<MessageResponse className="min-w-0 flex-1 text-sm leading-relaxed [&_p]:my-0">
+					<MessageResponse
+						className={cn(
+							"min-w-0 flex-1 leading-relaxed [&_p]:my-0",
+							EMBED_NOTE_TEXT,
+						)}
+					>
 						{ref.comment}
 					</MessageResponse>
 				</div>
@@ -363,11 +383,11 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 			{ref.kind === "highlight" && hasComment ? (
 				<div
 					className={cn(
-						"min-w-0 text-sm text-foreground/85 leading-relaxed",
+						"min-w-0 text-foreground/85 leading-relaxed",
 						hasQuote || hasImage ? "mt-2" : "mt-1.5",
 					)}
 				>
-					<MessageResponse className="text-sm leading-relaxed">
+					<MessageResponse className={cn("leading-relaxed", EMBED_NOTE_TEXT)}>
 						{ref.comment}
 					</MessageResponse>
 				</div>
@@ -385,7 +405,7 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 						<div
 							key={m.id}
 							className={cn(
-								"min-w-0 rounded-md px-2.5 py-1.5 text-sm leading-relaxed",
+								"min-w-0 rounded-md px-2.5 py-1.5 leading-relaxed",
 								m.role === "user"
 									? "bg-primary/10 text-foreground/90"
 									: "bg-muted/70 text-foreground/85",
@@ -396,7 +416,9 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 									? t("embed.annotationRoleUser")
 									: t("embed.annotationRoleAssistant")}
 							</div>
-							<MessageResponse className="text-sm leading-relaxed">
+							<MessageResponse
+								className={cn("leading-relaxed", EMBED_NOTE_TEXT)}
+							>
 								{m.content}
 							</MessageResponse>
 						</div>

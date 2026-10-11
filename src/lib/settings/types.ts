@@ -316,6 +316,18 @@ export type AppSettings = {
 	uiScale: number;
 	/** Show the WYSIWYG formatting toolbar above Markdown/notes editors. */
 	showEditorToolbar: boolean;
+	/**
+	 * Font size of the cited excerpt inside `![[wikilink]]` embeds (px, before
+	 * UI scale): annotation location, quote, and translation, plus a Markdown
+	 * embed's body. The card title stays on the callout scale. Annotation notes
+	 * follow `editorFontSize`. Range 12–20; default 13.
+	 */
+	wikiEmbedFontSize: number;
+	/**
+	 * Max width of the Markdown editor column in CSS px. `0` means the column
+	 * fills the pane. Not multiplied by {@link uiScale}.
+	 */
+	markdownMaxWidth: number;
 	// Agent (local UI prefs; registry lives in Host agents.json)
 	/** Global permission handling applied to every agent run. */
 	agentPermissionMode: AgentPermissionMode;

@@ -37,7 +37,8 @@ export const EmbeddedMarkdownProjection = memo(
 					<Plate editor={editor}>
 						<Editor
 							readOnly
-							className="min-h-0 w-full min-w-0 cursor-default break-words px-4 pt-2 pb-3 text-sm leading-relaxed [&>*:first-child]:mt-0"
+							className="min-h-0 w-full min-w-0 cursor-default break-words px-4 pt-2 pb-3 leading-relaxed [&>*:first-child]:mt-0"
+							style={{ fontSize: "var(--wiki-embed-font-size, 13px)" }}
 						/>
 					</Plate>
 				</MarkdownDocProvider>

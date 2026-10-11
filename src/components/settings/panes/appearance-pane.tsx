@@ -27,6 +27,9 @@ import {
 	EDITOR_LINE_HEIGHT_MAX,
 	EDITOR_LINE_HEIGHT_MIN,
 	EDITOR_LINE_HEIGHT_STEP,
+	MARKDOWN_MAX_WIDTH_PRESETS,
+	WIKI_EMBED_FONT_SIZE_MAX,
+	WIKI_EMBED_FONT_SIZE_MIN,
 } from "@/lib/settings";
 import {
 	applyUiTheme,
@@ -47,6 +50,8 @@ export type AppearancePaneProps = {
 	monoFontFamily: string;
 	editorLineHeight: number;
 	showEditorToolbar: boolean;
+	wikiEmbedFontSize: number;
+	markdownMaxWidth: number;
 	patch: (p: Partial<AppSettings>) => void;
 };
 
@@ -61,6 +66,8 @@ function AppearancePaneInner({
 	monoFontFamily,
 	editorLineHeight,
 	showEditorToolbar,
+	wikiEmbedFontSize,
+	markdownMaxWidth,
 	patch,
 }: AppearancePaneProps) {
 	const { t } = useTranslation("settings");
@@ -70,6 +77,8 @@ function AppearancePaneInner({
 	const textFontId = useId();
 	const monoFontId = useId();
 	const lineHeightId = useId();
+	const wikiEmbedFontId = useId();
+	const markdownWidthId = useId();
 	const uiScaleId = useId();
 	const [themeDefs, setThemeDefs] = useState<UiThemeDef[]>([]);
 
@@ -85,6 +94,19 @@ function AppearancePaneInner({
 		}, 150);
 		return () => clearTimeout(id);
 	}, [fontSize, editorFontSize, patch]);
+
+	const [embedFontSize, setEmbedFontSize] = useState(wikiEmbedFontSize);
+	useEffect(() => {
+		setEmbedFontSize(wikiEmbedFontSize);
+	}, [wikiEmbedFontSize]);
+
+	useEffect(() => {
+		if (embedFontSize === wikiEmbedFontSize) return;
+		const id = setTimeout(() => {
+			patch({ wikiEmbedFontSize: embedFontSize });
+		}, 150);
+		return () => clearTimeout(id);
+	}, [embedFontSize, wikiEmbedFontSize, patch]);
 
 	const [lineHeight, setLineHeight] = useState(editorLineHeight);
 	useEffect(() => {
@@ -406,6 +428,61 @@ function AppearancePaneInner({
 							})}
 						</span>
 					</div>
+				</SettingsRow>
+				<SettingsRow
+					label={t("appearance.wikiEmbedFontSize.label")}
+					htmlFor={wikiEmbedFontId}
+				>
+					<div className="flex items-center gap-2">
+						<input
+							id={wikiEmbedFontId}
+							type="range"
+							min={WIKI_EMBED_FONT_SIZE_MIN}
+							max={WIKI_EMBED_FONT_SIZE_MAX}
+							step={1}
+							value={embedFontSize}
+							onChange={(e) => setEmbedFontSize(Number(e.target.value))}
+							aria-valuemin={WIKI_EMBED_FONT_SIZE_MIN}
+							aria-valuemax={WIKI_EMBED_FONT_SIZE_MAX}
+							aria-valuenow={embedFontSize}
+							aria-valuetext={t("appearance.wikiEmbedFontSize.value", {
+								size: embedFontSize,
+							})}
+							className="w-28 accent-primary"
+						/>
+						<span className="w-12 text-right text-muted-foreground text-xs tabular-nums">
+							{t("appearance.wikiEmbedFontSize.value", { size: embedFontSize })}
+						</span>
+					</div>
+				</SettingsRow>
+				<SettingsRow
+					label={t("appearance.markdownMaxWidth.label")}
+					htmlFor={markdownWidthId}
+				>
+					<Select
+						value={String(markdownMaxWidth)}
+						onValueChange={(value) =>
+							patch({ markdownMaxWidth: Number(value) })
+						}
+					>
+						<SelectTrigger
+							id={markdownWidthId}
+							size="sm"
+							className="min-w-[120px]"
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="0">
+								{t("appearance.markdownMaxWidth.full")}
+							</SelectItem>
+							{MARKDOWN_MAX_WIDTH_PRESETS.map((width) => (
+								<SelectItem key={width} value={String(width)}>
+									{t("appearance.markdownMaxWidth.value", { width })}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 				</SettingsRow>
 				<SettingsRow
 					label={t("appearance.editorToolbar.label")}
