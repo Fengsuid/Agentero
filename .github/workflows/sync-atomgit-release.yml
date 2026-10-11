@@ -153,9 +153,19 @@ jobs:
           export ATOMGIT_GIT_PASSWORD="${ATOMGIT_TOKEN}"
           export GIT_ASKPASS="${askpass}"
           export GIT_TERMINAL_PROMPT=0
-          if ! git push "https://${username}@${ATOMGIT_GIT_HOST}/${ATOMGIT_REPOSITORY}.git" \
-            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"; then
-            echo "::warning::Could not push ${RELEASE_TAG} to AtomGit; leaving it to the repository mirror"
+          if ! pushed="$(git push "https://${username}@${ATOMGIT_GIT_HOST}/${ATOMGIT_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" 2>&1)"; then
+            printf '%s\n' "${pushed}"
+            # A pull-mirror rejects every push outright, so name that cause
+            # instead of leaving the next operator to decode a bare HTTP 403.
+            case "${pushed}" in
+              *"image repository"* | *CH.00905403*)
+                echo "::warning::AtomGit rejects pushes to ${ATOMGIT_REPOSITORY}: it is a pull-mirror (image) repository, so ${RELEASE_TAG} can only arrive from the mirrored upstream. Convert it to a normal repository if CI should own tags."
+                ;;
+              *)
+                echo "::warning::Could not push ${RELEASE_TAG} to AtomGit; leaving it to the repository mirror"
+                ;;
+            esac
           fi
       - name: Synchronize release notes and every uploaded asset
         env:

@@ -37,9 +37,11 @@
 
 同步在 Release 仍为 Draft 时执行：`GITHUB_TOKEN` 需要 `contents: write`（草稿仅对具备 push 权限的令牌出现在 releases 列表中），脚本通过列表接口按 tag 解析 Release，而不是只返回已发布版本的 `releases/tags/<tag>` 接口。
 
-AtomGit 不会像 GitHub 那样用 `target_commitish` 自动建 tag，tag 缺失时 `POST /releases` 只返回无法解释的 HTTP 400。仓库自带镜像可以滞后 GitHub 数小时，因此同步 job 现在**自己推送该 release tag**：`git push` 到 `ATOMGIT_REPOSITORY`，不带 `--force`，所以远端已存在且指向别处的 tag 会被拒绝、原样保留，再由脚本的 SHA 校验暴露成 commit 不一致，不会被静默改写。只推这一个 tag，不推分支、不移动已有 tag。推送失败（例如令牌无仓库写权限）只告警并退回依赖镜像，不额外制造失败点。
+AtomGit 不会像 GitHub 那样用 `target_commitish` 自动建 tag，tag 缺失时 `POST /releases` 只返回无法解释的 HTTP 400，而仓库自带镜像可以滞后 GitHub 数小时。同步 job 因此会尝试自己推送该 release tag：`git push` 到 `ATOMGIT_REPOSITORY`，不带 `--force`（远端已存在且指向别处的 tag 被拒绝并原样保留，再由脚本的 SHA 校验暴露成 commit 不一致），令牌经 `GIT_ASKPASS` 传递、不出现在远端 URL 或命令行参数中，git 用户名由令牌查 `/api/v5/user` 的 `login` 得到，无需额外 secret。
 
-脚本在创建 Release **前**仍会等待 AtomGit 同名 tag 就位（有界退避轮询，约 2.5 分钟后放弃），作为推送不可用时的兜底；tag 缺失会明确报 `AtomGit has not mirrored tag …`。tag 就位后校验其 SHA 与 GitHub 一致，再用该 commit 创建 Release。目标提交不存在或 tag 不一致时，先修复仓库镜像，再重跑同步。
+实测该推送对 `poco-ai/Agentero` 恒定失败：它在 AtomGit 上是拉取镜像仓库（image repository），平台拒绝一切 push（`403 <CH.00905403> This operation is not allowed because the repository is an image repository`），且镜像同步会直接覆盖镜像仓库代码，推上去也会被下次同步冲掉。步骤识别这个报文后给出明确告警并退回依赖镜像，不会令 job 失败；`git fetch`、用户名查询和 `git push` 的任何失败在 `set -e` 下同样只告警。要让 CI 真正拥有 tag，需先把 AtomGit 仓库改成普通仓库，代价是失去自动代码镜像、改由 CI 推送分支。见 #752。
+
+脚本在创建 Release **前**仍会等待 AtomGit 同名 tag 就位（有界退避轮询，约 2.5 分钟后放弃）；tag 缺失会明确报 `AtomGit has not mirrored tag …`，等镜像追上后按 tag 重跑即可。tag 就位后校验其 SHA 与 GitHub 一致，再用该 commit 创建 Release。目标提交不存在或 tag 不一致时，先修复仓库镜像，再重跑同步。
 
 - 构建完成时 GitHub 仍为 Draft，AtomGit 同步为 `pre`（**预发布可公开访问，不是私有草稿**）。
 - GitHub Release `published` / `edited` 事件会再次同步当前说明和附件；仅当来源是 GitHub 当前最新稳定版且所有附件校验通过，才标记 AtomGit `latest`。手动补传旧稳定版不会抢占最新版本；新建的历史版本保留 `pre`。
