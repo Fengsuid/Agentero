@@ -112,17 +112,25 @@ jobs:
           fi
           # Fetch only when the tag is not already local: a tag-triggered run
           # has it checked out, and re-fetching into that ref can be refused.
+          # Nothing below is fatal under `set -e`: a transient git or API failure
+          # must degrade to the mirror, not fail an otherwise healthy release
+          # sync. waitForTag still gates the release, so the guarantee holds.
           if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}" >/dev/null; then
-            git fetch --no-tags origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            git fetch --no-tags origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" || {
+              echo "::warning::Could not fetch ${RELEASE_TAG} from origin; leaving it to the repository mirror"
+              exit 0
+            }
           fi
           username="${ATOMGIT_GIT_USERNAME}"
           if [ -z "${username}" ]; then
             # The git HTTPS user is the account login, which the token can name
-            # itself; no extra secret to provision.
+            # itself; no extra secret to provision. `|| true` because pipefail
+            # would otherwise turn a curl failure into a failed assignment.
             username="$(curl -sS --max-time 30 \
               -H "Authorization: Bearer ${ATOMGIT_TOKEN}" \
               "https://api.atomgit.com/api/v5/user" \
-              | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).login||"")}catch{console.log("")}})')"
+              | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).login||"")}catch{console.log("")}})' \
+              || true)"
           fi
           if [ -z "${username}" ]; then
             echo "::warning::Could not resolve an AtomGit git username; leaving ${RELEASE_TAG} to the repository mirror"
