@@ -69,6 +69,10 @@ function CitationPreviewRow({
 		(citationImportIdentifier(citation) != null || importMenu?.remotePaper);
 	const link = citationExternalUrl(citation);
 	const importing = importMenu?.importingId === citation.id;
+	// Numbered refs show `[7]`. Unnumbered bib keys become `cite-…` ids with no
+	// spaces; `shrink-0` lets that string paint past the 300px card.
+	const label =
+		citation.display || citation.id.replace(/^ref-?/i, "") || citation.id;
 
 	const importIcon = importing ? (
 		<Loader2 className="size-3.5 animate-spin" aria-hidden />
@@ -80,17 +84,11 @@ function CitationPreviewRow({
 		<div
 			className={showDivider ? "border-border/60 border-t pt-2.5" : undefined}
 		>
-			<div className="flex items-center justify-between gap-2">
-				{citation.display ? (
-					<span className="shrink-0 font-medium text-caption text-muted-foreground tabular-nums">
-						{citation.display}
-					</span>
-				) : (
-					<span className="shrink-0 font-medium text-caption text-muted-foreground tabular-nums">
-						{citation.id.replace(/^ref-?/i, "") || citation.id}
-					</span>
-				)}
-				<span className="flex items-center gap-1">
+			<div className="flex items-start justify-between gap-2">
+				<span className="min-w-0 break-all font-medium text-caption text-muted-foreground tabular-nums">
+					{label}
+				</span>
+				<span className="flex shrink-0 items-center gap-1">
 					{inLibrary ? (
 						<BookCheck
 							className="size-3.5 text-emerald-600 dark:text-emerald-500"
