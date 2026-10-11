@@ -60,7 +60,8 @@
   - 以 `PaperMutation` 或等价用例保存字段 patch 语义，读改写在一个 DB 事务内完成；不把所有更新统一成全行覆盖。
   - 同事务记录待投影版本，由有序 projector 写 sidecar；失败可重试，旧版本不得覆盖新版本。同步扫描前排空相关投影或显式报告未就绪。
   - 验收：并发改不同字段不丢值；投影失败、乱序及重启后可恢复；Catalog 始终是结构化 metadata 的事实来源。
-- [ ] **B2 明确远端 snapshot/publish 边界**（R1 一致快照已完成，其余未开始）
+- [ ] **B2 明确远端 snapshot/publish 边界**（R1 一致快照与读取刷新已完成，发布协调待完成）
+  - 2026-10-10：连接与论文列表刷新读取含 WAL 的服务器快照，保留未发布修改，只读断开不发布；远端原子 CAS、多写者协调与完整会话清退仍未完成。
   - 以一致快照发布 Catalog，保持冲突检查；将连接、work-root 和待发布投影纳入远端会话生命周期。
   - 修正 remote commit 先上传目录、后在 staging 生成 sidecar 的顺序缺口（`integration/remote/paper_commit.rs:84`）。
   - 验收：活跃连接写入后 push/pull 数据完整；sidecar 到达正确目标；失败不误报已发布；断开清退连接后才能清理临时目录。

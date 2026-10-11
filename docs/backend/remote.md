@@ -18,6 +18,10 @@
 
 ## Catalog 发布
 
+连接与 `remote_paper_list` 通过 SSH 调用服务器的 `python3` 标准库 `sqlite3`，只读执行 `VACUUM INTO`，读取包含已提交 WAL 内容的一致快照。服务器需提供 `python3` 及 `sqlite3` 模块；失败时不回退到裸读主文件。
+
+重新加载论文列表（含手动刷新）通过 SQLite backup API 更新 work mirror，与现有 Catalog 操作共用连接锁；单篇查询继续读取本机镜像。未发布的本机修改不会被刷新覆盖，只读断开不发布。远端非空 WAL 尚在时拒绝替换主库，需关闭远端数据库连接后重新打开 Vault；仍按单写者使用。
+
 本机 work mirror 开启 WAL。初始化远端 Catalog 与每次 push 都通过 SQLite `VACUUM INTO` 导出独立一致快照，读取已提交的主库与 WAL 内容；其他写连接保持打开或存在未提交事务时也不依赖连接关闭/checkpoint。临时快照在成功或失败后自动清理，导出失败不上传。
 
 发布仍先检查远端 size/mtime 是否与上次一致，再上传临时文件并 rename（不支持时回退覆盖）；该检查保留现有乐观冲突语义，不是远端原子 CAS。快照只包含开始读取时可见的已提交数据，之后的修改由后续 push 发布。sidecar 投影及远端会话清退仍见架构计划 B1/B2。

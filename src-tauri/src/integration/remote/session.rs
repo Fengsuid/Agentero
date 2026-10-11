@@ -1,6 +1,7 @@
 //! Active remote vault sessions (SSH/SFTP or local-sim for tests).
 
 use super::catalog_mirror::CatalogMirror;
+use super::catalog_snapshot::CatalogSource;
 use crate::core::error::AppError;
 use crate::core::fs::{FsCaps, LocalFs, VaultFs};
 use serde::Serialize;
@@ -107,6 +108,7 @@ impl RemoteRegistry {
             return Err(AppError::message("host and remotePath are required"));
         }
 
+        let source;
         let (kind, fs, display_name): (String, Arc<dyn VaultFs>, String) = if host == LOCAL_SIM_HOST
         {
             let root = PathBuf::from(remote_path);
@@ -117,6 +119,7 @@ impl RemoteRegistry {
                 )));
             }
             let display = format!("local-sim:{}", root.display());
+            source = CatalogSource::Local(root.clone());
             ("local-sim".into(), Arc::new(LocalFs::new(root)), display)
         } else {
             #[cfg(unix)]
@@ -128,6 +131,10 @@ impl RemoteRegistry {
                 };
                 let sftp = SftpFs::connect(&destination, remote_path).await?;
                 let display = format!("{destination}:{remote_path}");
+                source = CatalogSource::Ssh {
+                    destination,
+                    root: remote_path.to_string(),
+                };
                 ("ssh".into(), Arc::new(sftp) as Arc<dyn VaultFs>, display)
             }
             #[cfg(not(unix))]
@@ -153,7 +160,7 @@ impl RemoteRegistry {
         std::fs::create_dir_all(&work_root)?;
         std::fs::create_dir_all(&blob_root)?;
 
-        let catalog = CatalogMirror::checkout(fs.clone(), &work_root).await?;
+        let catalog = CatalogMirror::checkout(fs.clone(), &work_root, source).await?;
 
         let session = Arc::new(RemoteSession {
             id: session_id.clone(),
@@ -647,9 +654,16 @@ mod tests {
         let pull_root =
             std::env::temp_dir().join(format!("agentero-live-pull-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&pull_root).unwrap();
-        let _mirror = CatalogMirror::checkout(session.fs.clone(), &pull_root)
-            .await
-            .expect("re-checkout catalog from remote");
+        let _mirror = CatalogMirror::checkout(
+            session.fs.clone(),
+            &pull_root,
+            CatalogSource::Ssh {
+                destination: host.clone(),
+                root: path.clone(),
+            },
+        )
+        .await
+        .expect("re-checkout catalog from remote");
         let pulled = papers::get_by_path(&pull_root, "papers/attention-is-all-you-need")
             .expect("get after pull");
         check!(

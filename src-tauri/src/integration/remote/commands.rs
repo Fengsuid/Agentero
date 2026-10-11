@@ -306,6 +306,10 @@ pub async fn remote_paper_list(
     args: RemoteSessionArgs,
 ) -> Result<ApiResult<Vec<PaperRecord>>, String> {
     let session = try_session!(registry, &args.session_id);
+    let mut catalog = session.catalog.lock().await;
+    if let Err(e) = catalog.refresh(session.fs.clone()).await {
+        return Ok(map_err(e));
+    }
     let work = session.work_root.clone();
     match papers::list_all(&work) {
         Ok(rows) => Ok(ApiResult::ok(rows)),
