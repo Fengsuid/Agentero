@@ -317,9 +317,10 @@ export type AppSettings = {
 	/** Show the WYSIWYG formatting toolbar above Markdown/notes editors. */
 	showEditorToolbar: boolean;
 	/**
-	 * Body font size inside `![[wikilink]]` embeds (px, before UI scale).
-	 * Chrome (title, quotes) stays on the caption/callout scale. Range 12–20;
-	 * default 13, matching the previous `text-sm` body.
+	 * Font size of the cited excerpt inside `![[wikilink]]` embeds (px, before
+	 * UI scale): annotation location, quote, and translation, plus a Markdown
+	 * embed's body. The card title stays on the callout scale. Annotation notes
+	 * follow `editorFontSize`. Range 12–20; default 13.
 	 */
 	wikiEmbedFontSize: number;
 	/**
