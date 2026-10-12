@@ -22,6 +22,39 @@ function looksLikeInlineTokenCommit(
 	);
 }
 
+const SELECTION_MARKER_RE = /\{\{sel:[^}]+\}\}/g;
+
+function selectionMarkerCount(text: string): number {
+	return text.match(SELECTION_MARKER_RE)?.length ?? 0;
+}
+
+function proseWithoutSelectionMarkers(text: string): string {
+	return text
+		.replace(SELECTION_MARKER_RE, "")
+		.replace(/[ \t]{2,}/g, " ")
+		.trim();
+}
+
+/**
+ * A pin landed in the controlled draft while the field still shows the prose
+ * it was appended to. Applying keeps the new quote; a draft whose words
+ * differ is left alone so an in-flight keystroke is not replaced.
+ */
+function looksLikeIncomingSelection(
+	currentDomValue: string,
+	nextValue: string,
+): boolean {
+	if (
+		selectionMarkerCount(nextValue) <= selectionMarkerCount(currentDomValue)
+	) {
+		return false;
+	}
+	return (
+		proseWithoutSelectionMarkers(nextValue) ===
+		proseWithoutSelectionMarkers(currentDomValue)
+	);
+}
+
 /**
  * Decide whether a controlled Composer value may rebuild the contenteditable DOM.
  *
@@ -50,7 +83,7 @@ export function decideComposerExternalValueSync({
 		nextValue !== currentDomValue;
 
 	if (!userOwnedDom) return "apply";
-	return looksLikeInlineTokenCommit(currentDomValue, nextValue)
-		? "apply"
-		: "defer";
+	if (looksLikeInlineTokenCommit(currentDomValue, nextValue)) return "apply";
+	if (looksLikeIncomingSelection(currentDomValue, nextValue)) return "apply";
+	return "defer";
 }

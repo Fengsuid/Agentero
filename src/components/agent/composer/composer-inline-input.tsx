@@ -29,6 +29,7 @@ import {
 } from "@/lib/agent/composer-inline-tokens";
 import { decideComposerExternalValueSync } from "@/lib/agent/composer-sync";
 import { plazaMentionTitle } from "@/lib/agent/plaza-mention";
+import { selectionLineLabel } from "@/lib/agent/selection-line-label";
 import { filesFromDataTransfer } from "@/lib/core/file-accept";
 import { isImeKeyboardEvent } from "@/lib/core/ime";
 import { basenameOf } from "@/lib/core/path";
@@ -44,7 +45,7 @@ const INLINE_CHIP_CLASS =
 	"composer-inline-chip mx-0.5 inline-flex max-w-[7rem] shrink-0 items-center gap-0.5 rounded-md border border-border/80 bg-muted/40 px-1 align-middle text-[0.8125em] leading-[1.25] text-foreground hover:bg-muted";
 
 const SELECTION_CHIP_CLASS =
-	"composer-inline-chip mx-0.5 inline-flex max-w-[10rem] shrink-0 items-center gap-0.5 rounded-md border border-primary/30 bg-primary/10 px-1 align-middle text-[0.8125em] leading-[1.25] text-foreground hover:bg-primary/20";
+	"composer-inline-chip mx-0.5 inline-flex max-w-[min(14rem,100%)] min-w-0 shrink-0 items-center gap-0.5 overflow-hidden rounded-md border border-primary/30 bg-primary/10 px-1 align-middle text-[0.8125em] leading-[1.25] text-foreground hover:bg-primary/20";
 
 const CHIP_ANIMATION_CLASS =
 	"motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-200 motion-reduce:animate-none";
@@ -161,6 +162,22 @@ function appendSkillIcon(chip: HTMLElement) {
 		],
 		"size-3 shrink-0 text-muted-foreground",
 	);
+}
+
+/** Lucide `quote` glyph for an inline selection / block reference. */
+function appendQuoteIcon(chip: HTMLElement) {
+	appendLucideIcon(
+		chip,
+		[
+			"M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z",
+			"M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z",
+		],
+		"size-3 shrink-0 text-muted-foreground",
+	);
+}
+
+function selectionReferenceSnippet(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
 }
 
 function appendSkillLabel(chip: HTMLElement, name: string, skillId: string) {
@@ -484,18 +501,28 @@ function renderChip(
 		chip.dataset.selectionId = selection.id;
 		chip.setAttribute(TOKEN_ATTR, token);
 
-		const label = document.createElement("span");
-		label.className = "min-w-0 truncate";
-		const title = truncateToChars(
-			labelForPath(selection.sourcePath),
-			MAX_CHIP_TITLE_CHARS,
-		);
-		label.textContent = selection.page
-			? t("composer.selectionChipWithPage", { title, page: selection.page })
-			: t("composer.selectionChip", { title });
-		label.title = [selection.text, selection.comment]
+		const name =
+			basenameOf(selection.sourcePath) ||
+			labelForPath(selection.sourcePath) ||
+			t("composer.selection");
+		const source =
+			(selection.page
+				? t("composer.selectionChipWithPage", {
+						title: name,
+						page: selection.page,
+					})
+				: null) ??
+			selectionLineLabel(t, selection, name) ??
+			name;
+		const snippet = selectionReferenceSnippet(selection.text) || source;
+		const detail = [source, selection.text, selection.comment]
 			.filter(Boolean)
 			.join("\n\n");
+		appendQuoteIcon(chip);
+		const label = document.createElement("span");
+		label.className = "min-w-0 truncate";
+		label.textContent = snippet;
+		chip.title = detail;
 		chip.appendChild(label);
 
 		chip.setAttribute("aria-label", t("composer.removeSelection"));

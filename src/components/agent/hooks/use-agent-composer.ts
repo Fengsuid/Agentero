@@ -27,12 +27,11 @@ import type { AgentSkill } from "@/lib/agent";
 import type { ChatLine } from "@/lib/agent/chat-state";
 import {
 	appendMissingInlineTokens,
+	appendSelectionTokens,
 	encodeCommandToken,
 	encodeMentionToken,
-	encodeSelectionToken,
 	encodeSkillToken,
 	extractMentionPaths,
-	extractSelectionTokens,
 	extractSkillIds,
 	plainTriggerSuffix,
 	replaceTrailingTriggerWithToken,
@@ -125,7 +124,6 @@ export type AgentComposer = {
 	setSlashActiveIndex: Dispatch<SetStateAction<number>>;
 	currentFileLabel: string;
 	mentionChipPaths: string[];
-	selectionChips: SelectionContext[];
 	visualDrafts: PdfVisualDraft[];
 	removeContextPath: (path: string) => void;
 	selectedSkills: AgentSkill[];
@@ -235,10 +233,10 @@ export function useAgentComposer({
 	// Only explicitly pinned selections (Add to chat / ⌘L / ⇧⌘A) enter the draft.
 	// Live drag-selection stays in the store until pinActiveSelection freezes it.
 	const pinnedSelections = useSelectionStore((s) => s.pinned);
-	const selectionChips = pinnedSelections;
 
-	// Move newly pinned selections into the draft's annotation summary, then
-	// drop them from the ephemeral store. They are hidden from the inline editor.
+	// Move newly pinned selections into the draft, after the text already
+	// written, then drop them from the ephemeral store. The inline editor
+	// renders each quote as one reference block.
 	const prevPinnedRef = useRef<SelectionContext[]>([]);
 	useEffect(() => {
 		const prev = prevPinnedRef.current;
@@ -249,16 +247,7 @@ export function useAgentComposer({
 			}
 		}
 		if (inserted.length > 0) {
-			setComposerText((current) => {
-				const existing = new Set(
-					extractSelectionTokens(current).map((selection) => selection.id),
-				);
-				const tokens = inserted
-					.filter((selection) => !existing.has(selection.id))
-					.map(encodeSelectionToken)
-					.join("");
-				return tokens ? `${tokens}${current}` : current;
-			});
+			setComposerText((current) => appendSelectionTokens(current, inserted));
 			for (const sel of inserted) {
 				removeSelection(sel.id);
 			}
@@ -270,7 +259,7 @@ export function useAgentComposer({
 
 	// Markers count as atoms so `$` / `@` inside `{{s:…}}` / `{{m:…}}` stay inert.
 	const triggerText = plainTriggerSuffix(composerText);
-	const mentionMatch = triggerText.match(/(^|\s)@([^\s]*)$/);
+	const mentionMatch = triggerText.match(/(^|\s|\uFFFC)@([^\s]*)$/);
 	/** Raw @query (preserve case for display; matching is case-insensitive). */
 	const mentionQueryRaw = mentionMatch?.[2] ?? "";
 	const mentionQuery = mentionQueryRaw.toLocaleLowerCase();
@@ -389,7 +378,7 @@ export function useAgentComposer({
 		setMentionActiveIndex(0);
 	}, []);
 
-	const skillMatch = triggerText.match(/(^|\s)\$([^\s]*)$/);
+	const skillMatch = triggerText.match(/(^|\s|\uFFFC)\$([^\s]*)$/);
 	const skillQuery = skillMatch?.[2]?.toLocaleLowerCase() ?? "";
 	const skillOptions = useMemo(() => {
 		if (!skillMatch) return [];
@@ -403,7 +392,7 @@ export function useAgentComposer({
 			.slice(0, 6);
 	}, [selectedSkillIds, skillMatch, skillQuery, skills]);
 
-	const slashMatch = triggerText.match(/(^|\s)\/([^\s]*)$/);
+	const slashMatch = triggerText.match(/(^|\s|\uFFFC)\/([^\s]*)$/);
 	const slashQuery = slashMatch?.[2]?.toLocaleLowerCase() ?? "";
 	const slashCommands = acpCommandsByAgent[selectedAgentId ?? ""] ?? [];
 	const slashOptions = useMemo(() => {
@@ -852,7 +841,6 @@ export function useAgentComposer({
 		setSlashActiveIndex,
 		currentFileLabel,
 		mentionChipPaths,
-		selectionChips,
 		visualDrafts,
 		removeContextPath,
 		selectedSkills,

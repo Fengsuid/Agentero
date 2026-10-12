@@ -32,16 +32,11 @@ import {
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import type { AgentSkill, PromptImage } from "@/lib/agent";
 import {
-	mergeSelectionDraftInput,
-	withoutSelectionTokens,
-} from "@/lib/agent/composer-inline-tokens";
-import {
 	COMPOSER_IMAGE_ACCEPT,
 	COMPOSER_IMAGE_MAX_BYTES,
 	COMPOSER_IMAGE_MAX_FILES,
 	fileUiPartsToPromptImages,
 } from "@/lib/agent/prompt-image";
-import type { SelectionContext } from "@/lib/agent/selection-store";
 import type { AcpCommand } from "@/lib/agent/slash-commands";
 import type { PdfVisualDraft } from "@/lib/agent/visual-context-store";
 import { notifyError } from "@/lib/core/notify";
@@ -66,8 +61,6 @@ export type AgentComposerProps = {
 	currentFilePath: string | null;
 	currentFileLabel: string;
 	mentionChipPaths: string[];
-	selectionChips: SelectionContext[];
-	onRemoveSelection: (id: string) => void;
 	visualDrafts: PdfVisualDraft[];
 	onRemoveVisualDraft: (id: string) => void;
 	directoryPathSet: ReadonlySet<string>;
@@ -170,10 +163,8 @@ export function AgentComposer(props: AgentComposerProps) {
 				)}
 				style={!compact && heightPx != null ? { height: heightPx } : undefined}
 			>
-				{/* Block chips: current file / pinned selection chips / visual drafts. */}
-				{props.currentFilePath ||
-				visualDrafts.length > 0 ||
-				props.selectionChips.length > 0 ? (
+				{/* Block chips: current file / visual drafts. Selection quotes are inline. */}
+				{props.currentFilePath || visualDrafts.length > 0 ? (
 					<div
 						className={cn(
 							"flex shrink-0 items-center gap-1.5",
@@ -185,8 +176,6 @@ export function AgentComposer(props: AgentComposerProps) {
 							currentFilePath={props.currentFilePath}
 							currentFileLabel={props.currentFileLabel}
 							mentionChipPaths={[]}
-							selectionChips={props.selectionChips}
-							onRemoveSelection={props.onRemoveSelection}
 							visualDrafts={visualDrafts}
 							onRemoveVisualDraft={props.onRemoveVisualDraft}
 							directoryPathSet={props.directoryPathSet}
@@ -305,12 +294,8 @@ export function AgentComposer(props: AgentComposerProps) {
 											ref={props.composerInputRef}
 											autoFocus={Boolean(autoFocus)}
 											compact={compact}
-											value={withoutSelectionTokens(composerText)}
-											onValueChange={(text) =>
-												onComposerTextChange(
-													mergeSelectionDraftInput(composerText, text),
-												)
-											}
+											value={composerText}
+											onValueChange={onComposerTextChange}
 											onKeyDown={onComposerKeyDown}
 											disabled={switching}
 											labelForPath={props.labelForPath}

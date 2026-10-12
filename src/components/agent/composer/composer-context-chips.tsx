@@ -1,4 +1,4 @@
-import { Quote, ScanSearch, X } from "lucide-react";
+import { ScanSearch, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ContextPathIcon } from "@/components/agent/context-path-icon";
@@ -12,19 +12,15 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { selectionLineLabel } from "@/lib/agent/selection-line-label";
-import type { SelectionContext } from "@/lib/agent/selection-store";
 import {
 	type PdfVisualDraft,
 	updateVisualDraftComment,
 } from "@/lib/agent/visual-context-store";
 import { basenameOf } from "@/lib/core/path";
-import { cn, truncateToChars } from "@/lib/core/utils";
+import { cn } from "@/lib/core/utils";
 
 /** Matches `normalizeComment` in the visual draft store. */
 const MAX_VISUAL_COMMENT_CHARS = 2000;
-
-const MAX_CHIP_TITLE_CHARS = 9;
 
 /**
  * Icon-first chip: hover / focus animates width open to reveal a short label + X.
@@ -73,8 +69,6 @@ export function ComposerContextChips({
 	currentFilePath,
 	currentFileLabel,
 	mentionChipPaths,
-	selectionChips,
-	onRemoveSelection,
 	visualDrafts,
 	onRemoveVisualDraft,
 	directoryPathSet,
@@ -87,8 +81,6 @@ export function ComposerContextChips({
 	currentFilePath: string | null;
 	currentFileLabel: string;
 	mentionChipPaths: string[];
-	selectionChips: SelectionContext[];
-	onRemoveSelection: (id: string) => void;
 	visualDrafts: PdfVisualDraft[];
 	onRemoveVisualDraft: (id: string) => void;
 	directoryPathSet: ReadonlySet<string>;
@@ -103,7 +95,6 @@ export function ComposerContextChips({
 	if (
 		!currentFilePath &&
 		mentionChipPaths.length === 0 &&
-		selectionChips.length === 0 &&
 		visualDrafts.length === 0
 	) {
 		return null;
@@ -148,31 +139,6 @@ export function ComposerContextChips({
 							directoryPaths={directoryPathSet}
 							paperPaths={paperPathSet}
 						/>
-						<ChipExpandTrail label={shortLabel} withRemove />
-					</button>
-				);
-			})}
-			{selectionChips.map((sel) => {
-				const name = truncateToChars(
-					basenameOf(sel.sourcePath) || t("composer.selection"),
-					MAX_CHIP_TITLE_CHARS,
-				);
-				const shortLabel =
-					(sel.page ? `${name} · p.${sel.page}` : null) ??
-					selectionLineLabel(t, sel, name) ??
-					name;
-				return (
-					<button
-						key={sel.id}
-						title={[sel.text, sel.comment].filter(Boolean).join("\n\n")}
-						type="button"
-						className={chipShellClass(
-							sel.pinned ? undefined : "border-dashed bg-transparent",
-						)}
-						onClick={() => onRemoveSelection(sel.id)}
-						aria-label={t("composer.removeSelection")}
-					>
-						<Quote className="size-3.5 shrink-0 text-muted-foreground" />
 						<ChipExpandTrail label={shortLabel} withRemove />
 					</button>
 				);

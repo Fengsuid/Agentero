@@ -176,6 +176,26 @@ export function withoutSelectionTokens(text: string): string {
 		decodeSelectionTokenPayload(payload) ? "" : token,
 	);
 }
+/**
+ * Append newly pinned quotes after the prose the user is writing, so a draft
+ * reads as “对于 <ref> … <ref>” instead of a chip row parked above the field.
+ * Quotes already present (same id) are left where they are.
+ */
+export function appendSelectionTokens(
+	draft: string,
+	selections: SelectionContext[],
+): string {
+	const existing = new Set(extractSelectionTokens(draft).map((s) => s.id));
+	const tokens = selections
+		.filter((selection) => !existing.has(selection.id))
+		.map(encodeSelectionToken)
+		.join("");
+	if (!tokens) return draft;
+	if (draft.length === 0) return tokens;
+	const needsSpace = !/\s$/.test(draft);
+	return `${draft}${needsSpace ? " " : ""}${tokens}`;
+}
+
 /** Keep annotations in insertion order and before prose so @/$ completion sees the typed suffix. */
 export function mergeSelectionDraftInput(draft: string, input: string): string {
 	const selections = new Map(
@@ -232,18 +252,21 @@ export function plainTriggerSuffix(text: string): string {
 	return text.replace(ANY_TOKEN_RE, "\uFFFC");
 }
 
+/**
+ * Start, whitespace, or an inline token. A selection/mention chip sitting
+ * against `@` / `$` / `/` is still a trigger boundary.
+ */
+const TRIGGER_BOUNDARY = String.raw`(?:^|\s|\{\{(?:m|s|c|sel):[^}]+\}\})`;
+
 /** Replace a trailing `@` / `$` / `/` trigger with an inline token + space. */
 export function replaceTrailingTriggerWithToken(
 	text: string,
 	kind: "mention" | "skill" | "command",
 	token: string,
 ): string {
-	const pattern =
-		kind === "mention"
-			? /(^|\s)@[^\s]*$/
-			: kind === "skill"
-				? /(^|\s)\$[^\s]*$/
-				: /(^|\s)\/[^\s]*$/;
+	const trigger =
+		kind === "mention" ? "@" : kind === "skill" ? String.raw`\$` : "/";
+	const pattern = new RegExp(`(${TRIGGER_BOUNDARY})${trigger}[^\\s]*$`);
 	if (!pattern.test(text)) {
 		const needsSpace = text.length > 0 && !/\s$/.test(text);
 		return `${text}${needsSpace ? " " : ""}${token} `;

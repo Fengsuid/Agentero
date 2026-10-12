@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	appendMissingInlineTokens,
+	appendSelectionTokens,
 	encodeCommandToken,
 	encodeMentionToken,
 	encodeSelectionToken,
@@ -155,6 +156,50 @@ describe("composer inline tokens", () => {
 			const text = `x ${encodeSelectionToken(selection)} $c`;
 			expect(plainTriggerSuffix(text).endsWith(" $c")).toBe(true);
 			expect(plainTriggerSuffix(text)).not.toContain("{{");
+		});
+
+		it("treats a selection token as a trigger boundary", () => {
+			const text = `${encodeSelectionToken(selection)}@notes`;
+			expect(plainTriggerSuffix(text)).toMatch(/(^|\s|\uFFFC)@([^\s]*)$/);
+		});
+
+		it("appends new quotes after prose and leaves earlier quotes in place", () => {
+			const first = {
+				...selection,
+				id: "one",
+				text: "first block",
+			};
+			const second = {
+				...selection,
+				id: "two",
+				text: "second block",
+			};
+			const draft = `对于 ${encodeSelectionToken(first)} 以及`;
+			const next = appendSelectionTokens(draft, [first, second]);
+			expect(extractSelectionTokens(next).map((item) => item.id)).toEqual([
+				"one",
+				"two",
+			]);
+			expect(next.startsWith("对于 ")).toBe(true);
+			expect(next.includes(" 以及 ")).toBe(true);
+			expect(appendSelectionTokens("", [second])).toBe(
+				encodeSelectionToken(second),
+			);
+			expect(appendSelectionTokens("对于 ", [second]).startsWith("对于 ")).toBe(
+				true,
+			);
+		});
+
+		it("replaces a trigger that sits against a selection token", () => {
+			const token = encodeSelectionToken(selection);
+			const next = replaceTrailingTriggerWithToken(
+				`${token}@notes`,
+				"mention",
+				encodeMentionToken("notes/a.md"),
+			);
+			expect(next.startsWith(token)).toBe(true);
+			expect(next).not.toContain("@notes");
+			expect(extractMentionPaths(next)).toEqual(["notes/a.md"]);
 		});
 	});
 });

@@ -1,5 +1,5 @@
 import { MessageSquare, Pencil, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SelectionSourceButton } from "@/components/selection/selection-source-button";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,13 @@ export function ComposerAnnotations({
 	const { t } = useTranslation(["viewer", "common"]);
 	const [open, setOpen] = useState(false);
 	const selections = useMemo(() => extractSelectionTokens(value), [value]);
+	const seenIdsRef = useRef<string[]>([]);
 	useEffect(() => {
+		const ids = selections.map((selection) => selection.id);
+		for (const id of seenIdsRef.current) {
+			if (!ids.includes(id)) releaseAnnotationAnchor(id);
+		}
+		seenIdsRef.current = ids;
 		const binding = {
 			selections,
 			update: (id: string, comment: string | null) =>

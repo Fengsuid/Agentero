@@ -54,6 +54,32 @@ describe("composer external value sync", () => {
 		).toBe("skip");
 	});
 
+	it("applies a pinned selection when the prose is unchanged", () => {
+		expect(
+			decideComposerExternalValueSync({
+				nextValue: "对于 {{sel:abc}}",
+				lastKnownDomValue: "对于",
+				currentDomValue: "对于",
+				focused: true,
+				composing: false,
+				awaitingParentEcho: true,
+			}),
+		).toBe("apply");
+	});
+
+	it("defers a selection sync that would drop text still in the field", () => {
+		expect(
+			decideComposerExternalValueSync({
+				nextValue: "对于 {{sel:abc}}",
+				lastKnownDomValue: "对于",
+				currentDomValue: "对于 啊",
+				focused: true,
+				composing: false,
+				awaitingParentEcho: true,
+			}),
+		).toBe("defer");
+	});
+
 	it("still applies inline token commits from the composer menu", () => {
 		expect(
 			decideComposerExternalValueSync({
