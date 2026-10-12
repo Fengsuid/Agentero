@@ -36,6 +36,7 @@ import {
 	type CSSProperties,
 	memo,
 	type MouseEvent as ReactMouseEvent,
+	type ReactNode,
 	type PointerEvent as ReactPointerEvent,
 	type RefObject,
 	useCallback,
@@ -110,6 +111,11 @@ import type {
 	TranslateLinkBox,
 } from "@/lib/pdf/layout/translated-links";
 import {
+	pageQuarterTurns,
+	shellFractionToUnrotatedPdf,
+	unrotatedPageFrameTransform,
+} from "@/lib/pdf/page-frame";
+import {
 	PDF_ANNOTATION_DARK_CLASS,
 	PDF_PAGE_RASTER_DARK_CLASS,
 	PDF_PAPER_SHELL_CLASS,
@@ -163,6 +169,40 @@ const READING_ANNOTATION_RENDERERS: BoxedAnnotationRenderer[] = [
 	PASSIVE_HIGHLIGHT_RENDERER,
 	PASSIVE_LINK_RENDERER,
 ];
+
+/**
+ * Paint unrotated PDF-point layers (highlights, selection tint) in the same
+ * space as the upright tiles. Upright pages render children unchanged.
+ */
+function UnrotatedPageFrame({
+	rotation,
+	widthPx,
+	heightPx,
+	className,
+	children,
+}: {
+	rotation: number;
+	widthPx: number;
+	heightPx: number;
+	className?: string;
+	children: ReactNode;
+}) {
+	const transform = unrotatedPageFrameTransform(rotation, widthPx, heightPx);
+	if (!transform) return children;
+	return (
+		<div
+			className={cn("pointer-events-none absolute top-0 left-0", className)}
+			style={{
+				width: widthPx,
+				height: heightPx,
+				transform,
+				transformOrigin: "0 0",
+			}}
+		>
+			{children}
+		</div>
+	);
+}
 
 const EMPTY_HIGHLIGHT_SET = new Set<string>();
 
@@ -653,6 +693,24 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 	handlers,
 }: PdfPageLayersProps) {
 	const { t } = useTranslation("viewer");
+	const documentState = useDocumentState(docId);
+	const pageRotation = pdfPageRenderRotation(documentState, pageIndex);
+	const pageScale =
+		documentState?.scale && documentState.scale > 0 ? documentState.scale : 1;
+	const pageSize = documentState?.document?.pages[pageIndex]?.size;
+	const quarter = pageQuarterTurns(pageRotation);
+	const frameWidth =
+		pageSize?.width && pageSize.width > 0
+			? pageSize.width * pageScale
+			: quarter % 2 === 1
+				? height
+				: width;
+	const frameHeight =
+		pageSize?.height && pageSize.height > 0
+			? pageSize.height * pageScale
+			: quarter % 2 === 1
+				? width
+				: height;
 	const pdfDark = tone === "dark";
 	const paperTint = PDF_PAPER_TINT[tone];
 	const pageShellRef = useRef<HTMLDivElement | null>(null);
@@ -807,37 +865,51 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 		];
 	}, [translationVisible, resolvedTranslatedIds]);
 
-	const textCommentAtPoint = (clientX: number, clientY: number) => {
-		if (!shownComments.length) return null;
+	const shellFractionAt = (clientX: number, clientY: number) => {
 		const pageRect = pageShellRef.current?.getBoundingClientRect();
 		if (!pageRect?.width || !pageRect.height) return null;
 		const x = (clientX - pageRect.left) / pageRect.width;
 		const y = (clientY - pageRect.top) / pageRect.height;
 		if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+		// CSS zoom preview scales the live box without changing `width`. The
+		// fraction stays on the page; restorePosition then undoes /Rotate.
+		return shellFractionToUnrotatedPdf(
+			{ x, y },
+			pageRotation,
+			width,
+			height,
+			zoomRef.current,
+		);
+	};
+
+	const textCommentAtPoint = (clientX: number, clientY: number) => {
+		if (!shownComments.length) return null;
+		const point = shellFractionAt(clientX, clientY);
+		if (!point) return null;
 		return (
 			shownComments.find(
 				(comment) =>
 					comment.kind !== "visual" &&
 					comment.rects.some(
 						(rect) =>
-							x >= rect.x &&
-							x <= rect.x + rect.w &&
-							y >= rect.y &&
-							y <= rect.y + rect.h,
+							point.x >= rect.x &&
+							point.x <= rect.x + rect.w &&
+							point.y >= rect.y &&
+							point.y <= rect.y + rect.h,
 					),
 			) ?? null
 		);
 	};
 
 	const highlightAtPoint = (clientX: number, clientY: number) => {
-		const pageRect = pageShellRef.current?.getBoundingClientRect();
-		if (!pageRect?.width || !pageRect.height || !annotationCap) return null;
-		const pageX = ((clientX - pageRect.left) / pageRect.width) * width;
-		const pageY = ((clientY - pageRect.top) / pageRect.height) * height;
-		if (pageX < 0 || pageX > width || pageY < 0 || pageY > height) return null;
+		const point = shellFractionAt(clientX, clientY);
+		if (!point || !annotationCap) return null;
+		const zoom = zoomRef.current > 0 ? zoomRef.current : 1;
+		const unrotatedWidthPt = (quarter % 2 === 1 ? height : width) / zoom;
+		const unrotatedHeightPt = (quarter % 2 === 1 ? width : height) / zoom;
 		if (translationVisible) {
-			const x = pageX / width;
-			const y = pageY / height;
+			const x = point.x;
+			const y = point.y;
 			const hit = translatedPaints.find((paint) =>
 				paint.rects.some(
 					(rect) =>
@@ -860,8 +932,8 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 				}
 			}
 		}
-		const pageXPt = pageX / zoomRef.current;
-		const pageYPt = pageY / zoomRef.current;
+		const pageXPt = point.x * unrotatedWidthPt;
+		const pageYPt = point.y * unrotatedHeightPt;
 		const highlights = annotationCap
 			.forDocument(docId)
 			.getAnnotations()
@@ -1142,54 +1214,64 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 				pageIndex={pageIndex}
 				style={PAGE_LAYER_STYLE}
 			>
-				{/* Unmount text selection while framing a visual region. */}
-				{mode.regionSelecting ? null : (
-					<PdfTextSelectionLayer
-						documentId={docId}
-						pageIndex={pageIndex}
-						background={PDF_TEXT_SELECTION_BACKGROUND}
-						armed={selectionArmed}
-						draftPages={
-							marks.selectionCommentDraft?.visiblePages?.length
-								? undefined
-								: marks.selectionCommentDraft?.pages
-						}
-					/>
-				)}
-				{/*
-				 * AnnotationLayer is not inverted with the page rasters. In PDF dark
-				 * mode its bright highlight colors look glaring on dark paper, so
-				 * dim/saturation-reduce the whole layer slightly. Links keep only
-				 * their border appearance; CitationLinkLayer owns navigation.
-				 */}
-				{!mode.plainViewer ? (
-					<div
-						className={cn(
-							// Above translation paper (z-3), under glyphs (z-6), same
-							// slot as the selection tint. The highlight menu lifts the
-							// layer so it stays clickable over the glyphs.
-							// Empty areas pass through to citation hits (z-2). Annotation
-							// controls opt back into pointers on their own elements.
-							"pointer-events-none absolute inset-0 z-[5] has-[[data-pdf-chrome]]:z-[7]",
-							pdfDark && PDF_ANNOTATION_DARK_CLASS,
-						)}
-					>
-						<AnnotationLayer
+				<UnrotatedPageFrame
+					rotation={pageRotation}
+					widthPx={frameWidth}
+					heightPx={frameHeight}
+					className="z-[5]"
+				>
+					{/* Unmount text selection while framing a visual region. */}
+					{mode.regionSelecting ? null : (
+						<PdfTextSelectionLayer
 							documentId={docId}
 							pageIndex={pageIndex}
-							annotationRenderers={annotationRenderers}
-							selectionMenu={(menuProps) => (
-								<HighlightAnnotationMenu
-									{...menuProps}
-									docId={docId}
-									onEdit={handlers.onEditHighlightAnnotation}
-									onDelete={handlers.onDeleteHighlightAnnotation}
-									onChangeColor={handlers.onChangeHighlightColor}
-								/>
-							)}
+							background={PDF_TEXT_SELECTION_BACKGROUND}
+							armed={selectionArmed}
+							draftPages={
+								marks.selectionCommentDraft?.visiblePages?.length
+									? undefined
+									: marks.selectionCommentDraft?.pages
+							}
 						/>
-					</div>
-				) : null}
+					)}
+					{/*
+					 * AnnotationLayer is not inverted with the page rasters. In PDF dark
+					 * mode its bright highlight colors look glaring on dark paper, so
+					 * dim/saturation-reduce the whole layer slightly. Links keep only
+					 * their border appearance; CitationLinkLayer owns navigation.
+					 * The frame maps these unrotated point rects onto a /Rotate page
+					 * the same way tiles do, so zoom does not walk the highlight off
+					 * the glyphs.
+					 */}
+					{!mode.plainViewer ? (
+						<div
+							className={cn(
+								// Above translation paper (z-3), under glyphs (z-6), same
+								// slot as the selection tint. The highlight menu lifts the
+								// layer so it stays clickable over the glyphs.
+								// Empty areas pass through to citation hits (z-2). Annotation
+								// controls opt back into pointers on their own elements.
+								"pointer-events-none absolute inset-0 z-[5] has-[[data-pdf-chrome]]:z-[7]",
+								pdfDark && PDF_ANNOTATION_DARK_CLASS,
+							)}
+						>
+							<AnnotationLayer
+								documentId={docId}
+								pageIndex={pageIndex}
+								annotationRenderers={annotationRenderers}
+								selectionMenu={(menuProps) => (
+									<HighlightAnnotationMenu
+										{...menuProps}
+										docId={docId}
+										onEdit={handlers.onEditHighlightAnnotation}
+										onDelete={handlers.onDeleteHighlightAnnotation}
+										onChangeColor={handlers.onChangeHighlightColor}
+									/>
+								)}
+							/>
+						</div>
+					) : null}
+				</UnrotatedPageFrame>
 				{!mode.plainViewer && pageHovered ? (
 					<PageTranslateTab
 						pageIndex={pageIndex}
@@ -1504,26 +1586,51 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 				 * the marquee draft and the click-crop all read as one UI; skip
 				 * it while the open trace already frames the same rects below.
 				 */}
+				{/*
+				 * Text-highlight emphasis uses unrotated page fractions, same
+				 * space as the annotation layer. Visual crops stay in the
+				 * pointer provider (display fractions of that box).
+				 */}
+				{emphasizedComment && emphasizedComment.kind !== "visual" ? (
+					<UnrotatedPageFrame
+						rotation={pageRotation}
+						widthPx={frameWidth}
+						heightPx={frameHeight}
+						className="z-[4]"
+					>
+						{emphasizedComment.rects.map((rect) => (
+							<div
+								key={`comment-hover-${emphasizedComment.id}-${rect.x}-${rect.y}-${rect.w}-${rect.h}`}
+								className="pointer-events-none absolute z-[4] rounded-[1px] mix-blend-multiply"
+								style={{
+									left: `${rect.x * 100}%`,
+									top: `${rect.y * 100}%`,
+									width: `${rect.w * 100}%`,
+									height: `${rect.h * 100}%`,
+									backgroundColor: highlightHoverOverlayColor(
+										emphasizedComment.color,
+									),
+								}}
+								aria-hidden="true"
+							/>
+						))}
+					</UnrotatedPageFrame>
+				) : null}
 				{emphasizedComment &&
-				!(emphasizedComment.kind === "visual" && activeVisualOnPage)
+				emphasizedComment.kind === "visual" &&
+				!activeVisualOnPage
 					? emphasizedComment.rects.map((rect) => (
 							<div
 								key={`comment-hover-${emphasizedComment.id}-${rect.x}-${rect.y}-${rect.w}-${rect.h}`}
 								className={cn(
 									"pointer-events-none absolute z-[4]",
-									emphasizedComment.kind === "visual"
-										? PDF_VISUAL_REGION_FRAME_CLASS
-										: "rounded-[1px] mix-blend-multiply",
+									PDF_VISUAL_REGION_FRAME_CLASS,
 								)}
 								style={{
 									left: `${rect.x * 100}%`,
 									top: `${rect.y * 100}%`,
 									width: `${rect.w * 100}%`,
 									height: `${rect.h * 100}%`,
-									backgroundColor:
-										emphasizedComment.kind === "visual"
-											? undefined
-											: highlightHoverOverlayColor(emphasizedComment.color),
 								}}
 								aria-hidden="true"
 							/>

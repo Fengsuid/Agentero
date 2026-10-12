@@ -42,7 +42,7 @@ import {
 	layoutKindFromRegionId,
 	setFocusedLayoutRegion,
 } from "@/lib/pdf/layout";
-import type { ActiveSelectionCard } from "@/lib/pdf/selection";
+import { planVisualTraceJump } from "@/lib/pdf/visual-trace-jump";
 import { writeVaultBytes } from "@/lib/vault/fs";
 
 /** Longest edge of a figure-rail thumbnail crop (px). */
@@ -84,7 +84,6 @@ export type UsePdfViewerHandleOptions = {
 	>;
 	openEditorForAnnotation: (id: string) => void;
 	openThread: (thread: PdfAskThread) => void;
-	openCard: (card: ActiveSelectionCard) => void;
 	deleteVisualTraceById: (id: string) => void;
 	toggleRegionSelect: () => void;
 	/** Dual-pane-aware full-text translate toggle; parent callback — kept in a ref. */
@@ -108,7 +107,6 @@ export function usePdfViewerHandle({
 	startLayoutAnalysisRef,
 	openEditorForAnnotation,
 	openThread,
-	openCard,
 	deleteVisualTraceById,
 	toggleRegionSelect,
 	toggleLayoutTranslate,
@@ -166,11 +164,35 @@ export function usePdfViewerHandle({
 			scrollToVisualTrace: (id) => {
 				const tr = visualTracesRef.current.find((item) => item.id === id);
 				if (!tr) return;
+				const page =
+					docCapRef.current?.getDocument(docId)?.pages[
+						Math.max(0, tr.page - 1)
+					];
+				const plan = planVisualTraceJump(tr, page?.size);
+				// Locate only. The floating transcript card stays on the pin click.
 				scrollRef.current?.scrollToPage({
-					pageNumber: tr.page,
+					pageNumber: plan.pageNumber,
 					behavior: "instant",
+					...(plan.pageCoordinates
+						? {
+								pageCoordinates: plan.pageCoordinates,
+								alignX: 0,
+								alignY: 18,
+							}
+						: {}),
 				});
-				openCard({ kind: "visual", id: tr.id });
+				if (plan.bbox) {
+					setFocusedLayoutRegion(
+						docId,
+						tr.id,
+						{
+							pageIndex: plan.pageIndex,
+							bbox: plan.bbox,
+							kind: "image",
+						},
+						{ flash: true },
+					);
+				}
 			},
 			deleteVisualTrace: (id) => {
 				deleteVisualTraceById(id);
@@ -295,7 +317,6 @@ export function usePdfViewerHandle({
 		paperAbsPath,
 		openEditorForAnnotation,
 		openThread,
-		openCard,
 		deleteVisualTraceById,
 		toggleRegionSelect,
 	]);
