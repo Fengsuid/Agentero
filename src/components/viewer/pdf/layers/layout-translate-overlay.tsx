@@ -17,6 +17,15 @@ import { isLayoutTranslateHeadingKind } from "@/lib/pdf/layout/labels";
 import { layoutTranslateSentenceNodes } from "@/lib/pdf/layout/layout-sentences";
 import type { LayoutTranslateItem } from "@/lib/pdf/layout/layout-translate";
 import { isLayoutTranslateItemPainted } from "@/lib/pdf/layout/layout-translate-reliable";
+import { linkColorOnPaper } from "@/lib/pdf/layout/link-ink";
+import {
+	assignmentsWithin,
+	assignPreservedLinks,
+	claimTranslateLinks,
+	type GlyphRun,
+	type PreservedLinkAssignment,
+	type TranslateLinkBox,
+} from "@/lib/pdf/layout/translated-links";
 import type { PdfLayoutRegion } from "@/lib/pdf/layout/types";
 import {
 	PDF_PAGE_RASTER_DARK_CLASS,
@@ -45,6 +54,19 @@ type LayoutTranslateOverlayProps = {
 		string,
 		readonly (readonly PdfHighlightRect[])[]
 	>;
+	/**
+	 * Page link annotations and bare URLs, in normalized page fractions.
+	 * Preserved citation / ref / URL tokens inside a block become the hit
+	 * targets so the English rectangles can stay under the glyphs.
+	 */
+	links?: readonly TranslateLinkBox[];
+	/** Source text runs for this page. Keeps grouped citations on their own glyphs. */
+	glyphRuns?: readonly GlyphRun[];
+	onOpenLink?: (assignment: PreservedLinkAssignment) => void;
+	onHoverLink?: (
+		assignment: PreservedLinkAssignment | null,
+		point: { x: number; y: number; top: number; bottom: number } | null,
+	) => void;
 };
 
 const LINE_HEIGHT = 1.25;
@@ -55,6 +77,40 @@ const LINE_HEIGHT = 1.25;
 const FS_MIN = 4;
 const FS_MAX = 20;
 const FIT_SAFETY = 0.97;
+/** One-line heading box height → font size (box ≈ ascender..descender). */
+const HEADING_EM_PER_BOX = 0.9;
+/** Section titles should outrank body text on the same page. */
+export const HEADING_TO_BODY_SIZE_RATIO = 1.35;
+
+/**
+ * Median of body block sizes on a page. Empty when the page has no painted
+ * body blocks yet (still translating / title-only).
+ */
+export function bodyReferenceFontSize(
+	sizes: readonly number[],
+): number | undefined {
+	const usable = sizes
+		.filter((n) => Number.isFinite(n) && n > FS_MIN)
+		.sort((a, b) => a - b);
+	if (usable.length === 0) return undefined;
+	// Prefer the upper quartile so short/dense outliers do not drag section
+	// titles back toward body size.
+	const idx = Math.min(usable.length - 1, Math.ceil(usable.length * 0.75) - 1);
+	return usable[Math.max(0, idx)];
+}
+
+/** Raise a heading to at least `bodyRef × HEADING_TO_BODY_SIZE_RATIO`. */
+export function applyHeadingBodyFloor(
+	headingFs: number,
+	bodyRefPx: number | undefined,
+): number {
+	if (bodyRefPx === undefined || bodyRefPx <= 0) return headingFs;
+	return Math.min(
+		FS_MAX,
+		Math.max(headingFs, bodyRefPx * HEADING_TO_BODY_SIZE_RATIO),
+	);
+}
+
 const DOM_FIT_ABSOLUTE_MIN = 1;
 const DOM_FIT_EPSILON_PX = 0.5;
 /**
@@ -71,15 +127,24 @@ function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number) {
 	return Math.min(aEnd, bEnd) - Math.max(aStart, bStart) > 0;
 }
 
+/** Source heading size the overlay should keep while the box grows. */
+export type LayoutTranslateHeadingFit = {
+	pageWidthPx: number;
+	pageHeightPx: number;
+	fontSize: number;
+};
+
 /**
  * Conservative counterpart to BabelDOC's paragraph-box expansion. We never
- * cross a detected layout region and cap each direction at half the original
- * box, so a missed detection cannot turn one translated label into a page-wide
- * white slab.
+ * cross a detected layout region and cap each direction, so a missed detection
+ * cannot turn one translated label into a page-wide white slab. Headings may
+ * also grow downward (up to 2.75×) so a longer translation keeps the source
+ * glyph size instead of collapsing.
  */
 export function expandLayoutTranslateBbox(
 	item: LayoutTranslateItem,
 	blockers: readonly PdfLayoutRegion[] = [],
+	headingFit?: LayoutTranslateHeadingFit,
 ): LayoutTranslateItem["bbox"] {
 	const translated = item.translated?.trim();
 	const sourceWidth =
@@ -93,39 +158,80 @@ export function expandLayoutTranslateBbox(
 	const expandable =
 		(isLayoutTranslateHeadingKind(item.kind) || item.kind === "figure_title") &&
 		translatedWidth > sourceWidth * 1.1;
-	if (!expandable) return item.bbox;
 	const original = item.bbox;
-	const x2 = original.x + original.w;
+	let bbox = original;
+	if (expandable) {
+		const x2 = original.x + original.w;
+		const y2 = original.y + original.h;
+		let right = OVERLAY_PAGE_RIGHT;
+		let bottom = 1 - OVERLAY_GUTTER;
+		for (const blocker of blockers) {
+			if (blocker.id === item.id) continue;
+			const b = blocker.bbox;
+			if (
+				b.x >= x2 - OVERLAY_GUTTER &&
+				overlaps(original.y, y2, b.y, b.y + b.h)
+			) {
+				right = Math.min(right, b.x - OVERLAY_GUTTER);
+			}
+			if (
+				b.y >= y2 - OVERLAY_GUTTER &&
+				overlaps(original.x, x2, b.x, b.x + b.w)
+			) {
+				bottom = Math.min(bottom, b.y - OVERLAY_GUTTER);
+			}
+		}
+		const width = Math.max(
+			original.w,
+			Math.min(right - original.x, original.w * 1.5),
+		);
+		// Prefer one-direction expansion. Expanding both could cover a diagonal
+		// figure/table that does not overlap the original narrow title box.
+		bbox =
+			width > original.w + 0.001
+				? { ...original, w: width }
+				: {
+						...original,
+						h: Math.max(
+							original.h,
+							Math.min(bottom - original.y, original.h * 1.75),
+						),
+					};
+	}
+
+	if (
+		!headingFit ||
+		headingFit.pageHeightPx <= 0 ||
+		!isLayoutTranslateHeadingKind(item.kind) ||
+		!translated
+	) {
+		return bbox;
+	}
+	const widthPx = Math.max(1, bbox.w * headingFit.pageWidthPx - 4);
+	const lines = estimateLineCount(
+		translated,
+		widthPx,
+		headingFit.fontSize,
+		avgGlyphEm(translated),
+	);
+	const neededH =
+		(lines * headingFit.fontSize * LINE_HEIGHT + 3) / headingFit.pageHeightPx;
 	const y2 = original.y + original.h;
-	let right = OVERLAY_PAGE_RIGHT;
+	const x2 = bbox.x + bbox.w;
 	let bottom = 1 - OVERLAY_GUTTER;
 	for (const blocker of blockers) {
 		if (blocker.id === item.id) continue;
 		const b = blocker.bbox;
-		if (
-			b.x >= x2 - OVERLAY_GUTTER &&
-			overlaps(original.y, y2, b.y, b.y + b.h)
-		) {
-			right = Math.min(right, b.x - OVERLAY_GUTTER);
-		}
-		if (
-			b.y >= y2 - OVERLAY_GUTTER &&
-			overlaps(original.x, x2, b.x, b.x + b.w)
-		) {
+		if (b.y >= y2 - OVERLAY_GUTTER && overlaps(bbox.x, x2, b.x, b.x + b.w)) {
 			bottom = Math.min(bottom, b.y - OVERLAY_GUTTER);
 		}
 	}
-	const width = Math.max(
-		original.w,
-		Math.min(right - original.x, original.w * 1.5),
+	const cap = Math.min(
+		Math.max(bbox.h, bottom - original.y),
+		original.h * 2.75,
 	);
-	// Prefer one-direction expansion. Expanding both could cover a diagonal
-	// figure/table that does not overlap the original narrow title box.
-	if (width > original.w + 0.001) return { ...original, w: width };
-	return {
-		...original,
-		h: Math.max(original.h, Math.min(bottom - original.y, original.h * 1.75)),
-	};
+	const h = Math.min(Math.max(bbox.h, neededH), cap);
+	return h > bbox.h + 0.0001 ? { ...bbox, h } : bbox;
 }
 
 /** Wider glyphs for CJK; narrower for Latin (academic body). */
@@ -191,6 +297,15 @@ function fitFontSizeToBox(
 	return Math.max(FS_MIN, lo * FIT_SAFETY);
 }
 
+export type LayoutTranslateFontOptions = {
+	/**
+	 * Section and title blocks. Keep the size implied by the source box so a
+	 * longer translation does not flatten the heading into body text. The box
+	 * grows instead; body blocks still shrink to fit.
+	 */
+	heading?: boolean;
+};
+
 /**
  * Paper-like size from the English/source block, then adjust for the
  * translation so CN denser text does not leave a half-empty white slab.
@@ -201,6 +316,7 @@ export function fontSizeForLayoutTranslateBox(
 	pageHeightPx: number,
 	source: string,
 	translated?: string,
+	options?: LayoutTranslateFontOptions,
 ): number {
 	const padX = 4;
 	const padY = 3;
@@ -214,6 +330,32 @@ export function fontSizeForLayoutTranslateBox(
 
 	// 1) Size the original paper body would use in this bbox.
 	const paperFs = fitFontSizeToBox(src, w, h, srcEm);
+
+	if (options?.heading) {
+		let fs = paperFs;
+		const srcLines = estimateLineCount(src, w, Math.max(paperFs, 8), srcEm);
+		// A one-line title strip should fill its band. Do not cap that floor by
+		// the smaller size that would cram a longer translation into the same box.
+		if (srcLines === 1 && src.length < 140 && h < 56) {
+			fs = Math.max(fs, Math.min(FS_MAX, (h / LINE_HEIGHT) * 0.92));
+		}
+		// Layout boxes for a short section title hug the glyphs (about one em
+		// tall). Subtracting paragraph padding from such a box, or a pessimistic
+		// line estimate at the 8px probe, collapsed "1. Introduction" to FS_MIN at
+		// normal zoom, smaller than the body text. Size from the raw box height.
+		// Only for boxes that really hold one source line at that size; multi-line
+		// titles, logos and author strips keep the fitted size, and untranslated
+		// strips (dates, ids) keep the size that already fits their box.
+		const rawFs = Math.min(FS_MAX, bbox.h * pageHeightPx * HEADING_EM_PER_BOX);
+		if (
+			rawFs > fs &&
+			display !== src &&
+			estimateLineCount(src, w * 1.2, rawFs, srcEm) === 1
+		) {
+			fs = rawFs;
+		}
+		return Math.max(FS_MIN, Math.min(FS_MAX, fs));
+	}
 
 	// 2) Largest size that still fits the translation in the same box.
 	const fitFs = fitFontSizeToBox(display, w, h, dispEm);
@@ -300,6 +442,7 @@ function fontSizeForLayoutTranslateItem(
 		pageHeightPx,
 		item.source,
 		text,
+		{ heading: isLayoutTranslateHeadingKind(item.kind) },
 	);
 	if (byText.size >= FONT_SIZE_CACHE_MAX_TEXTS) byText.clear();
 	byText.set(text, fontSize);
@@ -332,9 +475,122 @@ type ExactFitParagraphProps = {
 	isHeading: boolean;
 	/** Dark PDF paper: selection ink stays light, matching the glyphs. */
 	paperDark: boolean;
+	tone: PdfPaperTone;
 	/** Sentence indexes whose translation should show the highlight color. */
 	tintedSentences?: ReadonlyMap<number, HighlightColor>;
+	linkAssignments?: readonly PreservedLinkAssignment[];
+	onOpenLink?: (assignment: PreservedLinkAssignment) => void;
+	onHoverLink?: LayoutTranslateOverlayProps["onHoverLink"];
 };
+
+function sentenceSlices(
+	text: string,
+	nodes: readonly { index: number; text: string }[],
+	gap: string,
+): { index: number; text: string; start: number }[] {
+	const slices: { index: number; text: string; start: number }[] = [];
+	let cursor = 0;
+	for (let index = 0; index < nodes.length; index++) {
+		const node = nodes[index];
+		if (!node) continue;
+		const found = text.indexOf(node.text, cursor);
+		const start = found >= 0 ? found : cursor;
+		slices.push({ index: node.index, text: node.text, start });
+		cursor = start + node.text.length + gap.length;
+	}
+	return slices;
+}
+
+function linkInkStyle(
+	color: string | undefined,
+	tone: PdfPaperTone,
+): { color: string } | undefined {
+	if (!color) return undefined;
+	return { color: linkColorOnPaper(color, tone) };
+}
+
+function linkPoint(element: HTMLElement) {
+	const box = element.getBoundingClientRect();
+	return {
+		x: box.left + box.width / 2,
+		y: box.bottom,
+		top: box.top,
+		bottom: box.bottom,
+	};
+}
+
+/**
+ * Render `text`, wrapping preserved link tokens. A drag that produced a
+ * selection does not navigate. Each token uses the original glyph fill
+ * (`assignment.color`), adjusted for the paper tone. The source page marks
+ * these links by ink color, so the token does not add an underline.
+ */
+function LinkifiedText({
+	text,
+	assignments,
+	tone,
+	onOpenLink,
+	onHoverLink,
+}: {
+	text: string;
+	assignments: readonly PreservedLinkAssignment[] | undefined;
+	tone: PdfPaperTone;
+	onOpenLink?: (assignment: PreservedLinkAssignment) => void;
+	onHoverLink?: LayoutTranslateOverlayProps["onHoverLink"];
+}) {
+	if (!assignments?.length) return text;
+	const parts: Array<
+		| { key: string; text: string }
+		| { key: string; assignment: PreservedLinkAssignment }
+	> = [];
+	let cursor = 0;
+	for (const assignment of assignments) {
+		if (assignment.start < cursor || assignment.end > text.length) continue;
+		if (text.slice(assignment.start, assignment.end) !== assignment.text) {
+			continue;
+		}
+		if (assignment.start > cursor) {
+			parts.push({
+				key: `t-${cursor}`,
+				text: text.slice(cursor, assignment.start),
+			});
+		}
+		parts.push({
+			key: `l-${assignment.start}-${assignment.key ?? assignment.url ?? "url"}`,
+			assignment,
+		});
+		cursor = assignment.end;
+	}
+	if (cursor === 0) return text;
+	if (cursor < text.length) {
+		parts.push({ key: `t-${cursor}`, text: text.slice(cursor) });
+	}
+	return parts.map((part) =>
+		"text" in part ? (
+			<Fragment key={part.key}>{part.text}</Fragment>
+		) : (
+			<a
+				key={part.key}
+				href={part.assignment.url ?? "#"}
+				data-translated-link={part.assignment.key ?? part.assignment.url ?? ""}
+				style={linkInkStyle(part.assignment.color, tone)}
+				onClick={(event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					if (window.getSelection()?.toString()) return;
+					onOpenLink?.(part.assignment);
+				}}
+				onPointerEnter={(event) => {
+					if ((event.buttons & 1) === 1) return;
+					onHoverLink?.(part.assignment, linkPoint(event.currentTarget));
+				}}
+				onPointerLeave={() => onHoverLink?.(null, null)}
+			>
+				{part.assignment.text}
+			</a>
+		),
+	);
+}
 
 /**
  * The heuristic above is fast but font metrics differ across Windows/macOS,
@@ -351,10 +607,17 @@ export const LayoutTranslateParagraph = memo(function LayoutTranslateParagraph({
 	boxHeightPx,
 	isHeading,
 	paperDark,
+	tone,
 	tintedSentences,
+	linkAssignments,
+	onOpenLink,
+	onHoverLink,
 }: ExactFitParagraphProps) {
 	const ref = useRef<HTMLParagraphElement>(null);
 	const sentenceNodes = layoutTranslateSentenceNodes(text, sentences);
+	const slices = sentenceNodes
+		? sentenceSlices(text, sentenceNodes.nodes, sentenceNodes.gap)
+		: null;
 
 	useLayoutEffect(() => {
 		const element = ref.current;
@@ -371,9 +634,14 @@ export const LayoutTranslateParagraph = memo(function LayoutTranslateParagraph({
 			lineHeight = candidate;
 		}
 
-		let lo = DOM_FIT_ABSOLUTE_MIN;
+		// Headings stay near the source size. The box grows to fit; this pass must
+		// not binary-search a title down to 1px the way a body block may.
+		const floor = isHeading
+			? Math.max(DOM_FIT_ABSOLUTE_MIN, initialFontSize * 0.9)
+			: DOM_FIT_ABSOLUTE_MIN;
+		let lo = floor;
 		let hi = initialFontSize;
-		let best = DOM_FIT_ABSOLUTE_MIN;
+		let best = floor;
 		applyParagraphMetrics(element, lo, lineHeight);
 
 		// An unbreakable URL / identifier can exceed the box at every readable
@@ -403,10 +671,10 @@ export const LayoutTranslateParagraph = memo(function LayoutTranslateParagraph({
 		}
 		applyParagraphMetrics(
 			element,
-			Math.max(DOM_FIT_ABSOLUTE_MIN, best * FIT_SAFETY),
+			Math.max(floor, best * FIT_SAFETY),
 			lineHeight,
 		);
-	}, [boxHeightPx, boxWidthPx, initialFontSize, text]);
+	}, [boxHeightPx, boxWidthPx, initialFontSize, isHeading, text]);
 
 	return (
 		<p
@@ -427,30 +695,48 @@ export const LayoutTranslateParagraph = memo(function LayoutTranslateParagraph({
 				overflowWrap: "normal",
 			}}
 		>
-			{sentenceNodes
-				? sentenceNodes.nodes.map((node, index) => (
-						<Fragment key={node.index}>
-							{index > 0 ? sentenceNodes.gap : null}
-							<span
-								data-sentence={node.index}
-								className={
-									tintedSentences?.has(node.index) ? "rounded-[1px]" : undefined
-								}
-								style={
-									tintedSentences?.has(node.index)
-										? {
-												backgroundColor: highlightFill(
-													tintedSentences.get(node.index) ?? "yellow",
-												),
-											}
-										: undefined
-								}
-							>
-								{node.text}
-							</span>
-						</Fragment>
-					))
-				: text}
+			{slices && sentenceNodes ? (
+				slices.map((node, index) => (
+					<Fragment key={node.index}>
+						{index > 0 ? sentenceNodes.gap : null}
+						<span
+							data-sentence={node.index}
+							className={
+								tintedSentences?.has(node.index) ? "rounded-[1px]" : undefined
+							}
+							style={
+								tintedSentences?.has(node.index)
+									? {
+											backgroundColor: highlightFill(
+												tintedSentences.get(node.index) ?? "yellow",
+											),
+										}
+									: undefined
+							}
+						>
+							<LinkifiedText
+								text={node.text}
+								assignments={assignmentsWithin(
+									linkAssignments ?? [],
+									node.start,
+									node.start + node.text.length,
+								)}
+								tone={tone}
+								onOpenLink={onOpenLink}
+								onHoverLink={onHoverLink}
+							/>
+						</span>
+					</Fragment>
+				))
+			) : (
+				<LinkifiedText
+					text={text}
+					assignments={linkAssignments}
+					tone={tone}
+					onOpenLink={onOpenLink}
+					onHoverLink={onHoverLink}
+				/>
+			)}
 		</p>
 	);
 });
@@ -466,15 +752,63 @@ export const LayoutTranslateOverlay = memo(function LayoutTranslateOverlay({
 	layoutRegions,
 	highlightQuotes,
 	sentenceRectsByItemId,
+	links,
+	glyphRuns,
+	onOpenLink,
+	onHoverLink,
 }: LayoutTranslateOverlayProps) {
-	const onPage = useMemo(
-		() =>
-			items.filter(isLayoutTranslateItemPainted).map((item) => ({
+	const onPage = useMemo(() => {
+		const painted = items.filter(isLayoutTranslateItemPainted).map((item) => {
+			const paintText =
+				item.status === "running"
+					? (item.translated ?? "…")
+					: (item.translated ?? "");
+			// Size from the source box. Expansion below must not inflate a
+			// heading just because the translation borrowed extra height.
+			const paintFontSize = fontSizeForLayoutTranslateItem(
+				item,
+				pageWidthPx,
+				pageHeightPx,
+				paintText,
+			);
+			return { item, paintText, paintFontSize };
+		});
+		// Same-page body reference so section titles outrank paragraphs even
+		// when the layout detector hugged the heading glyphs (tiny bbox).
+		// Tall paragraph boxes only — captions, author lines and footnotes are
+		// often kind "text" but sized like microcopy and would collapse the floor.
+		const bodyCandidates = painted.filter(
+			({ item }) =>
+				!isLayoutTranslateHeadingKind(item.kind) &&
+				item.bbox.h >= 0.04 &&
+				item.source.replace(/\s+/g, "").length >= 100,
+		);
+		const bodyRef = bodyReferenceFontSize(
+			bodyCandidates.map(({ paintFontSize }) => paintFontSize),
+		);
+		return painted.map(({ item, paintText, paintFontSize: baseFs }) => {
+			const isHeading = isLayoutTranslateHeadingKind(item.kind);
+			// Doc titles already dwarf body; page chrome (date, logo) must not be
+			// inflated. Only short section strips need the body-relative floor.
+			const sectionStrip = isHeading && item.bbox.h < 0.035;
+			const paintFontSize = sectionStrip
+				? applyHeadingBodyFloor(baseFs, bodyRef)
+				: baseFs;
+			return {
 				...item,
-				bbox: expandLayoutTranslateBbox(item, layoutRegions),
-			})),
-		[items, layoutRegions],
-	);
+				sourceBbox: item.bbox,
+				bbox: expandLayoutTranslateBbox(
+					item,
+					layoutRegions,
+					isHeading
+						? { pageWidthPx, pageHeightPx, fontSize: paintFontSize }
+						: undefined,
+				),
+				paintText,
+				paintFontSize,
+			};
+		});
+	}, [items, layoutRegions, pageHeightPx, pageWidthPx]);
 	const tintByItem = useMemo(() => {
 		const map = new Map<string, ReadonlyMap<number, HighlightColor>>();
 		if (!highlightQuotes?.length) return map;
@@ -495,22 +829,28 @@ export const LayoutTranslateOverlay = memo(function LayoutTranslateOverlay({
 		}
 		return map;
 	}, [highlightQuotes, onPage, sentenceRectsByItemId]);
+	const linksByItem = useMemo(
+		() => claimTranslateLinks(onPage, links ?? []),
+		[links, onPage],
+	);
 	if (onPage.length === 0) return null;
 
 	return (
 		<>
 			{onPage.map((item) => {
-				const text =
-					item.status === "running"
-						? (item.translated ?? "…")
-						: (item.translated ?? "");
+				const text = item.paintText;
 				const isHeading = isLayoutTranslateHeadingKind(item.kind);
-				const fontSize = fontSizeForLayoutTranslateItem(
-					item,
-					pageWidthPx,
-					pageHeightPx,
+				const linkAssignments = assignPreservedLinks(
 					text,
+					linksByItem.get(item.id) ?? [],
+					{
+						source: item.source,
+						...(glyphRuns?.length
+							? { block: item.sourceBbox, runs: glyphRuns }
+							: {}),
+					},
 				);
+				const fontSize = item.paintFontSize;
 				const boxWidthPx = item.bbox.w * pageWidthPx;
 				const boxHeightPx = item.bbox.h * pageHeightPx;
 				const boxStyle = {
@@ -579,7 +919,11 @@ export const LayoutTranslateOverlay = memo(function LayoutTranslateOverlay({
 									boxHeightPx={boxHeightPx}
 									isHeading={isHeading}
 									paperDark={tone === "dark"}
+									tone={tone}
 									tintedSentences={tintByItem.get(item.id)}
+									linkAssignments={linkAssignments}
+									onOpenLink={onOpenLink}
+									onHoverLink={onHoverLink}
 								/>
 							</div>
 						</div>

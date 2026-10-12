@@ -23,6 +23,8 @@ export type AskPinAnchor = {
 	/** 1-based page number */
 	page: number;
 	rects: PdfAskNormalizedRect[];
+	/** Translation-overlay boxes, when quick chat started on a translation. */
+	translatedRects?: PdfAskNormalizedRect[];
 	preview: string;
 	ended: boolean;
 };
@@ -53,17 +55,22 @@ export function usePdfPinAnchors({
 	 */
 	const askPinAnchors = useStableDerived<AskPinAnchor[]>(
 		() =>
-			threads.filter(threadHasUserQuestion).map((th) => ({
-				id: th.id,
-				page: th.anchor.page,
-				rects: th.anchor.rects,
-				preview: threadPreview(th),
-				ended: th.status === "ended",
-			})),
+			threads
+				.filter((th) => (th.anchor.rects?.length ?? 0) > 0)
+				.map((th) => ({
+					id: th.id,
+					page: th.anchor.page,
+					rects: th.anchor.rects,
+					...(th.anchor.translatedRects?.length
+						? { translatedRects: th.anchor.translatedRects }
+						: {}),
+					preview: threadPreview(th),
+					ended: th.status === "ended",
+				})),
 		threads
 			.map(
 				(th) =>
-					`${th.id}|${threadHasUserQuestion(th) ? 1 : 0}|${th.anchor.page}|${th.status}|${threadPreview(th)}|${rectsKey(th.anchor.rects)}`,
+					`${th.id}|${threadHasUserQuestion(th) ? 1 : 0}|${th.anchor.page}|${th.status}|${threadPreview(th)}|${rectsKey(th.anchor.rects)}|${rectsKey(th.anchor.translatedRects ?? [])}`,
 			)
 			.join(";"),
 	);

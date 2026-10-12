@@ -38,6 +38,7 @@ import {
 	type MouseEvent as ReactMouseEvent,
 	type PointerEvent as ReactPointerEvent,
 	type RefObject,
+	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
@@ -55,8 +56,12 @@ import {
 	pdfTileDpr,
 } from "@/components/viewer/pdf/constants";
 import { EMBED_PAGE_ATTR } from "@/components/viewer/pdf/coords";
-import type { PdfTextLink } from "@/components/viewer/pdf/layers/citation-links";
-import { CitationLinkLayer } from "@/components/viewer/pdf/layers/citation-links";
+import { AskHighlightLayer } from "@/components/viewer/pdf/layers/ask-highlight-layer";
+import {
+	CitationLinkLayer,
+	linkAnnotationUri,
+	type PdfTextLink,
+} from "@/components/viewer/pdf/layers/citation-links";
 import { CommentCardsLayer } from "@/components/viewer/pdf/layers/comment-cards-layer";
 import { HighlightAnnotationMenu } from "@/components/viewer/pdf/layers/highlight-annotation-menu";
 import { LayoutTranslateOverlay } from "@/components/viewer/pdf/layers/layout-translate-overlay";
@@ -65,7 +70,11 @@ import { PdfTextSelectionLayer } from "@/components/viewer/pdf/layers/pdf-text-s
 import { PdfRegionSelectLayer } from "@/components/viewer/pdf/layers/region-select-layer";
 import { SelectionGutter } from "@/components/viewer/pdf/layers/selection-gutter";
 import { PDF_VISUAL_REGION_FRAME_CLASS } from "@/components/viewer/pdf/layers/visual-region-frame";
-import { commentForVisibleTranslation } from "@/components/viewer/pdf/marks-index";
+import {
+	askHighlightRects,
+	commentForVisibleTranslation,
+	selectionPinForVisibleTranslation,
+} from "@/components/viewer/pdf/marks-index";
 import type {
 	PageAnnotationComment,
 	ScreenPoint,
@@ -95,6 +104,11 @@ import {
 	type PdfLayoutRegion,
 	type PointerOrigin,
 } from "@/lib/pdf/layout";
+import { translatedTextLinkKey } from "@/lib/pdf/layout/link-ink";
+import type {
+	PreservedLinkAssignment,
+	TranslateLinkBox,
+} from "@/lib/pdf/layout/translated-links";
 import {
 	PDF_ANNOTATION_DARK_CLASS,
 	PDF_PAGE_RASTER_DARK_CLASS,
@@ -356,6 +370,8 @@ export type PdfActiveCardAnchor = {
 	/** 1-based page number */
 	page: number;
 	rects: PdfAskNormalizedRect[];
+	/** Translation-overlay boxes, when the open ask started on a translation. */
+	translatedRects?: PdfAskNormalizedRect[];
 };
 
 /** Marks and mark-derived overlays. Whole-document work, bucketed by page. */
@@ -433,6 +449,22 @@ export type PdfPageLayoutSlice = {
 	sentenceRectsByItemId?: ReadonlyMap<
 		string,
 		readonly (readonly PdfAskNormalizedRect[])[]
+	>;
+	/**
+	 * Raw PDF fill per translated-link key (`link.id`, or the text-link key).
+	 * Absent until that page's text runs have been read.
+	 */
+	linkInkByKey?: ReadonlyMap<string, string>;
+	/**
+	 * PDF text runs for this page's translated blocks, in page fractions.
+	 * Lets a grouped citation stay inside its own glyphs.
+	 */
+	glyphRunsByPage?: ReadonlyMap<
+		number,
+		readonly {
+			text: string;
+			box: { x: number; y: number; w: number; h: number };
+		}[]
 	>;
 };
 
@@ -704,6 +736,29 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 	const shownComments = translationVisible
 		? comments.map((comment) => commentForVisibleTranslation(comment, true))
 		: comments;
+	const shownPins = useMemo(
+		() =>
+			translationVisible
+				? pins.map((pin) => selectionPinForVisibleTranslation(pin, true))
+				: pins,
+		[pins, translationVisible],
+	);
+	const askHighlights = useMemo(() => {
+		const paints: { id: string; rects: readonly PdfAskNormalizedRect[] }[] = [];
+		const seen = new Set<string>();
+		for (const pin of pins) {
+			if (pin.kind !== "ask") continue;
+			const rects = askHighlightRects(pin, translationVisible);
+			if (!rects.length) continue;
+			seen.add(pin.id);
+			paints.push({ id: pin.id, rects });
+		}
+		if (activeAskOnPage && !seen.has(activeAskOnPage.id)) {
+			const rects = askHighlightRects(activeAskOnPage, translationVisible);
+			if (rects.length) paints.push({ id: activeAskOnPage.id, rects });
+		}
+		return paints;
+	}, [activeAskOnPage, pins, translationVisible]);
 	const pageTranslateState = layout.layoutTranslatePageStateByPage.get(
 		pageIndex,
 	) ?? { active: false, running: false };
@@ -896,6 +951,104 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 		</div>
 	);
 
+	const translateLinkBoxes = useMemo(() => {
+		const zoom = zoomRef.current || 1;
+		const pageWidthPt = width / zoom;
+		const pageHeightPt = height / zoom;
+		if (pageWidthPt <= 0 || pageHeightPt <= 0) return [] as TranslateLinkBox[];
+		const boxes: TranslateLinkBox[] = [];
+		const ink = layout.linkInkByKey;
+		const norm = (rect: {
+			origin: { x: number; y: number };
+			size: { width: number; height: number };
+		}): TranslateLinkBox["box"] => ({
+			x: rect.origin.x / pageWidthPt,
+			y: rect.origin.y / pageHeightPt,
+			w: rect.size.width / pageWidthPt,
+			h: rect.size.height / pageHeightPt,
+		});
+		const withInk = (box: TranslateLinkBox, key: string): TranslateLinkBox => {
+			const color = ink?.get(key);
+			return color ? { ...box, color } : box;
+		};
+		for (const link of marks.citationLinks.get(pageIndex) ?? []) {
+			const url = linkAnnotationUri(link);
+			boxes.push(
+				withInk(
+					{
+						key: link.id,
+						kind: url ? "url" : "goto",
+						url: url ?? undefined,
+						box: norm(link.rect),
+					},
+					link.id,
+				),
+			);
+		}
+		for (const link of marks.textLinks.get(pageIndex) ?? []) {
+			const key = translatedTextLinkKey(link);
+			boxes.push(
+				withInk(
+					{
+						key,
+						kind: "url",
+						url: link.url,
+						box: norm(link.rect),
+					},
+					key,
+				),
+			);
+		}
+		return boxes;
+	}, [
+		height,
+		layout.linkInkByKey,
+		marks.citationLinks,
+		marks.textLinks,
+		pageIndex,
+		width,
+		zoomRef,
+	]);
+	const citationById = useMemo(() => {
+		const map = new Map<string, PdfLinkAnnoObject>();
+		for (const link of marks.citationLinks.get(pageIndex) ?? []) {
+			map.set(link.id, link);
+		}
+		return map;
+	}, [marks.citationLinks, pageIndex]);
+	const openTranslatedLink = useCallback(
+		(assignment: PreservedLinkAssignment) => {
+			if (assignment.key) {
+				const link = citationById.get(assignment.key);
+				if (link) {
+					const url = linkAnnotationUri(link);
+					if (url) handlers.onTextLinkActivate(url);
+					else handlers.onCitationActivate(link);
+					return;
+				}
+			}
+			if (assignment.url) handlers.onTextLinkActivate(assignment.url);
+		},
+		[citationById, handlers],
+	);
+	const hoverTranslatedLink = useCallback(
+		(
+			assignment: PreservedLinkAssignment | null,
+			point: { x: number; y: number; top: number; bottom: number } | null,
+		) => {
+			if (!assignment?.key) {
+				handlers.onCitationHover(null);
+				return;
+			}
+			const link = citationById.get(assignment.key);
+			if (!link || linkAnnotationUri(link)) {
+				handlers.onCitationHover(null);
+				return;
+			}
+			handlers.onCitationHover(link, point ?? undefined);
+		},
+		[citationById, handlers],
+	);
 	const translateOverlay =
 		translationVisible && layoutTranslateOnPage ? (
 			<LayoutTranslateOverlay
@@ -906,6 +1059,10 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 				layoutRegions={layout.rawRegionsByPage.get(pageIndex)}
 				highlightQuotes={highlightQuotes}
 				sentenceRectsByItemId={layout.sentenceRectsByItemId}
+				links={translateLinkBoxes}
+				glyphRuns={layout.glyphRunsByPage?.get(pageIndex)}
+				onOpenLink={openTranslatedLink}
+				onHoverLink={hoverTranslatedLink}
 			/>
 		) : null;
 
@@ -1215,26 +1372,19 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 							);
 						})
 					: null}
-				{/* Open ask conversation card: highlight the anchored selection. */}
-				{activeAskOnPage
-					? activeAskOnPage.rects.map((rect) => (
-							<div
-								key={`${activeAskOnPage.id}-source-${rect.x}-${rect.y}-${rect.w}-${rect.h}`}
-								className={cn(
-									"pointer-events-auto absolute z-[1] rounded-[2px] bg-amber-300/45 dark:bg-amber-400/35",
-								)}
-								style={{
-									left: `${rect.x * 100}%`,
-									top: `${rect.y * 100}%`,
-									width: `${rect.w * 100}%`,
-									height: `${rect.h * 100}%`,
-								}}
-								aria-hidden="true"
-								onMouseEnter={handlers.onCardHoverEnter}
-								onMouseLeave={handlers.onCardHoverLeave}
-							/>
-						))
-					: null}
+				{/*
+				 * Quick-chat selections stay painted after the card closes, in the
+				 * same yellow as saved annotations. The open card still bridges
+				 * hover back to itself when the translation paper is not covering
+				 * the page.
+				 */}
+				<AskHighlightLayer
+					paints={askHighlights}
+					activeId={activeAskOnPage?.id ?? null}
+					bridgeHover={!translationVisible}
+					onHoverEnter={handlers.onCardHoverEnter}
+					onHoverLeave={handlers.onCardHoverLeave}
+				/>
 				{activeTranslateOnPage
 					? activeTranslateOnPage.rects.map((rect) => (
 							<div
@@ -1341,7 +1491,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 					: null}
 				{!mode.plainViewer ? (
 					<SelectionGutter
-						items={pins}
+						items={shownPins}
 						activeId={marks.activeCardId}
 						onOpen={handlers.onOpenPin}
 						onEnter={handlers.onCardHoverEnter}

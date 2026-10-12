@@ -97,7 +97,7 @@ export type PdfAskThreads = {
 	sendAskQuestion: (question: string) => void;
 	/** Edit a user turn: drop it and everything after, then re-send. */
 	resendAskQuestion: (messageId: string, question: string) => void;
-	/** Card hide button: end the thread (or drop an empty draft) and dismiss. */
+	/** Card hide button: end a thread that has a question, and dismiss. */
 	hideAskThread: () => void;
 	deleteAskThread: () => void;
 	stopAskStreaming: () => void;
@@ -175,28 +175,16 @@ export function usePdfAskThreads({
 		[setThreads],
 	);
 
-	/** A card closed without a question was never a thread — drop the draft. */
-	const discardIfEmptyDraft = useCallback(
-		(threadId: string | null) => {
-			if (!threadId) return;
-			const th = threadsRef.current.find((t) => t.id === threadId);
-			if (!th || threadHasUserQuestion(th)) return;
-			setThreads((prev) => prev.filter((t) => t.id !== threadId));
-		},
-		[setThreads, threadsRef],
-	);
-
 	const clearAskError = useCallback(() => {
 		setAskError(null);
 	}, []);
 
-	const closeAskChrome = useCallback(
-		(threadId: string) => {
-			discardIfEmptyDraft(threadId);
-			setAskError(null);
-		},
-		[discardIfEmptyDraft],
-	);
+	const closeAskChrome = useCallback((_threadId: string) => {
+		// Keep empty drafts after the card closes so the selection range
+		// stays painted like an annotation (#732). createThreadFromAnchor
+		// still drops prior empties when the next Ask starts.
+		setAskError(null);
+	}, []);
 
 	const openThread = useCallback(
 		(thread: PdfAskThread) => openCard({ kind: "ask", id: thread.id }),
@@ -317,29 +305,24 @@ export function usePdfAskThreads({
 			activeCardRef.current?.kind === "ask" ? activeCardRef.current.id : null;
 		if (id) {
 			const thread = threadsRef.current.find((th) => th.id === id);
-			if (thread) {
-				if (!threadHasUserQuestion(thread)) {
-					setThreads((prev) => prev.filter((t) => t.id !== thread.id));
-				} else if (thread.status !== "ended") {
-					const ended: PdfAskThread = {
-						...thread,
-						status: "ended",
-						updatedAt: new Date().toISOString(),
-					};
-					upsertThread(ended);
-					void persist(ended);
-				}
+			// An empty draft stays, so its gutter pin and selection highlight
+			// remain after the card closes. The next Ask drops prior empties.
+			if (
+				thread &&
+				threadHasUserQuestion(thread) &&
+				thread.status !== "ended"
+			) {
+				const ended: PdfAskThread = {
+					...thread,
+					status: "ended",
+					updatedAt: new Date().toISOString(),
+				};
+				upsertThread(ended);
+				void persist(ended);
 			}
 		}
 		dismissAskChrome();
-	}, [
-		upsertThread,
-		persist,
-		dismissAskChrome,
-		activeCardRef,
-		setThreads,
-		threadsRef,
-	]);
+	}, [upsertThread, persist, dismissAskChrome, activeCardRef, threadsRef]);
 
 	const deleteAskThread = useCallback(() => {
 		const id =

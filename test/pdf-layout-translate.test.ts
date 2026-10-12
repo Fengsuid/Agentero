@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	applyHeadingBodyFloor,
+	bodyReferenceFontSize,
 	expandLayoutTranslateBbox,
 	fontSizeForLayoutTranslateBox,
+	HEADING_TO_BODY_SIZE_RATIO,
 } from "@/components/viewer/pdf/layers/layout-translate-overlay";
 import {
 	applyLayoutTranslateSidecar,
@@ -282,6 +285,57 @@ describe("fontSizeForLayoutTranslateBox", () => {
 		expect(withZh).toBeGreaterThanOrEqual(paperLike * 0.95);
 		expect(withZh).toBeLessThanOrEqual(paperLike * 1.25 + 0.5);
 	});
+
+	it("keeps a longer heading at the source size instead of shrinking to fit", () => {
+		const bbox = { x: 0.1, y: 0.08, w: 0.7, h: 0.035 };
+		const pageW = 800;
+		const pageH = 1100;
+		const en = "Introduction";
+		const zh = "这是一个明显更长的章节标题用来验证字号不会被压扁";
+		const english = fontSizeForLayoutTranslateBox(bbox, pageW, pageH, en, en, {
+			heading: true,
+		});
+		const chinese = fontSizeForLayoutTranslateBox(bbox, pageW, pageH, en, zh, {
+			heading: true,
+		});
+		const shrunk = fontSizeForLayoutTranslateBox(bbox, pageW, pageH, en, zh);
+		expect(Math.abs(chinese - english) / english).toBeLessThanOrEqual(0.02);
+		expect(chinese).toBeGreaterThan(shrunk);
+	});
+
+	it("sizes a one-line heading from the raw box when padding would hit the floor", () => {
+		// A section-title strip is about one em tall. Subtracting paragraph
+		// padding used to clamp "1. Introduction" to FS_MIN, below body text.
+		const pageW = 600;
+		const pageH = 400;
+		const bbox = { x: 0.12, y: 0.2, w: 0.4, h: 12 / pageH };
+		const fs = fontSizeForLayoutTranslateBox(
+			bbox,
+			pageW,
+			pageH,
+			"1. Introduction",
+			"1. 介绍",
+			{ heading: true },
+		);
+		expect(fs).toBeGreaterThan(7);
+		expect(fs).toBeLessThanOrEqual(20);
+	});
+});
+
+describe("heading body floor", () => {
+	it("uses the median body size as the page reference", () => {
+		expect(bodyReferenceFontSize([8, 9, 10, 12])).toBe(10);
+		expect(bodyReferenceFontSize([8, 10, 12])).toBe(12);
+		expect(bodyReferenceFontSize([])).toBeUndefined();
+	});
+
+	it("raises a short section title to body × 1.35", () => {
+		const body = 10;
+		const raised = applyHeadingBodyFloor(7.6, body);
+		expect(raised).toBeCloseTo(body * HEADING_TO_BODY_SIZE_RATIO, 5);
+		expect(applyHeadingBodyFloor(14, body)).toBe(14);
+		expect(applyHeadingBodyFloor(8, undefined)).toBe(8);
+	});
 });
 
 describe("expandLayoutTranslateBbox", () => {
@@ -314,6 +368,33 @@ describe("expandLayoutTranslateBbox", () => {
 	it("does not expand a long body paragraph into adjacent content", () => {
 		const body = { ...item("text"), source: "word ".repeat(100) };
 		expect(expandLayoutTranslateBbox(body)).toEqual(body.bbox);
+	});
+
+	it("grows a heading down to the source font size and stops at a blocker", () => {
+		const heading = item("header");
+		const fontSize = fontSizeForLayoutTranslateBox(
+			heading.bbox,
+			800,
+			1100,
+			heading.source,
+			heading.translated,
+			{ heading: true },
+		);
+		const expanded = expandLayoutTranslateBbox(
+			heading,
+			[
+				region({
+					id: "body",
+					kind: "text",
+					pageIndex: 0,
+					bbox: { x: 0.1, y: 0.2, w: 0.7, h: 0.2 },
+				}),
+			],
+			{ pageWidthPx: 800, pageHeightPx: 1100, fontSize },
+		);
+		expect(expanded.h).toBeGreaterThan(heading.bbox.h);
+		expect(expanded.y + expanded.h).toBeLessThanOrEqual(0.2 - 0.006 + 1e-9);
+		expect(expanded.h).toBeLessThanOrEqual(heading.bbox.h * 2.75 + 1e-9);
 	});
 });
 
