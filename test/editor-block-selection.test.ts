@@ -10,6 +10,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { MarkdownKit } from "@/components/editor/plugins/markdown-kit";
 import {
+	blockChatSelectionInput,
 	isBlankParagraph,
 	isElementBlockSelected,
 	resolveHandleBlocks,
@@ -91,6 +92,28 @@ describe("Markdown block selection serialize", () => {
 		expect(
 			editor.getOption(BlockSelectionPlugin, "selectedIds")?.has("b"),
 		).toBe(true);
+	});
+
+	it("builds an add-to-chat payload for a serialized block", () => {
+		expect(
+			blockChatSelectionInput("Hello block\n", "notes/a.md", {
+				lineFrom: 4,
+				lineTo: 6,
+			}),
+		).toEqual({
+			text: "Hello block",
+			sourcePath: "notes/a.md",
+			origin: "markdown",
+			lineFrom: 4,
+			lineTo: 6,
+		});
+		expect(blockChatSelectionInput("   ", "notes/a.md", null)).toBeNull();
+		expect(blockChatSelectionInput("Hello", "  ", null)).toBeNull();
+		expect(blockChatSelectionInput("Hello", "notes/a.md", null)).toEqual({
+			text: "Hello",
+			sourcePath: "notes/a.md",
+			origin: "markdown",
+		});
 	});
 
 	it("treats empty and whitespace paragraphs as blank lines, not content blocks", () => {

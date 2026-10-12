@@ -2,8 +2,15 @@
 
 import type { DraggableState } from "@platejs/dnd";
 import { BlockSelectionPlugin } from "@platejs/selection/react";
-import { Copy, CopyPlus, GripVertical, Scissors, Trash2 } from "lucide-react";
-import type { TElement } from "platejs";
+import {
+	Copy,
+	CopyPlus,
+	GripVertical,
+	MessageSquarePlus,
+	Scissors,
+	Trash2,
+} from "lucide-react";
+import type { SlateEditor, TElement } from "platejs";
 import { useEditorRef } from "platejs/react";
 import {
 	type MouseEvent as ReactMouseEvent,
@@ -14,6 +21,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
+import { addSelectionToChat } from "@/components/selection/add-selection-to-chat";
 import {
 	Popover,
 	PopoverAnchor,
@@ -23,11 +31,13 @@ import i18n from "@/i18n";
 import { copyTextToClipboard } from "@/lib/core/clipboard";
 import { cn } from "@/lib/core/utils";
 import {
+	blockChatSelectionInput,
 	duplicateSelectedBlocks,
 	removeSelectedBlocks,
 	resolveHandleBlocks,
 	serializeSelectedBlocksAsMarkdown,
 } from "@/lib/markdown/block-selection";
+import { resolveMarkdownSelectionLinesForPath } from "@/lib/markdown/markdown-selection-lines-registry";
 import { formatModShortcut } from "@/lib/shell/shortcuts";
 
 const MENU_CLOSE_MS = 120;
@@ -42,6 +52,17 @@ type BlockHandleMenuProps = {
 	onPrepareDrag: (event: ReactMouseEvent) => void;
 	style?: React.CSSProperties;
 };
+
+function blockSourcePath(editor: SlateEditor, element: TElement): string {
+	const dom = editor.api.toDOMNode(element);
+	if (!dom || !("closest" in dom)) return "";
+	return (
+		dom
+			.closest("[data-selection-chat-source]")
+			?.getAttribute("data-selection-chat-source")
+			?.trim() ?? ""
+	);
+}
 
 function MenuItem({
 	children,
@@ -107,6 +128,25 @@ function BlockHandleActions({
 
 	return (
 		<>
+			<MenuItem
+				onSelect={() => {
+					run(() => {
+						const sourcePath = blockSourcePath(editor, element);
+						const payload = blockChatSelectionInput(
+							serializeSelectedBlocksAsMarkdown(editor),
+							sourcePath,
+							sourcePath
+								? resolveMarkdownSelectionLinesForPath(sourcePath)
+								: null,
+						);
+						if (!payload) return;
+						addSelectionToChat(payload);
+					});
+				}}
+			>
+				<MessageSquarePlus className="size-4" />
+				{t("blockDrag.addToChat")}
+			</MenuItem>
 			<MenuItem
 				shortcut={formatModShortcut("c")}
 				onSelect={() =>
