@@ -3296,6 +3296,20 @@ export type LayoutProviderConfig = {
 	language?: string,
 	/**  MinerU force-OCR: run OCR on every page regardless of the PDF text layer. */
 	isOcr?: boolean,
+	/**
+	 *  Treat `base_url` as a self-hosted MinerU server (version-detected)
+	 *  instead of the official cloud API (which also covers relays).
+	 */
+	selfHosted?: boolean,
+	/**  MinerU 4.0 self-hosted parse tier; empty → the server's own default. */
+	tier?: string,
+	/**
+	 *  MinerU 3.x self-hosted backend; empty → the server's own default. 4.0
+	 *  removed this parameter, so it is only sent to legacy servers.
+	 */
+	legacyBackend?: string,
+	/**  OpenAI-compatible server URL for the 3.x `*-http-client` backends. */
+	legacyVllmUrl?: string,
 };
 
 export type LayoutRemoteAnalyzePdfArgs = {

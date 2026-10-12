@@ -29,6 +29,12 @@ pub struct HostedProviderCredentials {
     pub language: Option<String>,
     /// MinerU force-OCR: OCR every page regardless of the PDF text layer.
     pub is_ocr: bool,
+    /// MinerU self-hosted extras (4.0 `tier`, 3.x `backend` / vLLM URL); all
+    /// `None` leaves the server on its own defaults.
+    pub self_hosted: bool,
+    pub tier: Option<String>,
+    pub legacy_backend: Option<String>,
+    pub legacy_vllm_url: Option<String>,
 }
 
 /// Everything one whole-document analyze run needs: the base64 PDF (in

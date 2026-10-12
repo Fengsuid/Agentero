@@ -572,6 +572,11 @@
 			"baseUrl": {
 				"label": "Base URL"
 			},
+			"selfHostedHelp": "官方云 API 地址，默认为 https://mineru.net；使用中转站时填其中转地址即可，协议与官方一致。",
+			"selfHosted": {
+				"label": "自建 API",
+				"help": "开启后把上面的地址当作自建 MinerU 服务，并自动识别版本：4.0 及以上走 V1 API，3.x 走 /file_parse。关闭则按官方云 API（含中转站）处理。"
+			},
 			"model": {
 				"label": "模型"
 			},
@@ -581,7 +586,7 @@
 			},
 			"language": {
 				"label": "语言",
-				"help": "指定文档语言",
+				"help": "文档语言（OCR 语言包）。官方云与自建 3.x 会随请求发送；自建 4.0 已改为服务端配置，不再生效。",
 				"options": {
 					"ch": "中英文",
 					"en": "纯英文"
@@ -589,7 +594,25 @@
 			},
 			"forceOcr": {
 				"label": "强制 OCR",
-				"help": "是否启动 OCR 功能"
+				"help": "对所有页面强制 OCR，而不是按文本层自动判断。官方云走 is_ocr，自建 4.0 走 ocr_mode，自建 3.x 走 parse_method。"
+			},
+			"serverDefault": "服务端默认",
+			"tier": {
+				"label": "解析档位（自建 API）",
+				"help": "仅 MinerU 4.0 及以上生效；可选档位取决于服务端启动时的 --tier。",
+				"serverDefault": "服务端默认（优先 standard）"
+			},
+			"legacy": {
+				"title": "旧版参数（自建 API · MinerU 3.x 及更早）",
+				"help": "MinerU 4.0 已移除以下请求参数，连接 4.0 及以上服务时会被忽略；VLM 地址改在 MinerU 服务端配置。",
+				"backend": {
+					"label": "Backend"
+				},
+				"vllmUrl": {
+					"label": "vLLM 服务器地址",
+					"placeholder": "如 http://your-vllm-server:8000",
+					"help": "当 Backend 选择 vlm-http-client 或 hybrid-http-client 时需要填写"
+				}
 			},
 			"probeIdle": "尚未检测",
 			"probeOk": "可用",

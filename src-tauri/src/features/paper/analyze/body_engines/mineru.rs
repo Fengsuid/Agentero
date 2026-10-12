@@ -34,6 +34,10 @@ impl BodyParseEngine for MineruBodyEngine {
             base_url: ctx.credentials.base_url.clone(),
             language: ctx.credentials.language.clone(),
             is_ocr: ctx.credentials.is_ocr,
+            self_hosted: ctx.credentials.self_hosted,
+            tier: ctx.credentials.tier.clone(),
+            legacy_backend: ctx.credentials.legacy_backend.clone(),
+            legacy_vllm_url: ctx.credentials.legacy_vllm_url.clone(),
         };
         let zip_bytes =
             run_mineru_extract(&credentials, pdf_bytes, &file_name, &|_, _, _| {}, &|| {
@@ -78,6 +82,9 @@ mod tests {
 
         let credentials = HostedProviderCredentials {
             api_key: Some(api_key),
+            // An override points at a self-hosted deployment; without one the
+            // official cloud runs the same extract.
+            self_hosted: !base_url.is_empty(),
             base_url: (!base_url.is_empty()).then_some(base_url),
             ..Default::default()
         };

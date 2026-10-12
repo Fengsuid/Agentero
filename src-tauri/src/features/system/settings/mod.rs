@@ -408,6 +408,30 @@ pub struct LayoutProviderConfig {
     /// MinerU force-OCR: run OCR on every page regardless of the PDF text layer.
     #[serde(default)]
     pub is_ocr: bool,
+    /// Treat `base_url` as a self-hosted MinerU server (version-detected)
+    /// instead of the official cloud API (which also covers relays).
+    #[serde(default)]
+    pub self_hosted: bool,
+    /// MinerU 4.0 self-hosted parse tier; empty → the server's own default.
+    #[serde(default)]
+    pub tier: String,
+    /// MinerU 3.x self-hosted backend; empty → the server's own default. 4.0
+    /// removed this parameter, so it is only sent to legacy servers.
+    #[serde(default)]
+    pub legacy_backend: String,
+    /// OpenAI-compatible server URL for the 3.x `*-http-client` backends.
+    #[serde(default)]
+    pub legacy_vllm_url: String,
+}
+
+/// MinerU self-hosted options that only its own engine reads, resolved in one
+/// lock acquisition for both the layout engine and the parser snapshot.
+#[derive(Debug, Clone, Default)]
+pub struct MineruSelfHostedParams {
+    pub self_hosted: bool,
+    pub tier: Option<String>,
+    pub legacy_backend: Option<String>,
+    pub legacy_vllm_url: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -879,6 +903,30 @@ impl AppSettingsStore {
                 })
             })
             .unwrap_or(false)
+    }
+
+    /// Resolve the MinerU self-hosted extras (each empty field → None). Only
+    /// the MinerU engine reads these; other providers return all-`None`.
+    pub fn layout_mineru_self_hosted(&self, provider: &str) -> MineruSelfHostedParams {
+        let Some(key) = layout_provider_settings_key(provider) else {
+            return MineruSelfHostedParams::default();
+        };
+        let Ok(guard) = self.inner.lock() else {
+            return MineruSelfHostedParams::default();
+        };
+        let Some(cfg) = guard.layout.provider_configs.get(key) else {
+            return MineruSelfHostedParams::default();
+        };
+        let trimmed = |value: &str| {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        };
+        MineruSelfHostedParams {
+            self_hosted: cfg.self_hosted,
+            tier: trimmed(&cfg.tier),
+            legacy_backend: trimmed(&cfg.legacy_backend),
+            legacy_vllm_url: trimmed(&cfg.legacy_vllm_url),
+        }
     }
 
     /// Whether [`Self::embedding_config`] resolves to the built-in gateway.
@@ -1426,6 +1474,16 @@ fn normalize_layout_provider_configs(configs: &mut HashMap<String, LayoutProvide
         "devanagari",
     ];
     configs.retain(|k, _| PROVIDERS.contains(&k.as_str()));
+    // MinerU self-hosted vocabulary; an unknown value is cleared so the request
+    // omits the parameter instead of failing the server's validation.
+    const MINERU_TIERS: &[&str] = &["flash", "basic", "standard", "advanced"];
+    const MINERU_LEGACY_BACKENDS: &[&str] = &[
+        "pipeline",
+        "vlm-engine",
+        "hybrid-engine",
+        "vlm-http-client",
+        "hybrid-http-client",
+    ];
     for cfg in configs.values_mut() {
         cfg.api_key = cfg.api_key.trim().to_string();
         // Keep trailing slashes (same reason as translate configs): normalize
@@ -1437,6 +1495,15 @@ fn normalize_layout_provider_configs(configs: &mut HashMap<String, LayoutProvide
         if !MINERU_LANGUAGES.contains(&cfg.language.as_str()) {
             cfg.language = "ch".to_string();
         }
+        cfg.tier = cfg.tier.trim().to_string();
+        if !MINERU_TIERS.contains(&cfg.tier.as_str()) {
+            cfg.tier = String::new();
+        }
+        cfg.legacy_backend = cfg.legacy_backend.trim().to_string();
+        if !MINERU_LEGACY_BACKENDS.contains(&cfg.legacy_backend.as_str()) {
+            cfg.legacy_backend = String::new();
+        }
+        cfg.legacy_vllm_url = cfg.legacy_vllm_url.trim().to_string();
     }
 }
 

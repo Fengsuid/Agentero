@@ -77,6 +77,8 @@ import {
 	type LayoutProviderConfig,
 	type LayoutProviderId,
 	MINERU_LANGUAGES,
+	MINERU_LEGACY_BACKENDS,
+	MINERU_TIERS,
 	PARSER_BACKENDS,
 	PROVIDER_MODEL_PRESETS,
 } from "@/lib/pdf/layout/settings";
@@ -90,7 +92,55 @@ const EMPTY_PROVIDER_CONFIG: LayoutProviderConfig = {
 	prompt: "",
 	language: DEFAULT_MINERU_LANGUAGE,
 	isOcr: false,
+	selfHosted: false,
+	tier: "",
+	legacyBackend: "",
+	legacyVllmUrl: "",
 };
+
+/** Radix Select reserves "" for "no value"; self-hosted options use it for
+ * "keep the server's own default". */
+const SERVER_DEFAULT = "__server_default__";
+
+/** MinerU self-hosted option list: literal API ids plus a server-default entry. */
+function ProviderOptionSelect({
+	id,
+	value,
+	options,
+	defaultLabel,
+	onChange,
+}: {
+	id: string;
+	value: string;
+	options: readonly string[];
+	defaultLabel: string;
+	onChange: (value: string) => void;
+}) {
+	return (
+		<Select
+			value={value || SERVER_DEFAULT}
+			onValueChange={(next) => onChange(next === SERVER_DEFAULT ? "" : next)}
+		>
+			<SelectTrigger
+				id={id}
+				size="sm"
+				className="h-8 min-w-32 max-w-44 text-xs"
+			>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent>
+				{options.map((option) => (
+					<SelectItem
+						key={option || SERVER_DEFAULT}
+						value={option || SERVER_DEFAULT}
+					>
+						{option || defaultLabel}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
 
 const PROBE_LABEL_KEYS = {
 	ok: "layout.providerConfig.probeOk",
@@ -462,6 +512,17 @@ function ProviderConfigCard({
 			? draft.language
 			: stored.language || DEFAULT_MINERU_LANGUAGE;
 	const displayIsOcr = draft.isOcr !== undefined ? draft.isOcr : stored.isOcr;
+	const displaySelfHosted =
+		draft.selfHosted !== undefined ? draft.selfHosted : stored.selfHosted;
+	const displayTier = draft.tier !== undefined ? draft.tier : stored.tier;
+	const displayLegacyBackend =
+		draft.legacyBackend !== undefined
+			? draft.legacyBackend
+			: stored.legacyBackend;
+	const displayLegacyVllmUrl =
+		draft.legacyVllmUrl !== undefined
+			? draft.legacyVllmUrl
+			: stored.legacyVllmUrl;
 	const configured = displayApiKey.trim().length > 0;
 
 	const runProbe = useCallback(
@@ -495,7 +556,28 @@ function ProviderConfigCard({
 			const prompt = provider.supportsPrompt ? displayPrompt.trim() : "";
 			const language = provider.supportsLanguage ? displayLanguage : "";
 			const isOcr = provider.supportsOcr ? displayIsOcr : false;
-			const config = { apiKey, baseUrl, model, prompt, language, isOcr };
+			const selfHosted = provider.supportsSelfHosted
+				? displaySelfHosted
+				: false;
+			const tier = provider.supportsSelfHosted ? displayTier : "";
+			const legacyBackend = provider.supportsSelfHosted
+				? displayLegacyBackend
+				: "";
+			const legacyVllmUrl = provider.supportsSelfHosted
+				? displayLegacyVllmUrl.trim()
+				: "";
+			const config = {
+				apiKey,
+				baseUrl,
+				model,
+				prompt,
+				language,
+				isOcr,
+				selfHosted,
+				tier,
+				legacyBackend,
+				legacyVllmUrl,
+			};
 
 			if (!apiKey) {
 				// Optimistic UI: hide from backend selects before Host round-trip.
@@ -536,6 +618,10 @@ function ProviderConfigCard({
 			displayPrompt,
 			displayLanguage,
 			displayIsOcr,
+			displaySelfHosted,
+			displayTier,
+			displayLegacyBackend,
+			displayLegacyVllmUrl,
 			layout,
 			patch,
 			provider,
@@ -646,7 +732,16 @@ function ProviderConfigCard({
 				) : null}
 				{provider.supportsBaseUrl ? (
 					<ProviderFieldRow
-						label={t("layout.providerConfig.baseUrl.label")}
+						label={
+							provider.supportsSelfHosted ? (
+								<HelpLabel
+									label={t("layout.providerConfig.baseUrl.label")}
+									help={t("layout.providerConfig.selfHostedHelp")}
+								/>
+							) : (
+								t("layout.providerConfig.baseUrl.label")
+							)
+						}
 						htmlFor={`layout-provider-${provider.id}-base-url`}
 					>
 						<Input
@@ -659,6 +754,29 @@ function ProviderConfigCard({
 							autoComplete="off"
 							onChange={(e) =>
 								setDraft((prev) => ({ ...prev, baseUrl: e.target.value }))
+							}
+						/>
+					</ProviderFieldRow>
+				) : null}
+				{provider.supportsSelfHosted ? (
+					<ProviderFieldRow
+						label={
+							<HelpLabel
+								label={t("layout.providerConfig.selfHosted.label")}
+								help={t("layout.providerConfig.selfHosted.help")}
+							/>
+						}
+						htmlFor={`layout-provider-${provider.id}-self-hosted`}
+					>
+						<Switch
+							id={`layout-provider-${provider.id}-self-hosted`}
+							size="sm"
+							checked={displaySelfHosted}
+							onCheckedChange={(checked) =>
+								setDraft((prev) => ({
+									...prev,
+									selfHosted: checked === true,
+								}))
 							}
 						/>
 					</ProviderFieldRow>
@@ -707,7 +825,9 @@ function ProviderConfigCard({
 						/>
 					</ProviderFieldRow>
 				) : null}
-				{provider.supportsLanguage || provider.supportsOcr ? (
+				{provider.supportsLanguage ||
+				provider.supportsOcr ||
+				provider.supportsSelfHosted ? (
 					<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
 						<CollapsibleTrigger asChild>
 							<button
@@ -782,6 +902,84 @@ function ProviderConfigCard({
 										}
 									/>
 								</ProviderFieldRow>
+							) : null}
+							{provider.supportsSelfHosted ? (
+								<>
+									<ProviderFieldRow
+										label={
+											<HelpLabel
+												label={t("layout.providerConfig.tier.label")}
+												help={t("layout.providerConfig.tier.help")}
+											/>
+										}
+										htmlFor={`layout-provider-${provider.id}-tier`}
+									>
+										<ProviderOptionSelect
+											id={`layout-provider-${provider.id}-tier`}
+											value={displayTier}
+											options={MINERU_TIERS}
+											defaultLabel={t(
+												"layout.providerConfig.tier.serverDefault",
+											)}
+											onChange={(tier) =>
+												setDraft((prev) => ({ ...prev, tier }))
+											}
+										/>
+									</ProviderFieldRow>
+									<div className="space-y-2 border-t pt-2">
+										<div className="space-y-0.5">
+											<p className="font-medium text-xs">
+												{t("layout.providerConfig.legacy.title")}
+											</p>
+											<p className="text-muted-foreground text-xs">
+												{t("layout.providerConfig.legacy.help")}
+											</p>
+										</div>
+										<ProviderFieldRow
+											label={t("layout.providerConfig.legacy.backend.label")}
+											htmlFor={`layout-provider-${provider.id}-legacy-backend`}
+										>
+											<ProviderOptionSelect
+												id={`layout-provider-${provider.id}-legacy-backend`}
+												value={displayLegacyBackend}
+												options={MINERU_LEGACY_BACKENDS}
+												defaultLabel={t("layout.providerConfig.serverDefault")}
+												onChange={(legacyBackend) =>
+													setDraft((prev) => ({ ...prev, legacyBackend }))
+												}
+											/>
+										</ProviderFieldRow>
+										<ProviderFieldRow
+											label={
+												<HelpLabel
+													label={t(
+														"layout.providerConfig.legacy.vllmUrl.label",
+													)}
+													help={t("layout.providerConfig.legacy.vllmUrl.help")}
+												/>
+											}
+											htmlFor={`layout-provider-${provider.id}-legacy-vllm-url`}
+										>
+											<Input
+												id={`layout-provider-${provider.id}-legacy-vllm-url`}
+												type="text"
+												value={displayLegacyVllmUrl}
+												placeholder={t(
+													"layout.providerConfig.legacy.vllmUrl.placeholder",
+												)}
+												className={PROVIDER_INPUT_CLASS}
+												spellCheck={false}
+												autoComplete="off"
+												onChange={(e) =>
+													setDraft((prev) => ({
+														...prev,
+														legacyVllmUrl: e.target.value,
+													}))
+												}
+											/>
+										</ProviderFieldRow>
+									</div>
+								</>
 							) : null}
 						</CollapsibleContent>
 					</Collapsible>
