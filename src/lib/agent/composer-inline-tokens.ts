@@ -310,6 +310,24 @@ export function updateSelectionToken(
 	});
 }
 
+/** Rewrite one selection marker in place. An absent id leaves the text unchanged. */
+export function replaceSelectionToken(
+	text: string,
+	selection: SelectionContext,
+): string {
+	const encoded = encodeSelectionToken(selection);
+	let changed = false;
+	const next = text.replace(SELECTION_RE, (token, payload: string) => {
+		const current = decodeSelectionTokenPayload(payload);
+		if (!current || current.id !== selection.id || token === encoded) {
+			return token;
+		}
+		changed = true;
+		return encoded;
+	});
+	return changed ? next : text;
+}
+
 /**
  * Draft → send/display body:
  * - mention / skill / selection markers removed (paths, skillIds, selections travel separately)

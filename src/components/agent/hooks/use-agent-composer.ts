@@ -40,6 +40,7 @@ import {
 	plainTriggerSuffix,
 	referenceInsertionOffset,
 	removeVisualToken,
+	replaceSelectionToken,
 	replaceTrailingTriggerWithToken,
 } from "@/lib/agent/composer-inline-tokens";
 import {
@@ -261,14 +262,20 @@ export function useAgentComposer({
 				const existing = new Set(
 					extractSelectionTokens(current).map((selection) => selection.id),
 				);
+				let next = current;
+				for (const selection of inserted) {
+					if (existing.has(selection.id)) {
+						next = replaceSelectionToken(next, selection);
+					}
+				}
 				const tokens = inserted
 					.filter((selection) => !existing.has(selection.id))
 					.map(encodeSelectionToken)
 					.join("");
-				if (!tokens) return current;
+				if (!tokens) return next;
 				const result = insertTokensAt(
-					current,
-					referenceInsertionOffset(current, caret),
+					next,
+					referenceInsertionOffset(next, caret),
 					tokens,
 				);
 				composerInputRef.current?.setPendingCaret(result.caret, result.text);

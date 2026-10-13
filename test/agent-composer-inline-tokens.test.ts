@@ -16,6 +16,7 @@ import {
 	plainTriggerSuffix,
 	referenceInsertionOffset,
 	removeVisualToken,
+	replaceSelectionToken,
 	replaceTrailingTriggerWithToken,
 	stripInlineTokens,
 } from "@/lib/agent/composer-inline-tokens";
@@ -235,6 +236,24 @@ describe("composer inline tokens", () => {
 			);
 			expect(appendSelectionTokens("对于 ", [second]).startsWith("对于 ")).toBe(
 				true,
+			);
+		});
+
+		it("rewrites one selection marker in place", () => {
+			const token = encodeSelectionToken(selection);
+			const draft = `看 ${token} 这里`;
+			expect(replaceSelectionToken(draft, selection)).toBe(draft);
+			const updated = {
+				...selection,
+				text: "new quote",
+				comment: "note",
+			};
+			const next = replaceSelectionToken(draft, updated);
+			expect(extractSelectionTokens(next)).toEqual([updated]);
+			expect(next.startsWith("看 ")).toBe(true);
+			expect(next.endsWith(" 这里")).toBe(true);
+			expect(replaceSelectionToken(draft, { ...selection, id: "other" })).toBe(
+				draft,
 			);
 		});
 
