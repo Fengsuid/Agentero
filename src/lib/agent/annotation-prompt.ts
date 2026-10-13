@@ -21,7 +21,7 @@ export type AnnotationRef =
 	| { kind: "selection"; n: number; selection: SelectionContext }
 	| { kind: "visual"; n: number; id: string };
 
-/** First occurrence of each selection id and visual id, in draft order. */
+/** First occurrence of each selection id and visual id, in document order. */
 export function planAnnotationRefs(text: string): AnnotationRef[] {
 	const refs: AnnotationRef[] = [];
 	const selectionN = new Map<string, number>();
@@ -43,6 +43,27 @@ export function planAnnotationRefs(text: string): AnnotationRef[] {
 		next += 1;
 	}
 	return refs;
+}
+
+/** Shared `[Annotation N]` for one selection id or visual id, or null if absent. */
+export function annotationOrdinal(
+	text: string,
+	kind: "selection" | "visual",
+	id: string,
+): number | null {
+	for (const ref of planAnnotationRefs(text)) {
+		if (
+			kind === "selection" &&
+			ref.kind === "selection" &&
+			ref.selection.id === id
+		) {
+			return ref.n;
+		}
+		if (kind === "visual" && ref.kind === "visual" && ref.id === id) {
+			return ref.n;
+		}
+	}
+	return null;
 }
 
 /** User prose with reference tokens replaced by `[Annotation N]`. */

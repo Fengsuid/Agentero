@@ -393,6 +393,7 @@ export function useAgentPanel({
 		skills,
 		acpCommandsByAgent,
 		selectedAgentId,
+		sessionId: activeTabId,
 		lines,
 		activeTabIsRunning,
 		cancelCurrentRun,

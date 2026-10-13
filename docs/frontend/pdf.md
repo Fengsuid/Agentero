@@ -146,7 +146,7 @@ PDF 链接在阅读器中只用于导航。`link-annotation.tsx` 为 EmbedPDF �
 | `src/components/viewer/panels/annotations-panel.tsx` | 提问 / visual mark 总览（右栏；文字批注已迁移到 PDF 页右缘评论列） |
 | `src/components/viewer/panels/references-panel.tsx` | 参考文献解析与入库（PDF 左侧浮层面板）；`compact` 模式隐藏 header 与过滤 |
 | `src/lib/workspace/viewer/pdf-viewer-registry.ts` | 按 tab 注册 `PdfViewerHandle`（类型契约也在此定义），供 shell / 命令面板 / workspace actions 调用；lib 层纯注册表，无 JSX |
-| `src/lib/agent/visual-context-store.ts` | Agent composer 视觉批注草稿（按 draft id = mark id 去重，一个 mark 至多一枚） |
+| `src/lib/agent/visual-context-store.ts` | Agent composer 视觉批注草稿（按会话分桶；同一会话内 draft id = mark id，至多一枚） |
 | `src/lib/pdf/agent-trace/` | visual mark 契约（v2 + 读兼容 v1）/ mark 资产 IO / prompt / Open-in-Agent / 会话 pending |
 | `src/lib/pdf-visual/` | pdf↔agent 共享视觉基元的中立缝：`PdfVisualNormalizedRect` 与 trace/line id 生成器（两域都从这里 import，序列化格式不变） |
 | `src/lib/pdf/highlight/` | 高亮 / 批注 |

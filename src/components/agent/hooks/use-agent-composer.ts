@@ -47,6 +47,7 @@ import {
 	subscribePendingAgentComposerPrompt,
 	takePendingAgentComposerPrompt,
 } from "@/lib/agent/composer-seed";
+import { composerScopeKey } from "@/lib/agent/composer-state";
 import {
 	listenAgentAttachContext,
 	subscribePendingAgentContextPaths,
@@ -75,9 +76,15 @@ import {
 	filterSlashCommands,
 } from "@/lib/agent/slash-commands";
 import {
+	forgetVisualInsertRequests,
 	type PdfVisualDraft,
+	pendingVisualInsertIds,
 	removeVisualDraft,
 } from "@/lib/agent/visual-context-store";
+import {
+	planVisualMarkerSync,
+	type VisualMarkerBaseline,
+} from "@/lib/agent/visual-marker-sync";
 import {
 	dataTransferLooksLikeImages,
 	dataTransferLooksLikePdfs,
@@ -118,6 +125,8 @@ export type UseAgentComposerOptions = {
 	skills: AgentSkill[];
 	acpCommandsByAgent: Record<string, AcpCommand[]>;
 	selectedAgentId: string | null;
+	/** Active composer session. Visual markers are diffed inside this identity. */
+	sessionId: string;
 	lines: ChatLine[];
 	activeTabIsRunning: boolean;
 	cancelCurrentRun: () => Promise<void>;
@@ -175,6 +184,8 @@ export function useAgentComposer({
 		setIncludeSelectedFile,
 		setMentionedPaths,
 		setSelectedSkillIds,
+		snapshot: snapshotComposer,
+		composerIdentity,
 	},
 	vaultPath,
 	vaultMarkdownPaths,
@@ -190,6 +201,7 @@ export function useAgentComposer({
 	skills,
 	acpCommandsByAgent,
 	selectedAgentId,
+	sessionId,
 	lines,
 	activeTabIsRunning,
 	cancelCurrentRun,
@@ -289,35 +301,45 @@ export function useAgentComposer({
 	}, [pinnedSelections, setComposerText]);
 
 	const visualDrafts = useVisualContextStore((s) => s.drafts);
-	const prevVisualTextIdsRef = useRef<Set<string> | null>(null);
-	// Keep visual drafts and their inline markers in step. A new draft is
-	// inserted at the caret; deleting the marker drops the draft, and deleting
-	// the draft drops the marker.
+	const visualSyncRef = useRef<VisualMarkerBaseline | null>(null);
+	// Keep this session's visual drafts and inline markers in step.
+	// Switching sessions shows that session's own bucket; it does not delete
+	// or rewrite another session's unsent block. An explicit add inserts into
+	// the composer that is open.
 	useEffect(() => {
-		const inText = new Set(extractVisualIds(composerText));
-		const prevTextIds = prevVisualTextIdsRef.current;
-		prevVisualTextIdsRef.current = inText;
-
-		const removedIds = new Set<string>();
-		if (prevTextIds) {
-			for (const id of prevTextIds) {
-				if (!inText.has(id)) {
-					removedIds.add(id);
-					removeVisualDraft(id);
-				}
-			}
+		const liveIdentity = composerIdentity();
+		const liveText = snapshotComposer().text;
+		if (
+			liveText !== composerText ||
+			liveIdentity.sessionId !== sessionId ||
+			liveIdentity.scopeKey !== composerScopeKey(vaultPath, selectedAgentId)
+		) {
+			return;
 		}
-
-		const toInsert = visualDrafts.filter(
-			(draft) => !inText.has(draft.id) && !removedIds.has(draft.id),
+		const identity = `${liveIdentity.scopeKey ?? ""}\n${liveIdentity.sessionId}`;
+		const textIds = extractVisualIds(composerText);
+		const storeIds = visualDrafts.map((draft) => draft.id);
+		const requestedIds = pendingVisualInsertIds(identity).filter((id) =>
+			storeIds.includes(id),
 		);
-		if (toInsert.length > 0) {
+		const plan = planVisualMarkerSync({
+			identity,
+			textIds,
+			storeIds,
+			prev: visualSyncRef.current,
+			requestedIds,
+		});
+		visualSyncRef.current = { identity, textIds, storeIds };
+
+		for (const id of plan.removeDraftIds) removeVisualDraft(id);
+
+		if (plan.insertDraftIds.length > 0) {
 			const caret = composerInputRef.current?.getCaretOffset() ?? null;
 			setComposerText((current) => {
 				const have = new Set(extractVisualIds(current));
-				const tokens = toInsert
-					.filter((draft) => !have.has(draft.id))
-					.map((draft) => encodeVisualToken(draft.id))
+				const tokens = plan.insertDraftIds
+					.filter((id) => !have.has(id))
+					.map((id) => encodeVisualToken(id))
 					.join("");
 				if (!tokens) return current;
 				const result = insertTokensAt(
@@ -330,18 +352,31 @@ export function useAgentComposer({
 			});
 		}
 
-		const storeIds = new Set(visualDrafts.map((draft) => draft.id));
-		const stale = [...inText].filter((id) => !storeIds.has(id));
-		if (stale.length > 0) {
+		if (plan.stripMarkerIds.length > 0) {
 			setComposerText((current) => {
-				const next = stale.reduce(
+				const next = plan.stripMarkerIds.reduce(
 					(text, id) => removeVisualToken(text, id),
 					current,
 				);
 				return next === current ? current : next;
 			});
 		}
-	}, [composerText, setComposerText, visualDrafts]);
+		const removed = new Set(plan.removeDraftIds);
+		forgetVisualInsertRequests(
+			identity,
+			textIds,
+			storeIds.filter((id) => !removed.has(id)),
+		);
+	}, [
+		composerIdentity,
+		composerText,
+		selectedAgentId,
+		sessionId,
+		setComposerText,
+		snapshotComposer,
+		vaultPath,
+		visualDrafts,
+	]);
 
 	// Markers count as atoms so `$` / `@` inside `{{s:…}}` / `{{m:…}}` stay inert.
 	const triggerText = plainTriggerSuffix(composerText);

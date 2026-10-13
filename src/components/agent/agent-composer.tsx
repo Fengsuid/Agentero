@@ -41,6 +41,8 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import type { AgentSkill, PromptImage } from "@/lib/agent";
+import { annotationOrdinal } from "@/lib/agent/annotation-prompt";
+import { extractVisualIds } from "@/lib/agent/composer-inline-tokens";
 import {
 	COMPOSER_IMAGE_ACCEPT,
 	COMPOSER_IMAGE_MAX_BYTES,
@@ -135,7 +137,9 @@ export function AgentComposer(props: AgentComposerProps) {
 	} = props;
 	const { t } = useTranslation("agent");
 	const hasComposerText = Boolean(composerText.trim());
-	const hasVisualDrafts = visualDrafts.length > 0;
+	const hasVisualDrafts = extractVisualIds(composerText).some((id) =>
+		visualDrafts.some((draft) => draft.id === id),
+	);
 	// Attachments live inside PromptInput; base gate ignores them (see ComposerSubmitControl).
 	const canSubmitBase = hasComposerText || hasVisualDrafts;
 	const composerMenuOpen = showMentionMenu || showSkillMenu || showSlashMenu;
@@ -289,8 +293,9 @@ export function AgentComposer(props: AgentComposerProps) {
 					<VisualReferenceCard
 						draft={hoveredVisual}
 						index={
+							annotationOrdinal(composerText, "visual", hoveredVisual.id) ??
 							visualDrafts.findIndex((draft) => draft.id === hoveredVisual.id) +
-							1
+								1
 						}
 						anchor={visualHover.anchor}
 						onHoverHold={holdReferenceHover}

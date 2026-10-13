@@ -1,6 +1,9 @@
 import type { TFunction } from "i18next";
 import { describe, expect, it } from "vitest";
-import { proseWithAnnotationMarkers } from "@/lib/agent/annotation-prompt";
+import {
+	annotationOrdinal,
+	proseWithAnnotationMarkers,
+} from "@/lib/agent/annotation-prompt";
 import {
 	encodeSelectionToken,
 	encodeVisualToken,
@@ -68,6 +71,13 @@ describe("annotation markers in the turn prompt", () => {
 		expect(stripPromptEnvelopeForDisplay(prompt)).toBe(
 			"这个公式 [Annotation 1] 和图 [Annotation 2] 矛盾吗",
 		);
+	});
+
+	it("numbers a visual before a text selection in document order", () => {
+		const raw = `${encodeVisualToken("mark-1")} 然后 ${encodeSelectionToken(selection)}`;
+		expect(annotationOrdinal(raw, "visual", "mark-1")).toBe(1);
+		expect(annotationOrdinal(raw, "selection", selection.id)).toBe(2);
+		expect(annotationOrdinal(raw, "visual", "missing")).toBeNull();
 	});
 
 	it("orders crops by where the blocks sit, not by draft-store order", () => {

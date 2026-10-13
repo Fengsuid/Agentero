@@ -10,6 +10,7 @@ import { AnnotationQuoteBlock } from "@/components/selection/annotation-quote-bl
 import { SelectionSourceButton } from "@/components/selection/selection-source-button";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { annotationOrdinal } from "@/lib/agent/annotation-prompt";
 import {
 	extractSelectionTokens,
 	updateSelectionToken,
@@ -85,22 +86,25 @@ export function ComposerAnnotations({
 		);
 	};
 	const hovered = hover
-		? selections
-				.map((selection, index) => ({ selection, index }))
-				.find((item) => item.selection.id === hover.id)
+		? selections.find((selection) => selection.id === hover.id)
 		: undefined;
 	if (!hover || !hovered) return null;
+	const ordinal = annotationOrdinal(value, "selection", hovered.id);
+	const index =
+		ordinal == null
+			? selections.findIndex((selection) => selection.id === hovered.id)
+			: ordinal - 1;
 	return (
 		<SelectionReferenceCard
 			anchor={hover.anchor}
-			index={hovered.index}
-			selection={hovered.selection}
+			index={index}
+			selection={hovered}
 			onHoverHold={onHoverHold}
 			onHoverRelease={onHoverRelease}
 			onComment={(comment) =>
-				onChange(updateSelectionToken(value, hovered.selection.id, comment))
+				onChange(updateSelectionToken(value, hovered.id, comment))
 			}
-			onRemove={() => remove(hovered.selection.id)}
+			onRemove={() => remove(hovered.id)}
 		/>
 	);
 }
