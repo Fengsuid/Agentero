@@ -23,6 +23,7 @@ import {
 	encodeMentionToken,
 	encodeSelectionToken,
 	encodeSkillToken,
+	encodeVisualToken,
 	type InlineTokenPart,
 	parseInlineTokenParts,
 	stripInlineTokens,
@@ -30,6 +31,7 @@ import {
 import { decideComposerExternalValueSync } from "@/lib/agent/composer-sync";
 import { plazaMentionTitle } from "@/lib/agent/plaza-mention";
 import { selectionLineLabel } from "@/lib/agent/selection-line-label";
+import type { PdfVisualDraft } from "@/lib/agent/visual-context-store";
 import { filesFromDataTransfer } from "@/lib/core/file-accept";
 import { isImeKeyboardEvent } from "@/lib/core/ime";
 import { basenameOf } from "@/lib/core/path";
@@ -44,8 +46,16 @@ const CARET_PAD = "\u2060";
 const INLINE_CHIP_CLASS =
 	"composer-inline-chip mx-0.5 inline-flex max-w-[7rem] shrink-0 items-center gap-0.5 rounded-md border border-border/80 bg-muted/40 px-1 align-middle text-[0.8125em] leading-[1.25] text-foreground hover:bg-muted";
 
-const SELECTION_CHIP_CLASS =
-	"composer-inline-chip mx-0.5 inline-flex max-w-[min(14rem,100%)] min-w-0 shrink-0 items-center gap-0.5 overflow-hidden rounded-md border border-primary/30 bg-primary/10 px-1 align-middle text-[0.8125em] leading-[1.25] text-foreground hover:bg-primary/20";
+/**
+ * Inline reference, not a full-width row. `inline-flex` inside contenteditable
+ * is treated as a block and always breaks the line. `inline-block` stays on
+ * the caret's line. The default right rail is 320px (~272px of text); a long
+ * nowrap quote capped at `100% - 3.5rem` is still wider than the room beside
+ * a short prefix, so it wraps every time. Reserving 6rem keeps that prefix
+ * and the quote on one line, and a longer prefix wraps the quote as a unit.
+ */
+const REFERENCE_CHIP_CLASS =
+	"composer-inline-chip mx-0.5 inline-block max-w-[min(14rem,calc(100%-6rem))] align-middle overflow-hidden whitespace-nowrap rounded-md border border-primary/30 bg-primary/10 px-1 text-[0.8125em] leading-[1.25] text-foreground hover:bg-primary/20";
 
 const CHIP_ANIMATION_CLASS =
 	"motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-200 motion-reduce:animate-none";
@@ -176,6 +186,49 @@ function appendQuoteIcon(chip: HTMLElement) {
 	);
 }
 
+/** Lucide `image` glyph for an inline visual annotation. */
+function appendImageIcon(chip: HTMLElement) {
+	const ns = "http://www.w3.org/2000/svg";
+	const svg = document.createElementNS(ns, "svg");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("fill", "none");
+	svg.setAttribute("stroke", "currentColor");
+	svg.setAttribute("stroke-width", "2");
+	svg.setAttribute("stroke-linecap", "round");
+	svg.setAttribute("stroke-linejoin", "round");
+	svg.setAttribute("class", "size-3 shrink-0 text-muted-foreground");
+	svg.setAttribute("aria-hidden", "true");
+	const rect = document.createElementNS(ns, "rect");
+	rect.setAttribute("width", "18");
+	rect.setAttribute("height", "18");
+	rect.setAttribute("x", "3");
+	rect.setAttribute("y", "3");
+	rect.setAttribute("rx", "2");
+	const circle = document.createElementNS(ns, "circle");
+	circle.setAttribute("cx", "9");
+	circle.setAttribute("cy", "9");
+	circle.setAttribute("r", "2");
+	const path = document.createElementNS(ns, "path");
+	path.setAttribute("d", "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21");
+	svg.append(rect, circle, path);
+	chip.appendChild(svg);
+}
+
+function referenceRow(chip: HTMLElement): HTMLElement {
+	const row = document.createElement("span");
+	row.className = "flex max-w-full items-center gap-0.5";
+	chip.appendChild(row);
+	return row;
+}
+
+function referenceLabel(text: string): HTMLElement {
+	const label = document.createElement("span");
+	label.dataset.chipLabel = "true";
+	label.className = "min-w-0 truncate";
+	label.textContent = text;
+	return label;
+}
+
 function selectionReferenceSnippet(text: string): string {
 	return text.replace(/\s+/g, " ").trim();
 }
@@ -219,6 +272,165 @@ function placeCaretAfter(node: Node) {
 	range.collapse(true);
 	selection.removeAllRanges();
 	selection.addRange(range);
+}
+
+/**
+ * Serialized offset of a DOM point. Must agree with `serializeEditor`,
+ * including the newline a wrapping div contributes and the caret pad that
+ * does not.
+ */
+function serializedOffset(
+	root: HTMLElement,
+	container: Node,
+	offset: number,
+): number {
+	let out = "";
+	const append = (value: string) => {
+		out += value;
+	};
+	const writeWhole = (node: Node) => {
+		if (node.nodeType === Node.TEXT_NODE) {
+			append((node.textContent ?? "").replaceAll(CARET_PAD, ""));
+			return;
+		}
+		if (node.nodeType !== Node.ELEMENT_NODE) return;
+		const el = node as HTMLElement;
+		const token = el.getAttribute(TOKEN_ATTR);
+		if (token) {
+			append(token);
+			return;
+		}
+		if (el.tagName === "BR") {
+			append("\n");
+			return;
+		}
+		if (
+			(el.tagName === "DIV" || el.tagName === "P") &&
+			out.length > 0 &&
+			!out.endsWith("\n")
+		) {
+			append("\n");
+		}
+		for (const child of el.childNodes) writeWhole(child);
+	};
+	const walk = (node: Node): boolean => {
+		if (node === container && node.nodeType === Node.TEXT_NODE) {
+			const raw = (node as Text).data
+				.slice(0, offset)
+				.replaceAll(CARET_PAD, "");
+			append(raw);
+			return true;
+		}
+		if (node === container && node.nodeType === Node.ELEMENT_NODE) {
+			const el = node as HTMLElement;
+			const token = el.getAttribute(TOKEN_ATTR);
+			if (token) {
+				if (offset > 0) append(token);
+				return true;
+			}
+			for (let i = 0; i < offset && i < el.childNodes.length; i++) {
+				writeWhole(el.childNodes[i]);
+			}
+			return true;
+		}
+		if (node.nodeType === Node.TEXT_NODE) {
+			append((node.textContent ?? "").replaceAll(CARET_PAD, ""));
+			return false;
+		}
+		if (node.nodeType !== Node.ELEMENT_NODE) return false;
+		const el = node as HTMLElement;
+		const token = el.getAttribute(TOKEN_ATTR);
+		if (token) {
+			append(token);
+			return false;
+		}
+		if (el.tagName === "BR") {
+			append("\n");
+			return false;
+		}
+		if (
+			(el.tagName === "DIV" || el.tagName === "P") &&
+			out.length > 0 &&
+			!out.endsWith("\n")
+		) {
+			append("\n");
+		}
+		for (const child of el.childNodes) {
+			if (walk(child)) return true;
+		}
+		return false;
+	};
+	if (container === root) {
+		for (let i = 0; i < offset && i < root.childNodes.length; i++) {
+			writeWhole(root.childNodes[i]);
+		}
+		return out.length;
+	}
+	for (const child of root.childNodes) {
+		if (walk(child)) break;
+	}
+	return out.length;
+}
+
+/** Place the caret at a serialized offset in the rendered editor. */
+function placeCaretAtSerializedOffset(root: HTMLElement, target: number) {
+	let seen = 0;
+	const place = (node: Node, offset: number) => {
+		const selection = window.getSelection();
+		const range = document.createRange();
+		range.setStart(node, offset);
+		range.collapse(true);
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+	};
+	const afterChip = (el: HTMLElement) => {
+		const pad = el.nextSibling;
+		if (pad && isZwspPad(pad)) placeCaretAfter(pad);
+		else placeCaretAfter(el);
+	};
+	const walk = (node: Node): boolean => {
+		if (node.nodeType === Node.TEXT_NODE) {
+			const raw = (node as Text).data;
+			let serial = 0;
+			for (let i = 0; i <= raw.length; i++) {
+				if (seen + serial === target) {
+					place(node, i);
+					return true;
+				}
+				if (i === raw.length) break;
+				if (raw[i] !== CARET_PAD) serial += 1;
+			}
+			seen += serial;
+			return false;
+		}
+		if (node.nodeType !== Node.ELEMENT_NODE) return false;
+		const el = node as HTMLElement;
+		const token = el.getAttribute(TOKEN_ATTR);
+		if (token) {
+			if (target <= seen + token.length) {
+				afterChip(el);
+				return true;
+			}
+			seen += token.length;
+			return false;
+		}
+		if (el.tagName === "BR") {
+			if (target <= seen + 1) {
+				placeCaretAfter(el);
+				return true;
+			}
+			seen += 1;
+			return false;
+		}
+		for (const child of el.childNodes) {
+			if (walk(child)) return true;
+		}
+		return false;
+	};
+	for (const child of root.childNodes) {
+		if (walk(child)) return;
+	}
+	placeCaretAtEnd(root);
 }
 
 function isZwspPad(node: Node | null): node is Text {
@@ -434,9 +646,19 @@ function chipToken(part: InlineTokenPart): string {
 			return encodeCommandToken(part.name);
 		case "selection":
 			return encodeSelectionToken(part.selection);
+		case "visual":
+			return encodeVisualToken(part.id);
 		default:
 			return "";
 	}
+}
+
+function visualReferenceSnippet(
+	draft: PdfVisualDraft | undefined,
+	fallback: string,
+): string {
+	const comment = draft?.comment.replace(/\s+/g, " ").trim() ?? "";
+	return comment || fallback;
 }
 
 function renderChip(
@@ -444,19 +666,22 @@ function renderChip(
 	{
 		labelForPath,
 		skillLabel,
+		visualDrafts,
 		t,
 		isNew,
 	}: {
 		labelForPath: (path: string) => string;
 		skillLabel: (skillId: string) => string;
+		visualDrafts: readonly PdfVisualDraft[];
 		t: TFunction<"agent", undefined>;
 		isNew?: boolean;
 	},
 ): HTMLElement {
 	const chip = document.createElement("span");
 	chip.contentEditable = "false";
+	const isReference = part.type === "selection" || part.type === "visual";
 	chip.className = cn(
-		part.type === "selection" ? SELECTION_CHIP_CLASS : INLINE_CHIP_CLASS,
+		isReference ? REFERENCE_CHIP_CLASS : INLINE_CHIP_CLASS,
 		isNew ? CHIP_ANIMATION_CLASS : undefined,
 	);
 
@@ -515,17 +740,24 @@ function renderChip(
 			selectionLineLabel(t, selection, name) ??
 			name;
 		const snippet = selectionReferenceSnippet(selection.text) || source;
-		const detail = [source, selection.text, selection.comment]
-			.filter(Boolean)
-			.join("\n\n");
-		appendQuoteIcon(chip);
-		const label = document.createElement("span");
-		label.className = "min-w-0 truncate";
-		label.textContent = snippet;
-		chip.title = detail;
-		chip.appendChild(label);
-
-		chip.setAttribute("aria-label", t("composer.removeSelection"));
+		const row = referenceRow(chip);
+		appendQuoteIcon(row);
+		row.appendChild(referenceLabel(snippet));
+		chip.setAttribute("aria-label", snippet);
+	} else if (part.type === "visual") {
+		chip.setAttribute(CHIP_ATTR, "visual");
+		const token = encodeVisualToken(part.id);
+		chip.dataset.visualId = part.id;
+		chip.setAttribute(TOKEN_ATTR, token);
+		const draft = visualDrafts.find((item) => item.id === part.id);
+		const pageLabel = t("composer.visualAnnotationPage", {
+			page: draft?.page ?? 1,
+		});
+		const snippet = visualReferenceSnippet(draft, pageLabel);
+		const row = referenceRow(chip);
+		appendImageIcon(row);
+		row.appendChild(referenceLabel(snippet));
+		chip.setAttribute("aria-label", snippet);
 	}
 
 	return chip;
@@ -540,6 +772,16 @@ export type ComposerInlineInputHandle = {
 	insertAtCursor: (token: string, atEnd?: boolean) => void;
 	/** Return the underlying contenteditable element. */
 	getEditorElement: () => HTMLElement | null;
+	/**
+	 * Serialized caret from the last time the selection was inside the field.
+	 * Survives focus moving to the PDF or note that triggered Add to chat.
+	 */
+	getCaretOffset: () => number | null;
+	/**
+	 * After the next controlled render of `value`, put the caret at `offset`
+	 * instead of jumping to the end.
+	 */
+	setPendingCaret: (offset: number, value: string) => void;
 };
 
 export type ComposerInlineInputProps = {
@@ -552,6 +794,19 @@ export type ComposerInlineInputProps = {
 	autoFocus?: boolean;
 	labelForPath: (path: string) => string;
 	skillLabel: (skillId: string) => string;
+	visualDrafts?: readonly PdfVisualDraft[];
+	/** Hover a text-annotation reference. `leave` starts the card's close delay. */
+	onSelectionPointer?: (
+		phase: "enter" | "leave",
+		id: string,
+		anchor: HTMLElement,
+	) => void;
+	/** Hover a visual reference. `leave` starts the card's close delay. */
+	onVisualPointer?: (
+		phase: "enter" | "leave",
+		id: string,
+		anchor: HTMLElement,
+	) => void;
 	"aria-expanded"?: boolean | undefined;
 	"aria-autocomplete"?: HTMLAttributes<HTMLDivElement>["aria-autocomplete"];
 	"aria-controls"?: string | undefined;
@@ -574,6 +829,9 @@ export const ComposerInlineInput = forwardRef<
 			autoFocus,
 			labelForPath,
 			skillLabel,
+			visualDrafts = [],
+			onSelectionPointer,
+			onVisualPointer,
 			className,
 			...aria
 		},
@@ -589,6 +847,10 @@ export const ComposerInlineInput = forwardRef<
 		const { isBlockedByIme, isComposing, compositionProps } = useImeGuard();
 		const renderedTokensRef = useRef<Set<string>>(new Set());
 		const isFirstRenderRef = useRef(true);
+		const caretOffsetRef = useRef<number | null>(null);
+		const pendingCaretRef = useRef<{ offset: number; value: string } | null>(
+			null,
+		);
 
 		const emitFromDom = useCallback(() => {
 			const root = editorRef.current;
@@ -633,6 +895,7 @@ export const ComposerInlineInput = forwardRef<
 					const chip = renderChip(part, {
 						labelForPath,
 						skillLabel,
+						visualDrafts,
 						t,
 						isNew,
 					});
@@ -642,7 +905,7 @@ export const ComposerInlineInput = forwardRef<
 				renderedTokensRef.current = nextTokens;
 				isFirstRenderRef.current = false;
 			},
-			[labelForPath, skillLabel, t],
+			[labelForPath, skillLabel, t, visualDrafts],
 		);
 
 		useLayoutEffect(() => {
@@ -663,7 +926,14 @@ export const ComposerInlineInput = forwardRef<
 			awaitingParentEchoRef.current = false;
 			lastValueRef.current = value;
 			renderValue(value);
-			if (root && document.activeElement === root) {
+			const pending = pendingCaretRef.current;
+			if (pending && pending.value === value && root) {
+				pendingCaretRef.current = null;
+				root.focus({ preventScroll: true });
+				placeCaretAtSerializedOffset(root, pending.offset);
+				caretOffsetRef.current = pending.offset;
+				scrollEditorToBottom();
+			} else if (root && document.activeElement === root) {
 				placeCaretAtEnd(root);
 				scrollEditorToBottom();
 			}
@@ -678,6 +948,10 @@ export const ComposerInlineInput = forwardRef<
 			ref,
 			() => ({
 				getEditorElement: () => editorRef.current,
+				getCaretOffset: () => caretOffsetRef.current,
+				setPendingCaret: (offset: number, nextValue: string) => {
+					pendingCaretRef.current = { offset, value: nextValue };
+				},
 				insertAtCursor: (token: string, atEnd = false) => {
 					const root = editorRef.current;
 					if (!root) return;
@@ -693,6 +967,7 @@ export const ComposerInlineInput = forwardRef<
 						const chip = renderChip(parts[0], {
 							labelForPath,
 							skillLabel,
+							visualDrafts,
 							t,
 							isNew: true,
 						});
@@ -724,7 +999,14 @@ export const ComposerInlineInput = forwardRef<
 					scrollEditorToBottom();
 				},
 			}),
-			[emitFromDom, labelForPath, scrollEditorToBottom, skillLabel, t],
+			[
+				emitFromDom,
+				labelForPath,
+				scrollEditorToBottom,
+				skillLabel,
+				t,
+				visualDrafts,
+			],
 		);
 
 		const handleInput = (_event: FormEvent<HTMLDivElement>) => {
@@ -881,10 +1163,50 @@ export const ComposerInlineInput = forwardRef<
 			emitFromDom();
 		};
 
+		useEffect(() => {
+			const onSelectionChange = () => {
+				const root = editorRef.current;
+				const selection = window.getSelection();
+				if (!root || !selection || selection.rangeCount === 0) return;
+				const range = selection.getRangeAt(0);
+				if (!root.contains(range.startContainer)) return;
+				caretOffsetRef.current = serializedOffset(
+					root,
+					range.startContainer,
+					range.startOffset,
+				);
+			};
+			document.addEventListener("selectionchange", onSelectionChange);
+			return () =>
+				document.removeEventListener("selectionchange", onSelectionChange);
+		}, []);
+
+		useEffect(() => {
+			const root = editorRef.current;
+			if (!root) return;
+			for (const node of root.querySelectorAll<HTMLElement>(
+				`[${CHIP_ATTR}="visual"]`,
+			)) {
+				const draft = visualDrafts.find(
+					(item) => item.id === node.dataset.visualId,
+				);
+				const label = node.querySelector("[data-chip-label]");
+				if (!label) continue;
+				const pageLabel = t("composer.visualAnnotationPage", {
+					page: draft?.page ?? 1,
+				});
+				const snippet = visualReferenceSnippet(draft, pageLabel);
+				if (label.textContent !== snippet) label.textContent = snippet;
+			}
+		}, [t, visualDrafts]);
+
 		const handleChipClick = (event: MouseEvent<HTMLDivElement>) => {
 			const target = event.target as HTMLElement | null;
 			const chip = target?.closest?.(`[${CHIP_ATTR}]`) as HTMLElement | null;
 			if (!chip || !editorRef.current?.contains(chip)) return;
+			const kind = chip.getAttribute(CHIP_ATTR);
+			// Text and visual references stay; their hover cards own edit and delete.
+			if (kind === "selection" || kind === "visual") return;
 			event.preventDefault();
 			event.stopPropagation();
 			// Focus before changing the DOM. Focusing after setting the Range lets
@@ -892,6 +1214,39 @@ export const ComposerInlineInput = forwardRef<
 			editorRef.current?.focus({ preventScroll: true });
 			deleteChipElement(chip);
 			emitFromDom();
+		};
+
+		const handleReferencePointer = (
+			event: MouseEvent<HTMLDivElement>,
+			phase: "enter" | "leave",
+		) => {
+			const target = event.target as HTMLElement | null;
+			const chip = target?.closest?.(
+				`[${CHIP_ATTR}="selection"], [${CHIP_ATTR}="visual"]`,
+			) as HTMLElement | null;
+			if (!chip || !editorRef.current?.contains(chip)) return;
+			const kind = chip.getAttribute(CHIP_ATTR);
+			if (phase === "leave") {
+				const next = event.relatedTarget;
+				if (next instanceof Node && chip.contains(next)) return;
+				if (
+					next instanceof Element &&
+					next.closest(
+						"[data-annotation-ui], [data-composer-chip='selection'], [data-composer-chip='visual']",
+					)
+				) {
+					return;
+				}
+			}
+			if (kind === "selection") {
+				const id = chip.dataset.selectionId;
+				if (id) onSelectionPointer?.(phase, id, chip);
+				return;
+			}
+			if (kind === "visual") {
+				const id = chip.dataset.visualId;
+				if (id) onVisualPointer?.(phase, id, chip);
+			}
 		};
 
 		const isVisuallyEmpty = parseInlineTokenParts(value).every(
@@ -953,6 +1308,8 @@ export const ComposerInlineInput = forwardRef<
 						onKeyDown={handleKeyDown}
 						onPaste={handlePaste}
 						onClick={handleChipClick}
+						onMouseOver={(event) => handleReferencePointer(event, "enter")}
+						onMouseOut={(event) => handleReferencePointer(event, "leave")}
 						onCompositionStart={handleCompositionStart}
 						onCompositionEnd={handleCompositionEnd}
 						{...aria}

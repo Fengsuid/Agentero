@@ -1,13 +1,9 @@
-import { MessageSquare, Pencil, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Pencil, Trash2 } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { SelectionSourceButton } from "@/components/selection/selection-source-button";
 import { Button } from "@/components/ui/button";
-import {
-	HoverCard,
-	HoverCardContent,
-	HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import {
 	extractSelectionTokens,
 	updateSelectionToken,
@@ -23,15 +19,24 @@ import {
 	suspendSelectionChat,
 } from "@/lib/agent/selection-chat-store";
 
+export type SelectionHoverAnchor = {
+	id: string;
+	anchor: HTMLElement;
+};
+
 export function ComposerAnnotations({
 	value,
 	onChange,
+	hover,
+	onHoverHold,
+	onHoverRelease,
 }: {
 	value: string;
 	onChange: (value: string) => void;
+	hover: SelectionHoverAnchor | null;
+	onHoverHold: () => void;
+	onHoverRelease: () => void;
 }) {
-	const { t } = useTranslation(["viewer", "common"]);
-	const [open, setOpen] = useState(false);
 	const selections = useMemo(() => extractSelectionTokens(value), [value]);
 	const seenIdsRef = useRef<string[]>([]);
 	useEffect(() => {
@@ -63,90 +68,126 @@ export function ComposerAnnotations({
 				: withoutSelectionTokens(value),
 		);
 	};
-	if (!selections.length) return null;
+	const hovered = hover
+		? selections
+				.map((selection, index) => ({ selection, index }))
+				.find((item) => item.selection.id === hover.id)
+		: undefined;
+	if (!hover || !hovered) return null;
 	return (
-		<HoverCard
-			open={open}
-			onOpenChange={setOpen}
-			openDelay={150}
-			closeDelay={180}
+		<SelectionReferenceCard
+			anchor={hover.anchor}
+			index={hovered.index}
+			selection={hovered.selection}
+			onHoverHold={onHoverHold}
+			onHoverRelease={onHoverRelease}
+			onEdit={(rect) => {
+				onHoverRelease();
+				openAnnotationEditor(hovered.selection, {
+					x: rect.left,
+					y: rect.top,
+				});
+			}}
+			onRemove={() => remove(hovered.selection.id)}
+		/>
+	);
+}
+
+function SelectionReferenceCard({
+	anchor,
+	index,
+	selection,
+	onHoverHold,
+	onHoverRelease,
+	onEdit,
+	onRemove,
+}: {
+	anchor: HTMLElement;
+	index: number;
+	selection: ReturnType<typeof extractSelectionTokens>[number];
+	onHoverHold: () => void;
+	onHoverRelease: () => void;
+	onEdit: (rect: DOMRect) => void;
+	onRemove: () => void;
+}) {
+	const { t } = useTranslation(["viewer", "common"]);
+	const [rect, setRect] = useState(() => anchor.getBoundingClientRect());
+	useLayoutEffect(() => {
+		const update = () => {
+			if (!anchor.isConnected) {
+				onHoverRelease();
+				return;
+			}
+			setRect(anchor.getBoundingClientRect());
+		};
+		update();
+		window.addEventListener("scroll", update, true);
+		window.addEventListener("resize", update);
+		return () => {
+			window.removeEventListener("scroll", update, true);
+			window.removeEventListener("resize", update);
+		};
+	}, [anchor, onHoverRelease]);
+	useLayoutEffect(() => {
+		if (!anchor.isConnected) onHoverRelease();
+	});
+	const placeBelow = rect.top < 220;
+	if (typeof document === "undefined") return null;
+	return createPortal(
+		// Hover bridge into the card. The buttons inside own the actions.
+		// biome-ignore lint/a11y/noStaticElementInteractions: pointer bridge so the card stays open between the reference and its actions
+		<div
+			data-annotation-ui
+			className="fixed z-50 max-h-80 w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-lg bg-popover p-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+			style={
+				placeBelow
+					? { left: rect.left, top: rect.bottom + 6 }
+					: {
+							left: rect.left,
+							top: rect.top - 6,
+							transform: "translateY(-100%)",
+						}
+			}
+			onMouseEnter={onHoverHold}
+			onMouseLeave={onHoverRelease}
 		>
-			<div
-				className="flex w-full items-center gap-1 px-3 pt-2"
-				data-annotation-ui
-			>
-				<HoverCardTrigger asChild>
-					<button
+			<div className="flex gap-2 p-3">
+				<span className="text-muted-foreground">{index + 1}.</span>
+				<div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm">
+					<SelectionSourceButton selection={selection} />
+					<p className="mb-1 text-xs text-muted-foreground">
+						{t("selection.selectedText")}
+					</p>
+					<p>{selection.text}</p>
+					<p className="mb-1 mt-3 text-xs text-muted-foreground">
+						{t("selection.userComment")}
+					</p>
+					<p>{selection.comment || t("selection.noComment")}</p>
+				</div>
+				<div className="flex shrink-0 items-start">
+					<Button
 						type="button"
-						className="flex items-center gap-2 rounded-lg border px-2.5 py-1 text-sm hover:bg-accent"
-						onClick={() => setOpen(!open)}
+						size="icon-sm"
+						variant="ghost"
+						aria-label={t("common:edit")}
+						onClick={(event) => {
+							onEdit(event.currentTarget.getBoundingClientRect());
+						}}
 					>
-						<MessageSquare className="size-4 text-muted-foreground" />
-						{t("selection.annotationCount", { count: selections.length })}
-					</button>
-				</HoverCardTrigger>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-sm"
-					aria-label={t("common:remove")}
-					onClick={() => remove()}
-				>
-					<X className="size-3.5" />
-				</Button>
+						<Pencil className="size-4" />
+					</Button>
+					<Button
+						type="button"
+						size="icon-sm"
+						variant="ghost"
+						aria-label={t("common:remove")}
+						onClick={onRemove}
+					>
+						<Trash2 className="size-4" />
+					</Button>
+				</div>
 			</div>
-			<HoverCardContent
-				side="top"
-				align="start"
-				className="max-h-80 w-[min(28rem,calc(100vw-2rem))] overflow-y-auto p-1"
-				data-annotation-ui
-			>
-				<ol className="divide-y">
-					{selections.map((selection, index) => (
-						<li key={selection.id} className="flex gap-2 p-3">
-							<span className="text-muted-foreground">{index + 1}.</span>
-							<div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm">
-								<SelectionSourceButton selection={selection} />
-								<p className="mb-1 text-xs text-muted-foreground">
-									{t("selection.selectedText")}
-								</p>
-								<p>{selection.text}</p>
-								<p className="mb-1 mt-3 text-xs text-muted-foreground">
-									{t("selection.userComment")}
-								</p>
-								<p>{selection.comment || t("selection.noComment")}</p>
-							</div>
-							<div className="flex shrink-0 items-start">
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="ghost"
-									aria-label={t("common:edit")}
-									onClick={(event) => {
-										const rect = event.currentTarget.getBoundingClientRect();
-										setOpen(false);
-										openAnnotationEditor(selection, {
-											x: rect.left,
-											y: rect.top,
-										});
-									}}
-								>
-									<Pencil className="size-4" />
-								</Button>
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="ghost"
-									aria-label={t("common:remove")}
-									onClick={() => remove(selection.id)}
-								>
-									<Trash2 className="size-4" />
-								</Button>
-							</div>
-						</li>
-					))}
-				</ol>
-			</HoverCardContent>
-		</HoverCard>
+		</div>,
+		document.body,
 	);
 }

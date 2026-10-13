@@ -27,13 +27,19 @@ import type { AgentSkill } from "@/lib/agent";
 import type { ChatLine } from "@/lib/agent/chat-state";
 import {
 	appendMissingInlineTokens,
-	appendSelectionTokens,
 	encodeCommandToken,
 	encodeMentionToken,
+	encodeSelectionToken,
 	encodeSkillToken,
+	encodeVisualToken,
 	extractMentionPaths,
+	extractSelectionTokens,
 	extractSkillIds,
+	extractVisualIds,
+	insertTokensAt,
 	plainTriggerSuffix,
+	referenceInsertionOffset,
+	removeVisualToken,
 	replaceTrailingTriggerWithToken,
 } from "@/lib/agent/composer-inline-tokens";
 import {
@@ -67,7 +73,10 @@ import {
 	type AcpCommand,
 	filterSlashCommands,
 } from "@/lib/agent/slash-commands";
-import type { PdfVisualDraft } from "@/lib/agent/visual-context-store";
+import {
+	type PdfVisualDraft,
+	removeVisualDraft,
+} from "@/lib/agent/visual-context-store";
 import {
 	dataTransferLooksLikeImages,
 	dataTransferLooksLikePdfs,
@@ -234,9 +243,9 @@ export function useAgentComposer({
 	// Live drag-selection stays in the store until pinActiveSelection freezes it.
 	const pinnedSelections = useSelectionStore((s) => s.pinned);
 
-	// Move newly pinned selections into the draft, after the text already
-	// written, then drop them from the ephemeral store. The inline editor
-	// renders each quote as one reference block.
+	// Pin quotes at the caret the composer last reported. Appending at the
+	// string end lands after the contenteditable's trailing break, which
+	// paints the reference on its own line.
 	const prevPinnedRef = useRef<SelectionContext[]>([]);
 	useEffect(() => {
 		const prev = prevPinnedRef.current;
@@ -247,7 +256,24 @@ export function useAgentComposer({
 			}
 		}
 		if (inserted.length > 0) {
-			setComposerText((current) => appendSelectionTokens(current, inserted));
+			const caret = composerInputRef.current?.getCaretOffset() ?? null;
+			setComposerText((current) => {
+				const existing = new Set(
+					extractSelectionTokens(current).map((selection) => selection.id),
+				);
+				const tokens = inserted
+					.filter((selection) => !existing.has(selection.id))
+					.map(encodeSelectionToken)
+					.join("");
+				if (!tokens) return current;
+				const result = insertTokensAt(
+					current,
+					referenceInsertionOffset(current, caret),
+					tokens,
+				);
+				composerInputRef.current?.setPendingCaret(result.caret, result.text);
+				return result.text;
+			});
 			for (const sel of inserted) {
 				removeSelection(sel.id);
 			}
@@ -256,6 +282,59 @@ export function useAgentComposer({
 	}, [pinnedSelections, setComposerText]);
 
 	const visualDrafts = useVisualContextStore((s) => s.drafts);
+	const prevVisualTextIdsRef = useRef<Set<string> | null>(null);
+	// Keep visual drafts and their inline markers in step. A new draft is
+	// inserted at the caret; deleting the marker drops the draft, and deleting
+	// the draft drops the marker.
+	useEffect(() => {
+		const inText = new Set(extractVisualIds(composerText));
+		const prevTextIds = prevVisualTextIdsRef.current;
+		prevVisualTextIdsRef.current = inText;
+
+		const removedIds = new Set<string>();
+		if (prevTextIds) {
+			for (const id of prevTextIds) {
+				if (!inText.has(id)) {
+					removedIds.add(id);
+					removeVisualDraft(id);
+				}
+			}
+		}
+
+		const toInsert = visualDrafts.filter(
+			(draft) => !inText.has(draft.id) && !removedIds.has(draft.id),
+		);
+		if (toInsert.length > 0) {
+			const caret = composerInputRef.current?.getCaretOffset() ?? null;
+			setComposerText((current) => {
+				const have = new Set(extractVisualIds(current));
+				const tokens = toInsert
+					.filter((draft) => !have.has(draft.id))
+					.map((draft) => encodeVisualToken(draft.id))
+					.join("");
+				if (!tokens) return current;
+				const result = insertTokensAt(
+					current,
+					referenceInsertionOffset(current, caret),
+					tokens,
+				);
+				composerInputRef.current?.setPendingCaret(result.caret, result.text);
+				return result.text;
+			});
+		}
+
+		const storeIds = new Set(visualDrafts.map((draft) => draft.id));
+		const stale = [...inText].filter((id) => !storeIds.has(id));
+		if (stale.length > 0) {
+			setComposerText((current) => {
+				const next = stale.reduce(
+					(text, id) => removeVisualToken(text, id),
+					current,
+				);
+				return next === current ? current : next;
+			});
+		}
+	}, [composerText, setComposerText, visualDrafts]);
 
 	// Markers count as atoms so `$` / `@` inside `{{s:…}}` / `{{m:…}}` stay inert.
 	const triggerText = plainTriggerSuffix(composerText);

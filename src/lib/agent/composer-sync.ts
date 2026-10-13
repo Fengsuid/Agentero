@@ -1,4 +1,4 @@
-const INLINE_TOKEN_RE = /\{\{(?:m|s|c|sel):[^}]+\}\}/;
+const INLINE_TOKEN_RE = /\{\{(?:m|s|c|sel|vis):[^}]+\}\}/;
 const TRAILING_INLINE_TRIGGER_RE = /(^|\s)[@/$][^\s]*$/;
 
 export type ComposerExternalValueSyncDecision = "apply" | "skip" | "defer";
@@ -22,23 +22,23 @@ function looksLikeInlineTokenCommit(
 	);
 }
 
-const SELECTION_MARKER_RE = /\{\{sel:[^}]+\}\}/g;
+const REFERENCE_MARKER_RE = /\{\{(?:sel|vis):[^}]+\}\}/g;
 
 function selectionMarkerCount(text: string): number {
-	return text.match(SELECTION_MARKER_RE)?.length ?? 0;
+	return text.match(REFERENCE_MARKER_RE)?.length ?? 0;
 }
 
 function proseWithoutSelectionMarkers(text: string): string {
-	return text
-		.replace(SELECTION_MARKER_RE, "")
-		.replace(/[ \t]{2,}/g, " ")
-		.trim();
+	// Drop the spaces insertTokensAt adds around a marker, so a quote pinned
+	// into the middle of a word still counts as the same prose.
+	return text.replace(REFERENCE_MARKER_RE, "").replace(/\s+/g, "");
 }
 
 /**
  * A pin landed in the controlled draft while the field still shows the prose
- * it was appended to. Applying keeps the new quote; a draft whose words
- * differ is left alone so an in-flight keystroke is not replaced.
+ * it was inserted into. Applying keeps the new quote or visual reference; a
+ * draft whose words differ is left alone so an in-flight keystroke is not
+ * replaced.
  */
 function looksLikeIncomingSelection(
 	currentDomValue: string,

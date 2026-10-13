@@ -6,11 +6,16 @@ import {
 	encodeMentionToken,
 	encodeSelectionToken,
 	encodeSkillToken,
+	encodeVisualToken,
 	extractMentionPaths,
 	extractSelectionTokens,
 	extractSkillIds,
+	extractVisualIds,
+	insertTokensAt,
 	parseInlineTokenParts,
 	plainTriggerSuffix,
+	referenceInsertionOffset,
+	removeVisualToken,
 	replaceTrailingTriggerWithToken,
 	stripInlineTokens,
 } from "@/lib/agent/composer-inline-tokens";
@@ -161,6 +166,49 @@ describe("composer inline tokens", () => {
 		it("treats a selection token as a trigger boundary", () => {
 			const text = `${encodeSelectionToken(selection)}@notes`;
 			expect(plainTriggerSuffix(text)).toMatch(/(^|\s|\uFFFC)@([^\s]*)$/);
+		});
+
+		it("inserts a quote at the caret, before a trailing break", () => {
+			const token = encodeSelectionToken(selection);
+			const draft = "这个是个\n";
+			const next = insertTokensAt(draft, 4, token);
+			expect(next.text.startsWith(`这个是个 ${token}`)).toBe(true);
+			expect(next.text.endsWith("\n")).toBe(true);
+			expect(next.text.indexOf(token)).toBeLessThan(next.text.indexOf("\n"));
+			expect(next.caret).toBe(`这个是个 ${token}`.length);
+		});
+
+		it("inserts a quote in the middle of a sentence", () => {
+			const token = encodeSelectionToken(selection);
+			const next = insertTokensAt("对于这段", 2, token);
+			expect(next.text).toBe(`对于 ${token} 这段`);
+			expect(next.caret).toBe(`对于 ${token} `.length);
+		});
+
+		it("keeps an unknown caret off a lone trailing break", () => {
+			const token = encodeSelectionToken(selection);
+			expect(referenceInsertionOffset("这个是个\n", null)).toBe(4);
+			expect(referenceInsertionOffset("这个是个\n", 5)).toBe(5);
+			expect(referenceInsertionOffset("这个是个", null)).toBeNull();
+			const next = insertTokensAt(
+				"这个是个\n",
+				referenceInsertionOffset("这个是个\n", null),
+				token,
+			);
+			expect(next.text.indexOf(token)).toBeLessThan(next.text.indexOf("\n"));
+		});
+
+		it("round-trips visual markers and strips them on send", () => {
+			const token = encodeVisualToken("mark/1");
+			expect(token).toBe("{{vis:mark%2F1}}");
+			expect(extractVisualIds(`看 ${token} 这里 ${token}`)).toEqual(["mark/1"]);
+			const parts = parseInlineTokenParts(`看 ${token}`);
+			expect(parts).toEqual([
+				{ type: "text", value: "看 " },
+				{ type: "visual", id: "mark/1" },
+			]);
+			expect(stripInlineTokens(`看 ${token} 这里`)).toBe("看 这里");
+			expect(removeVisualToken(`看 ${token} 这里`, "mark/1")).toBe("看 这里");
 		});
 
 		it("appends new quotes after prose and leaves earlier quotes in place", () => {
