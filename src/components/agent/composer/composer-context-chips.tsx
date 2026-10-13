@@ -1,9 +1,19 @@
 import { Trash2, X } from "lucide-react";
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import {
+	placeAnchoredPopover,
+	remToPx,
+} from "@/components/agent/composer/anchored-popover";
 import { ContextPathIcon } from "@/components/agent/context-path-icon";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	type PdfVisualDraft,
@@ -149,6 +159,14 @@ export function VisualReferenceCard({
 	onRemove: (id: string) => void;
 }) {
 	const { t } = useTranslation(["agent", "common"]);
+	const [zoomOpen, setZoomOpenState] = useState(false);
+	const zoomOpenRef = useRef(false);
+	const setZoomOpen = (next: boolean) => {
+		const wasOpen = zoomOpenRef.current;
+		zoomOpenRef.current = next;
+		setZoomOpenState(next);
+		if (!next && wasOpen) onHoverRelease();
+	};
 	const [rect, setRect] = useState(() => anchor.getBoundingClientRect());
 	useLayoutEffect(() => {
 		const update = () => {
@@ -171,6 +189,11 @@ export function VisualReferenceCard({
 	});
 	const placeBelow = rect.top < 320;
 	if (typeof document === "undefined") return null;
+	const position = placeAnchoredPopover(rect, {
+		width: remToPx(22),
+		viewportWidth: window.innerWidth,
+		placeBelow,
+	});
 	const pageLabel = t("composer.visualAnnotationPage", { page: draft.page });
 	const where = draft.paperPath
 		? `${pageLabel} · ${draft.paperPath}`
@@ -180,18 +203,18 @@ export function VisualReferenceCard({
 		// biome-ignore lint/a11y/noStaticElementInteractions: pointer bridge so the card stays open between the reference and its actions
 		<div
 			data-annotation-ui
-			className="fixed z-50 max-h-[min(24rem,calc(100vh-2rem))] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-lg bg-popover p-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
-			style={
-				placeBelow
-					? { left: rect.left, top: rect.bottom + 6 }
-					: {
-							left: rect.left,
-							top: rect.top - 6,
-							transform: "translateY(-100%)",
-						}
-			}
+			className="fixed z-50 max-h-[min(24rem,calc(100vh-2rem))] overflow-y-auto rounded-lg bg-popover p-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+			style={{
+				left: position.left,
+				top: position.top,
+				width: position.width,
+				transform: position.transform,
+			}}
 			onMouseEnter={onHoverHold}
-			onMouseLeave={onHoverRelease}
+			onMouseLeave={() => {
+				if (zoomOpenRef.current) return;
+				onHoverRelease();
+			}}
 			onMouseDown={(event) => {
 				const target = event.target as HTMLElement | null;
 				if (target?.closest("textarea, button, input, a")) return;
@@ -207,6 +230,9 @@ export function VisualReferenceCard({
 				previewAlt={t("composer.visualAnnotationPreviewAlt", {
 					page: draft.page,
 				})}
+				zoomLabel={t("composer.attachedImageOpen")}
+				zoomOpen={zoomOpen}
+				onZoomOpenChange={setZoomOpen}
 				removeLabel={t("common:remove")}
 				onRemove={() => {
 					onRemove(draft.id);
@@ -224,6 +250,9 @@ function VisualReferenceCardBody({
 	where,
 	commentLabel,
 	previewAlt,
+	zoomLabel,
+	zoomOpen,
+	onZoomOpenChange,
 	removeLabel,
 	onRemove,
 }: {
@@ -232,6 +261,9 @@ function VisualReferenceCardBody({
 	where: string;
 	commentLabel: string;
 	previewAlt: string;
+	zoomLabel: string;
+	zoomOpen: boolean;
+	onZoomOpenChange: (open: boolean) => void;
 	removeLabel: string;
 	onRemove: () => void;
 }) {
@@ -241,16 +273,57 @@ function VisualReferenceCardBody({
 			? `data:${draft.image.mimeType || "image/png"};base64,${draft.image.data}`
 			: null;
 	return (
-		<div className="flex gap-2 p-3">
+		<div className="flex items-start gap-2 p-3">
 			<span className="text-muted-foreground">{index}.</span>
 			<div className="min-w-0 flex-1">
-				<p className="truncate text-xs text-muted-foreground">{where}</p>
+				<div className="flex items-center gap-2">
+					<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+						{where}
+					</p>
+					<Button
+						type="button"
+						size="icon-sm"
+						variant="ghost"
+						className="shrink-0"
+						aria-label={removeLabel}
+						onClick={onRemove}
+					>
+						<Trash2 className="size-4" />
+					</Button>
+				</div>
 				{thumb ? (
-					<img
-						src={thumb}
-						alt={previewAlt}
-						className="mt-2 max-h-40 w-full rounded-md border border-border/70 bg-muted/30 object-contain"
-					/>
+					<>
+						<button
+							type="button"
+							className="mt-2 block w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							title={zoomLabel}
+							aria-label={zoomLabel}
+							onClick={() => onZoomOpenChange(true)}
+						>
+							<img
+								src={thumb}
+								alt=""
+								draggable={false}
+								className="max-h-40 w-full rounded-md border border-border/70 bg-muted/30 object-contain"
+							/>
+						</button>
+						<Dialog open={zoomOpen} onOpenChange={onZoomOpenChange}>
+							<DialogContent
+								className="sm:max-w-[min(92vw,56rem)]"
+								aria-describedby={undefined}
+							>
+								<DialogHeader>
+									<DialogTitle>{previewAlt}</DialogTitle>
+								</DialogHeader>
+								<img
+									src={thumb}
+									alt={previewAlt}
+									draggable={false}
+									className="max-h-[min(80vh,48rem)] w-full object-contain"
+								/>
+							</DialogContent>
+						</Dialog>
+					</>
 				) : null}
 				<label
 					className="mt-3 mb-1 block text-xs text-muted-foreground"
@@ -269,16 +342,6 @@ function VisualReferenceCardBody({
 					}}
 				/>
 			</div>
-			<Button
-				type="button"
-				size="icon-sm"
-				variant="ghost"
-				className="shrink-0"
-				aria-label={removeLabel}
-				onClick={onRemove}
-			>
-				<Trash2 className="size-4" />
-			</Button>
 		</div>
 	);
 }

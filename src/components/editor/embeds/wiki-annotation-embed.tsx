@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { EmbedStatus } from "@/components/editor/embeds/embed-status";
 import { useMarkdownExportMode } from "@/components/editor/markdown-export-mode-context";
+import { AnnotationQuoteBlock } from "@/components/selection/annotation-quote-block";
 import { createKeyedCache } from "@/lib/core/keyed-cache";
 import { cn } from "@/lib/core/utils";
 
@@ -22,11 +23,7 @@ import {
 	lookupAnnotationRef,
 	paperAbsFromWikiTarget,
 } from "@/lib/pdf/annotation-ref";
-import {
-	type HighlightColor,
-	swatchBorderClass,
-	swatchColorClass,
-} from "@/lib/pdf/highlight/palette";
+import type { HighlightColor } from "@/lib/pdf/highlight/palette";
 import {
 	annotationTranslateSidecarPath,
 	readAnnotationTranslation,
@@ -299,49 +296,14 @@ export const WikiAnnotationEmbed = memo(function WikiAnnotationEmbed({
 	// (same as markdown / attachment embeds) so selection & scroll stay usable.
 	return (
 		<div className={cn("block w-full px-3 py-2 text-left", className)}>
-			{/* Location: outline breadcrumb or page fallback */}
-			<div className="flex items-center gap-1.5">
-				{isVisual ? null : (
-					<span
-						className={cn(
-							"size-2 shrink-0 rounded-full",
-							swatchColorClass(color),
-						)}
-						aria-hidden
-					/>
-				)}
-				<span
-					className={cn(
-						"min-w-0 truncate font-medium text-muted-foreground tracking-wide",
-						EMBED_SOURCE_TEXT,
-					)}
-					title={locationLabel ?? undefined}
-				>
-					{locationLabel}
-				</span>
-			</div>
-
-			{hasQuote ? (
-				<blockquote
-					className={cn(
-						"mt-1.5 border-l-2 pl-2.5 leading-relaxed text-muted-foreground whitespace-pre-wrap break-words",
-						EMBED_SOURCE_TEXT,
-						swatchBorderClass(color),
-					)}
-				>
-					{ref.quote}
-					{pairedTranslation && !isVisual ? (
-						<span
-							className={cn(
-								"mt-1 block leading-relaxed text-muted-foreground/60 whitespace-pre-wrap break-words",
-								EMBED_SOURCE_TEXT,
-							)}
-						>
-							{pairedTranslation}
-						</span>
-					) : null}
-				</blockquote>
-			) : null}
+			<AnnotationQuoteBlock
+				quote={hasQuote ? ref.quote : null}
+				translation={pairedTranslation && !isVisual ? pairedTranslation : null}
+				locationLabel={locationLabel}
+				color={color}
+				showSwatch={!isVisual}
+				textClassName={EMBED_SOURCE_TEXT}
+			/>
 
 			{/* Visual note: icon + text above the crop (annotation, not chat). */}
 			{isVisual && hasComment ? (

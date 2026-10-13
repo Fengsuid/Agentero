@@ -11,6 +11,7 @@
  * tab — always resolve through the paper folder, not only the active tab id.
  */
 
+import type { PdfAnnotationObject } from "@embedpdf/models";
 import { paperDirFromPath } from "@/lib/paper/detect";
 import { loadPdfVisualTraceImage } from "@/lib/pdf/agent-trace/image";
 import { listPdfVisualTraces } from "@/lib/pdf/agent-trace/io";
@@ -30,6 +31,7 @@ import {
 	loadAnnotationItems,
 } from "@/lib/pdf/highlight/annotation-store";
 import type { HighlightColor } from "@/lib/pdf/highlight/palette";
+import { normalizeSentenceKey } from "@/lib/pdf/layout/layout-sentences";
 import { readMarkRaw } from "@/lib/pdf/selection/marks-io";
 import type { PdfVisualNormalizedRect } from "@/lib/pdf-visual/types";
 import { joinVaultPath } from "@/lib/vault";
@@ -169,6 +171,48 @@ function transferItemId(item: unknown): string | null {
 	}
 	const id = (item as { id?: unknown }).id;
 	return typeof id === "string" && id ? id : null;
+}
+
+/**
+ * Highlight color for a composer reference. A saved annotation id wins; otherwise
+ * the quote (and page, when given) matches the note on disk.
+ */
+export function highlightColorFromItems(
+	items: readonly unknown[],
+	query: { id?: string; quote?: string; page?: number },
+): HighlightColor | null {
+	const quoteKey = query.quote ? normalizeSentenceKey(query.quote) : "";
+	let quoteMatch: HighlightColor | null = null;
+	for (const item of items) {
+		if (!item || typeof item !== "object") continue;
+		const annotation = (item as { annotation?: unknown }).annotation;
+		if (!annotation || typeof annotation !== "object") continue;
+		if (!isHighlightObject(annotation as PdfAnnotationObject)) continue;
+		const color = highlightColorOf(
+			annotation as Parameters<typeof highlightColorOf>[0],
+		);
+		const id = (annotation as { id?: string }).id;
+		if (query.id && id === query.id) return color;
+		if (!quoteKey) continue;
+		const stored = highlightQuoteOf(
+			annotation as Parameters<typeof highlightQuoteOf>[0],
+		);
+		if (normalizeSentenceKey(stored) !== quoteKey) continue;
+		const page = ((annotation as { pageIndex?: number }).pageIndex ?? 0) + 1;
+		if (query.page != null && page !== query.page) continue;
+		quoteMatch = color;
+	}
+	return quoteMatch;
+}
+
+export async function lookupHighlightColor(
+	paperAbsPath: string,
+	query: { id?: string; quote?: string; page?: number },
+): Promise<HighlightColor | null> {
+	if (!paperAbsPath) return null;
+	if (!query.id && !query.quote?.trim()) return null;
+	const items = await loadAnnotationItems(paperAbsPath);
+	return highlightColorFromItems(items, query);
 }
 
 /** Look up one id under a paper folder (highlight or visual-trace). */
