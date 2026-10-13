@@ -673,7 +673,7 @@ export function useAgentSend({
 			);
 			const { prompt, images, visualAnnotations, historyTitle } =
 				assembleTurnPrompt({
-					text,
+					text: textRaw,
 					contextPaths: resolvedContextPaths,
 					selections: resolvedSelections,
 					visualDrafts: resolvedVisualDrafts,
@@ -833,8 +833,9 @@ export function useAgentSend({
 			const inlineSelections = extractSelectionTokens(textRaw);
 			const item: QueuedPrompt = {
 				id: nextLineId("queue"),
-				// Keep the typed text only; visual drafts / images carry their payload.
-				text,
+				// Keep reference tokens so a later send can put [Annotation N]
+				// back where the block sat. The queue row shows the stripped text.
+				text: textRaw,
 				workflow,
 				contextPaths: paths,
 				skillIds: [...snap.selectedSkillIds],
