@@ -14,6 +14,7 @@ import {
 	QueueSectionLabel,
 	QueueSectionTrigger,
 } from "@/components/ai-elements/queue";
+import { stripInlineTokens } from "@/lib/agent/composer-inline-tokens";
 import { cn } from "@/lib/core/utils";
 
 export function ComposerQueue({
@@ -49,7 +50,7 @@ export function ComposerQueue({
 						{messageQueue.map((item) => {
 							const imageCount = item.images?.length ?? 0;
 							const queueLabel =
-								item.text.trim() ||
+								stripInlineTokens(item.text).trim() ||
 								(item.visualDrafts.length
 									? t("composer.visualAnnotationsTitle", {
 											count: item.visualDrafts.length,

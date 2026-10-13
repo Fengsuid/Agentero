@@ -184,7 +184,7 @@ export function usePdfVisualMarks({
 						mimeType: image.mimeType || "image/png",
 					},
 				});
-				presentAgentComposer();
+				presentAgentComposer({ preserveCaret: true });
 			})();
 		},
 		[paperAbsPath, paperRelPath, t, visualTracesRef],

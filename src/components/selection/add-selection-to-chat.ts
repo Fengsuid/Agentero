@@ -15,5 +15,5 @@ import {
 export function addSelectionToChat(payload: PublishSelectionInput): void {
 	publishSelection(payload);
 	pinActiveSelection();
-	presentAgentComposer();
+	presentAgentComposer({ preserveCaret: true });
 }

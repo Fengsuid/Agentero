@@ -204,6 +204,37 @@ export function selectCurrentBlockThenAll(editor: SlateEditor): boolean {
 	return selectTopLevelBlockThenAll(editor, top[1]);
 }
 
+export type BlockChatLineSpan = {
+	lineFrom: number;
+	lineTo: number;
+};
+
+/**
+ * Pin payload for one note block (or a multi-block selection) in the Agent
+ * composer. Empty markdown or a missing note path does not produce a quote.
+ */
+export function blockChatSelectionInput(
+	markdown: string,
+	sourcePath: string,
+	lines: BlockChatLineSpan | null,
+): {
+	text: string;
+	sourcePath: string;
+	origin: "markdown";
+	lineFrom?: number;
+	lineTo?: number;
+} | null {
+	const text = markdown.trim();
+	const path = sourcePath.trim();
+	if (!text || !path) return null;
+	return {
+		text,
+		sourcePath: path,
+		origin: "markdown",
+		...(lines ? { lineFrom: lines.lineFrom, lineTo: lines.lineTo } : {}),
+	};
+}
+
 /** Enter with the caret on a horizontal rule: break out into a paragraph below. */
 export function insertBreakAfterHorizontalRule(editor: SlateEditor): boolean {
 	if (!editor.selection) return false;

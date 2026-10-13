@@ -21,6 +21,7 @@ const CONTEXT_INSTRUCTION_MARKERS = [
 ] as const;
 
 const SELECTED_TEXT_MARKER = "Selected text from ";
+const ANNOTATION_APPENDIX_MARKER = "\n\nAnnotations marked [Annotation ";
 
 /** Strip context-path / selection blocks appended by assembleTurnPrompt. */
 function stripAgenteroContextBlocks(text: string): string {
@@ -31,6 +32,8 @@ function stripAgenteroContextBlocks(text: string): string {
 	}
 	const selIdx = out.indexOf(`\n\n${SELECTED_TEXT_MARKER}`);
 	if (selIdx >= 0) out = out.slice(0, selIdx);
+	const annIdx = out.indexOf(ANNOTATION_APPENDIX_MARKER);
+	if (annIdx >= 0) out = out.slice(0, annIdx);
 	return out;
 }
 

@@ -576,28 +576,24 @@ const CommentCard = memo(function CommentCard({
 							</Tooltip>
 						</>
 					) : null}
-					{item.kind === "visual" ? (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-xs"
-									className="size-6 text-muted-foreground hover:text-foreground"
-									aria-label={t("pdfExplain.addToSidebarChat")}
-									onClick={(e) => {
-										e.stopPropagation();
-										onAddToChat(item);
-									}}
-								>
-									<MessageSquarePlus className="size-3.5" />
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent>
-								{t("pdfExplain.addToSidebarChat")}
-							</TooltipContent>
-						</Tooltip>
-					) : null}
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								className="size-6 text-muted-foreground hover:text-foreground"
+								aria-label={t("pdfExplain.addToSidebarChat")}
+								onClick={(e) => {
+									e.stopPropagation();
+									onAddToChat(item);
+								}}
+							>
+								<MessageSquarePlus className="size-3.5" />
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent>{t("pdfExplain.addToSidebarChat")}</TooltipContent>
+					</Tooltip>
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button

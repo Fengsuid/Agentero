@@ -42,6 +42,10 @@ import {
 	useAgentSessionStore,
 } from "@/lib/agent/agent-session-store";
 import {
+	planAnnotationRefs,
+	visualDraftsInAnnotationOrder,
+} from "@/lib/agent/annotation-prompt";
+import {
 	type AgentOption,
 	applyToolToLines,
 	buildLocalTranscriptPrompt,
@@ -56,6 +60,7 @@ import {
 } from "@/lib/agent/chat-state";
 import {
 	extractSelectionTokens,
+	extractVisualIds,
 	stripInlineTokens,
 } from "@/lib/agent/composer-inline-tokens";
 import type { AgentComposerState } from "@/lib/agent/composer-state";
@@ -73,9 +78,10 @@ import {
 import type { AcpCommand } from "@/lib/agent/slash-commands";
 import { assembleTurnPrompt } from "@/lib/agent/turn-prompt";
 import {
-	consumeVisualDrafts,
-	currentVisualDrafts,
+	activeVisualDraftSessionKey,
 	type PdfVisualDraft,
+	takeVisualDrafts,
+	visualDraftsForSession,
 } from "@/lib/agent/visual-context-store";
 import { isTauri } from "@/lib/core/tauri";
 import {
@@ -605,7 +611,13 @@ export function useAgentSend({
 	): Promise<boolean> => {
 		// Inline @/$ markers stay in the draft; the user bubble / ACP body is plain.
 		const text = stripInlineTokens(textRaw).trim();
-		const resolvedVisualDrafts = options?.visualDrafts ?? currentVisualDrafts();
+		const draftSessionKey = activeVisualDraftSessionKey();
+		const resolvedVisualDrafts =
+			options?.visualDrafts ??
+			visualDraftsInAnnotationOrder(
+				planAnnotationRefs(textRaw),
+				visualDraftsForSession(draftSessionKey),
+			);
 		const hasVisualDrafts = resolvedVisualDrafts.length > 0;
 		const attachedImages = (options?.images ?? []).filter(
 			(img) => img.data.trim().length > 0,
@@ -673,7 +685,7 @@ export function useAgentSend({
 			);
 			const { prompt, images, visualAnnotations, historyTitle } =
 				assembleTurnPrompt({
-					text,
+					text: textRaw,
 					contextPaths: resolvedContextPaths,
 					selections: resolvedSelections,
 					visualDrafts: resolvedVisualDrafts,
@@ -766,7 +778,9 @@ export function useAgentSend({
 			});
 			// A submitted turn consumes its selection chips (queued turns already did).
 			if (!options?.selections) consumeSelections();
-			if (!options?.visualDrafts) consumeVisualDrafts();
+			if (!options?.visualDrafts) {
+				takeVisualDrafts(extractVisualIds(textRaw), draftSessionKey);
+			}
 			const pendingTerminal = pendingTerminalEventsRef.current.get(
 				accepted.sessionId,
 			);
@@ -807,7 +821,11 @@ export function useAgentSend({
 	const enqueueMessage = useCallback(
 		(textRaw: string, workflow?: string, images?: PromptImage[]): boolean => {
 			const text = stripInlineTokens(textRaw).trim();
-			const liveVisualDrafts = currentVisualDrafts();
+			const draftSessionKey = activeVisualDraftSessionKey();
+			const referencedVisualDrafts = visualDraftsInAnnotationOrder(
+				planAnnotationRefs(textRaw),
+				visualDraftsForSession(draftSessionKey),
+			);
 			const attached = (images ?? []).filter((img) => img.data.trim().length);
 			const snap = snapshotComposerState();
 			const hasInlineContext =
@@ -816,7 +834,7 @@ export function useAgentSend({
 				(snap.includeSelectedFile && Boolean(selectedVaultPath));
 			if (
 				(!text &&
-					!liveVisualDrafts.length &&
+					!referencedVisualDrafts.length &&
 					!attached.length &&
 					!hasInlineContext) ||
 				switchingRef.current
@@ -829,12 +847,16 @@ export function useAgentSend({
 					: []),
 				...snap.mentionedPaths,
 			];
-			const frozenVisualDrafts = consumeVisualDrafts();
+			const frozenVisualDrafts = takeVisualDrafts(
+				referencedVisualDrafts.map((draft) => draft.id),
+				draftSessionKey,
+			);
 			const inlineSelections = extractSelectionTokens(textRaw);
 			const item: QueuedPrompt = {
 				id: nextLineId("queue"),
-				// Keep the typed text only; visual drafts / images carry their payload.
-				text,
+				// Keep reference tokens so a later send can put [Annotation N]
+				// back where the block sat. The queue row shows the stripped text.
+				text: textRaw,
 				workflow,
 				contextPaths: paths,
 				skillIds: [...snap.selectedSkillIds],

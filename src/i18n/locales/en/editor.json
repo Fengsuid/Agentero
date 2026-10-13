@@ -82,6 +82,7 @@
 	},
 	"blockDrag": {
 		"handle": "Drag to move",
+		"addToChat": "Add to chat",
 		"duplicate": "Duplicate",
 		"delete": "Delete"
 	},

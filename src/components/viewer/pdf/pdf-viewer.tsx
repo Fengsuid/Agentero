@@ -124,6 +124,11 @@ import { DockviewViewport } from "@/components/viewer/pdf/viewport/dockview-view
 import { PanDragHandler } from "@/components/viewer/pdf/viewport/pan-handler";
 import { WheelZoomHandler } from "@/components/viewer/pdf/viewport/wheel-zoom-handler";
 import { useLibraryStore, useSettings } from "@/hooks/use-app-stores";
+import { presentAgentComposer } from "@/lib/agent/composer-focus";
+import {
+	createSelectionContext,
+	pinSelection,
+} from "@/lib/agent/selection-store";
 import { commands, events, type SuggestedHighlight } from "@/lib/core/bindings";
 import { copyTextToClipboard } from "@/lib/core/clipboard";
 import { errorText } from "@/lib/core/error";
@@ -1828,10 +1833,25 @@ function PdfViewerInner({
 
 	const handleAddCommentToChat = useCallback(
 		(comment: PageAnnotationComment) => {
-			if (comment.kind !== "visual") return;
-			handleVisualAddToChatById(comment.id);
+			if (comment.kind === "visual") {
+				handleVisualAddToChatById(comment.id);
+				return;
+			}
+			const selection = createSelectionContext({
+				text: comment.quote,
+				sourcePath: paperRelPath ?? paperAbsPath ?? "PDF",
+				origin: "pdf",
+				page: comment.pageIndex + 1,
+				rects: comment.rects,
+				paperAbsPath: paperAbsPath ?? undefined,
+				comment: comment.comment,
+			});
+			if (!selection) return;
+			// Stable id: adding the same saved note again refreshes that block.
+			pinSelection({ ...selection, id: `ann-${comment.id}` });
+			presentAgentComposer({ preserveCaret: true });
 		},
-		[handleVisualAddToChatById],
+		[handleVisualAddToChatById, paperAbsPath, paperRelPath],
 	);
 
 	const pageHandlers = useMemo<PdfPageHandlers>(

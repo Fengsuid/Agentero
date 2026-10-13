@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+	activateVisualDraftSession,
 	addVisualDraft,
+	clearVisualDraftSession,
 	clearVisualDrafts,
 	consumeVisualDrafts,
 	currentVisualDrafts,
 	groupVisualDraftsByPaper,
+	rebindVisualDraftSession,
 	removeVisualDraft,
+	takeVisualDrafts,
 	updateVisualDraftComment,
-	visualContextStore,
 } from "@/lib/agent/visual-context-store";
 import {
 	beginTraceContinue,
@@ -47,7 +50,8 @@ const image = { data: "aaa", mimeType: "image/png" };
 
 describe("visual-context-store", () => {
 	beforeEach(() => {
-		visualContextStore.setState({ drafts: [] });
+		clearVisualDrafts();
+		activateVisualDraftSession("");
 	});
 
 	it("adds, updates, removes, and consumes drafts", () => {
@@ -77,6 +81,29 @@ describe("visual-context-store", () => {
 		const consumed = consumeVisualDrafts();
 		expect(consumed).toHaveLength(1);
 		expect(currentVisualDrafts()).toHaveLength(0);
+	});
+
+	it("takes only the requested drafts and leaves the rest", () => {
+		const a = addVisualDraft({
+			paperPath: "papers/a",
+			page: 1,
+			rects: [rect],
+			comment: "a",
+			image,
+		});
+		const b = addVisualDraft({
+			paperPath: "papers/a",
+			page: 2,
+			rects: [rect],
+			comment: "b",
+			image,
+		});
+		expect(
+			takeVisualDrafts([b.id, "missing"]).map((draft) => draft.id),
+		).toEqual([b.id]);
+		expect(currentVisualDrafts().map((draft) => draft.id)).toEqual([a.id]);
+		expect(takeVisualDrafts([])).toEqual([]);
+		expect(currentVisualDrafts().map((draft) => draft.id)).toEqual([a.id]);
 	});
 
 	it("clearVisualDrafts drops without returning items", () => {
@@ -186,6 +213,46 @@ describe("visual-context-store", () => {
 		expect([...groups.keys()].sort()).toEqual(["papers/a", "papers/b"]);
 		expect(groups.get("papers/a")).toHaveLength(2);
 		expect(groups.get("papers/b")).toHaveLength(1);
+	});
+
+	it("keeps the same mark independently in each session", () => {
+		activateVisualDraftSession("scope\nsession-a");
+		addVisualDraft({
+			id: "mark-1",
+			paperPath: "papers/a",
+			page: 2,
+			rects: [rect],
+			comment: "A",
+			image,
+		});
+		activateVisualDraftSession("scope\nsession-b");
+		addVisualDraft({
+			id: "mark-1",
+			paperPath: "papers/a",
+			page: 2,
+			rects: [rect],
+			comment: "B",
+			image,
+		});
+
+		expect(currentVisualDrafts().map((draft) => draft.comment)).toEqual(["B"]);
+		activateVisualDraftSession("scope\nsession-a");
+		expect(currentVisualDrafts().map((draft) => draft.comment)).toEqual(["A"]);
+
+		expect(updateVisualDraftComment("mark-1", "A2")).toBe(true);
+		takeVisualDrafts(["mark-1"], "scope\nsession-b");
+		activateVisualDraftSession("scope\nsession-b");
+		expect(currentVisualDrafts()).toEqual([]);
+		activateVisualDraftSession("scope\nsession-a");
+		expect(currentVisualDrafts().map((draft) => draft.comment)).toEqual(["A2"]);
+
+		clearVisualDraftSession("scope\nsession-b");
+		expect(currentVisualDrafts().map((draft) => draft.comment)).toEqual(["A2"]);
+
+		rebindVisualDraftSession("scope\nsession-a", "scope\nsession-a2");
+		expect(currentVisualDrafts().map((draft) => draft.comment)).toEqual(["A2"]);
+		activateVisualDraftSession("scope\nsession-a");
+		expect(currentVisualDrafts()).toEqual([]);
 	});
 });
 

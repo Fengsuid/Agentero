@@ -17,7 +17,6 @@ import { ChatTranscript } from "@/components/agent/chat-transcript";
 import type { AgentPanelProps } from "@/components/agent/types";
 import { useAgentPanel } from "@/components/agent/use-agent-panel";
 import { PaneHeader } from "@/components/shell/pane-header";
-import { removeSelection } from "@/lib/agent/selection-store";
 import { cn } from "@/lib/core/utils";
 
 const COMPOSER_DEFAULT_HEIGHT_PX = 208;
@@ -222,7 +221,6 @@ export const AgentPanel = memo(function AgentPanel({
 		currentFilePath,
 		currentFileLabel,
 		mentionChipPaths,
-		selectionChips,
 		visualDrafts,
 		removeVisualDraft,
 		directoryPathSet,
@@ -435,8 +433,6 @@ export const AgentPanel = memo(function AgentPanel({
 								currentFilePath={currentFilePath}
 								currentFileLabel={currentFileLabel}
 								mentionChipPaths={mentionChipPaths}
-								selectionChips={selectionChips}
-								onRemoveSelection={removeSelection}
 								visualDrafts={visualDrafts}
 								onRemoveVisualDraft={removeVisualDraft}
 								directoryPathSet={directoryPathSet}

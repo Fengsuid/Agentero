@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
 	appendMissingInlineTokens,
+	appendSelectionTokens,
 	encodeCommandToken,
 	encodeMentionToken,
 	encodeSelectionToken,
 	encodeSkillToken,
+	encodeVisualToken,
 	extractMentionPaths,
 	extractSelectionTokens,
 	extractSkillIds,
+	extractVisualIds,
+	insertTokensAt,
 	parseInlineTokenParts,
 	plainTriggerSuffix,
+	referenceInsertionOffset,
+	removeVisualToken,
+	replaceSelectionToken,
 	replaceTrailingTriggerWithToken,
 	stripInlineTokens,
 } from "@/lib/agent/composer-inline-tokens";
@@ -155,6 +162,111 @@ describe("composer inline tokens", () => {
 			const text = `x ${encodeSelectionToken(selection)} $c`;
 			expect(plainTriggerSuffix(text).endsWith(" $c")).toBe(true);
 			expect(plainTriggerSuffix(text)).not.toContain("{{");
+		});
+
+		it("treats a selection token as a trigger boundary", () => {
+			const text = `${encodeSelectionToken(selection)}@notes`;
+			expect(plainTriggerSuffix(text)).toMatch(/(^|\s|\uFFFC)@([^\s]*)$/);
+		});
+
+		it("inserts a quote at the caret, before a trailing break", () => {
+			const token = encodeSelectionToken(selection);
+			const draft = "这个是个\n";
+			const next = insertTokensAt(draft, 4, token);
+			expect(next.text.startsWith(`这个是个 ${token}`)).toBe(true);
+			expect(next.text.endsWith("\n")).toBe(true);
+			expect(next.text.indexOf(token)).toBeLessThan(next.text.indexOf("\n"));
+			expect(next.caret).toBe(`这个是个 ${token}`.length);
+		});
+
+		it("inserts a quote in the middle of a sentence", () => {
+			const token = encodeSelectionToken(selection);
+			const next = insertTokensAt("对于这段", 2, token);
+			expect(next.text).toBe(`对于 ${token} 这段`);
+			expect(next.caret).toBe(`对于 ${token} `.length);
+		});
+
+		it("keeps an unknown caret off a lone trailing break", () => {
+			const token = encodeSelectionToken(selection);
+			expect(referenceInsertionOffset("这个是个\n", null)).toBe(4);
+			expect(referenceInsertionOffset("这个是个\n", 5)).toBe(5);
+			expect(referenceInsertionOffset("这个是个", null)).toBeNull();
+			const next = insertTokensAt(
+				"这个是个\n",
+				referenceInsertionOffset("这个是个\n", null),
+				token,
+			);
+			expect(next.text.indexOf(token)).toBeLessThan(next.text.indexOf("\n"));
+		});
+
+		it("round-trips visual markers and strips them on send", () => {
+			const token = encodeVisualToken("mark/1");
+			expect(token).toBe("{{vis:mark%2F1}}");
+			expect(extractVisualIds(`看 ${token} 这里 ${token}`)).toEqual(["mark/1"]);
+			const parts = parseInlineTokenParts(`看 ${token}`);
+			expect(parts).toEqual([
+				{ type: "text", value: "看 " },
+				{ type: "visual", id: "mark/1" },
+			]);
+			expect(stripInlineTokens(`看 ${token} 这里`)).toBe("看 这里");
+			expect(removeVisualToken(`看 ${token} 这里`, "mark/1")).toBe("看 这里");
+		});
+
+		it("appends new quotes after prose and leaves earlier quotes in place", () => {
+			const first = {
+				...selection,
+				id: "one",
+				text: "first block",
+			};
+			const second = {
+				...selection,
+				id: "two",
+				text: "second block",
+			};
+			const draft = `对于 ${encodeSelectionToken(first)} 以及`;
+			const next = appendSelectionTokens(draft, [first, second]);
+			expect(extractSelectionTokens(next).map((item) => item.id)).toEqual([
+				"one",
+				"two",
+			]);
+			expect(next.startsWith("对于 ")).toBe(true);
+			expect(next.includes(" 以及 ")).toBe(true);
+			expect(appendSelectionTokens("", [second])).toBe(
+				encodeSelectionToken(second),
+			);
+			expect(appendSelectionTokens("对于 ", [second]).startsWith("对于 ")).toBe(
+				true,
+			);
+		});
+
+		it("rewrites one selection marker in place", () => {
+			const token = encodeSelectionToken(selection);
+			const draft = `看 ${token} 这里`;
+			expect(replaceSelectionToken(draft, selection)).toBe(draft);
+			const updated = {
+				...selection,
+				text: "new quote",
+				comment: "note",
+			};
+			const next = replaceSelectionToken(draft, updated);
+			expect(extractSelectionTokens(next)).toEqual([updated]);
+			expect(next.startsWith("看 ")).toBe(true);
+			expect(next.endsWith(" 这里")).toBe(true);
+			expect(replaceSelectionToken(draft, { ...selection, id: "other" })).toBe(
+				draft,
+			);
+		});
+
+		it("replaces a trigger that sits against a selection token", () => {
+			const token = encodeSelectionToken(selection);
+			const next = replaceTrailingTriggerWithToken(
+				`${token}@notes`,
+				"mention",
+				encodeMentionToken("notes/a.md"),
+			);
+			expect(next.startsWith(token)).toBe(true);
+			expect(next).not.toContain("@notes");
+			expect(extractMentionPaths(next)).toEqual(["notes/a.md"]);
 		});
 	});
 });

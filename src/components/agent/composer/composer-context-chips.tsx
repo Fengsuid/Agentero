@@ -1,30 +1,29 @@
-import { Quote, ScanSearch, X } from "lucide-react";
-import { useState } from "react";
+import { Trash2, X } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import {
+	placeAnchoredPopover,
+	remToPx,
+} from "@/components/agent/composer/anchored-popover";
 import { ContextPathIcon } from "@/components/agent/context-path-icon";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
-	DialogDescription,
-	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { selectionLineLabel } from "@/lib/agent/selection-line-label";
-import type { SelectionContext } from "@/lib/agent/selection-store";
 import {
 	type PdfVisualDraft,
 	updateVisualDraftComment,
 } from "@/lib/agent/visual-context-store";
 import { basenameOf } from "@/lib/core/path";
-import { cn, truncateToChars } from "@/lib/core/utils";
+import { cn } from "@/lib/core/utils";
 
 /** Matches `normalizeComment` in the visual draft store. */
 const MAX_VISUAL_COMMENT_CHARS = 2000;
-
-const MAX_CHIP_TITLE_CHARS = 9;
 
 /**
  * Icon-first chip: hover / focus animates width open to reveal a short label + X.
@@ -73,10 +72,6 @@ export function ComposerContextChips({
 	currentFilePath,
 	currentFileLabel,
 	mentionChipPaths,
-	selectionChips,
-	onRemoveSelection,
-	visualDrafts,
-	onRemoveVisualDraft,
 	directoryPathSet,
 	paperPathSet,
 	labelForPath,
@@ -87,25 +82,13 @@ export function ComposerContextChips({
 	currentFilePath: string | null;
 	currentFileLabel: string;
 	mentionChipPaths: string[];
-	selectionChips: SelectionContext[];
-	onRemoveSelection: (id: string) => void;
-	visualDrafts: PdfVisualDraft[];
-	onRemoveVisualDraft: (id: string) => void;
 	directoryPathSet: ReadonlySet<string>;
 	paperPathSet: ReadonlySet<string>;
 	labelForPath: (path: string) => string;
 	onRemoveContextPath: (path: string) => void;
 }) {
 	const { t } = useTranslation(["agent", "common"]);
-	const [openVisualId, setOpenVisualId] = useState<string | null>(null);
-	const openVisual =
-		visualDrafts.find((draft) => draft.id === openVisualId) ?? null;
-	if (
-		!currentFilePath &&
-		mentionChipPaths.length === 0 &&
-		selectionChips.length === 0 &&
-		visualDrafts.length === 0
-	) {
+	if (!currentFilePath && mentionChipPaths.length === 0) {
 		return null;
 	}
 
@@ -152,143 +135,137 @@ export function ComposerContextChips({
 					</button>
 				);
 			})}
-			{selectionChips.map((sel) => {
-				const name = truncateToChars(
-					basenameOf(sel.sourcePath) || t("composer.selection"),
-					MAX_CHIP_TITLE_CHARS,
-				);
-				const shortLabel =
-					(sel.page ? `${name} · p.${sel.page}` : null) ??
-					selectionLineLabel(t, sel, name) ??
-					name;
-				return (
-					<button
-						key={sel.id}
-						title={[sel.text, sel.comment].filter(Boolean).join("\n\n")}
-						type="button"
-						className={chipShellClass(
-							sel.pinned ? undefined : "border-dashed bg-transparent",
-						)}
-						onClick={() => onRemoveSelection(sel.id)}
-						aria-label={t("composer.removeSelection")}
-					>
-						<Quote className="size-3.5 shrink-0 text-muted-foreground" />
-						<ChipExpandTrail label={shortLabel} withRemove />
-					</button>
-				);
-			})}
-			{visualDrafts.map((draft, index) => {
-				const pageLabel = t("composer.visualAnnotationPage", {
-					page: draft.page,
-				});
-				const shortLabel = draft.comment.trim() || pageLabel;
-				const thumb =
-					draft.image.data.length > 0
-						? `data:${draft.image.mimeType || "image/png"};base64,${draft.image.data}`
-						: null;
-				return (
-					<button
-						key={draft.id}
-						type="button"
-						className={chipShellClass()}
-						onClick={() => setOpenVisualId(draft.id)}
-						title={t("composer.visualAnnotationOpen")}
-						aria-label={t("composer.visualAnnotationOpenAria", {
-							index: index + 1,
-							label: shortLabel,
-						})}
-					>
-						{thumb ? (
-							<img
-								src={thumb}
-								alt=""
-								className="size-5 shrink-0 rounded-full object-cover"
-							/>
-						) : (
-							<ScanSearch className="size-3.5 shrink-0 text-muted-foreground" />
-						)}
-						<ChipExpandTrail label={shortLabel} />
-					</button>
-				);
-			})}
-			<VisualDraftDialog
-				draft={openVisual}
-				index={
-					openVisual
-						? visualDrafts.findIndex((draft) => draft.id === openVisual.id) + 1
-						: 1
-				}
-				onClose={() => setOpenVisualId(null)}
-				onRemove={onRemoveVisualDraft}
-			/>
 		</>
 	);
 }
 
 /**
- * Enlarge a pending visual annotation. The note is edited here and delete is
- * explicit — clicking the chip itself must not drop the draft.
+ * Hover card for one visual reference. The note is edited here and delete is
+ * explicit — hovering or clicking the reference itself must not drop the draft.
  */
-function VisualDraftDialog({
+export function VisualReferenceCard({
 	draft,
 	index,
-	onClose,
+	anchor,
+	onHoverHold,
+	onHoverRelease,
 	onRemove,
 }: {
-	draft: PdfVisualDraft | null;
+	draft: PdfVisualDraft;
 	index: number;
-	onClose: () => void;
+	anchor: HTMLElement;
+	onHoverHold: () => void;
+	onHoverRelease: () => void;
 	onRemove: (id: string) => void;
 }) {
 	const { t } = useTranslation(["agent", "common"]);
-	return (
-		<Dialog
-			open={draft != null}
-			onOpenChange={(next) => {
-				if (!next) onClose();
+	const [zoomOpen, setZoomOpenState] = useState(false);
+	const zoomOpenRef = useRef(false);
+	const setZoomOpen = (next: boolean) => {
+		const wasOpen = zoomOpenRef.current;
+		zoomOpenRef.current = next;
+		setZoomOpenState(next);
+		if (!next && wasOpen) onHoverRelease();
+	};
+	const [rect, setRect] = useState(() => anchor.getBoundingClientRect());
+	useLayoutEffect(() => {
+		const update = () => {
+			if (!anchor.isConnected) {
+				onHoverRelease();
+				return;
+			}
+			setRect(anchor.getBoundingClientRect());
+		};
+		update();
+		window.addEventListener("scroll", update, true);
+		window.addEventListener("resize", update);
+		return () => {
+			window.removeEventListener("scroll", update, true);
+			window.removeEventListener("resize", update);
+		};
+	}, [anchor, onHoverRelease]);
+	useLayoutEffect(() => {
+		if (!anchor.isConnected) onHoverRelease();
+	});
+	const placeBelow = rect.top < 320;
+	if (typeof document === "undefined") return null;
+	const position = placeAnchoredPopover(rect, {
+		width: remToPx(22),
+		viewportWidth: window.innerWidth,
+		placeBelow,
+	});
+	const pageLabel = t("composer.visualAnnotationPage", { page: draft.page });
+	const where = draft.paperPath
+		? `${pageLabel} · ${draft.paperPath}`
+		: pageLabel;
+	return createPortal(
+		// Hover bridge into the card. The note field and delete button own the actions.
+		// biome-ignore lint/a11y/noStaticElementInteractions: pointer bridge so the card stays open between the reference and its actions
+		<div
+			data-annotation-ui
+			className="fixed z-50 max-h-[min(24rem,calc(100vh-2rem))] overflow-y-auto rounded-lg bg-popover p-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+			style={{
+				left: position.left,
+				top: position.top,
+				width: position.width,
+				transform: position.transform,
+			}}
+			onMouseEnter={onHoverHold}
+			onMouseLeave={() => {
+				if (zoomOpenRef.current) return;
+				onHoverRelease();
+			}}
+			onMouseDown={(event) => {
+				const target = event.target as HTMLElement | null;
+				if (target?.closest("textarea, button, input, a")) return;
+				event.preventDefault();
 			}}
 		>
-			<DialogContent className="sm:max-w-md" aria-describedby={undefined}>
-				{draft ? (
-					<VisualDraftDialogBody
-						key={draft.id}
-						draft={draft}
-						onClose={onClose}
-						onRemove={onRemove}
-						title={t("composer.visualAnnotationDetailTitle", { index })}
-						pageLabel={t("composer.visualAnnotationPage", {
-							page: draft.page,
-						})}
-						commentLabel={t("composer.visualAnnotationCommentLabel")}
-						previewAlt={t("composer.visualAnnotationPreviewAlt", {
-							page: draft.page,
-						})}
-						removeLabel={t("common:remove")}
-					/>
-				) : null}
-			</DialogContent>
-		</Dialog>
+			<VisualReferenceCardBody
+				key={draft.id}
+				draft={draft}
+				index={index}
+				where={where}
+				commentLabel={t("composer.visualAnnotationCommentLabel")}
+				previewAlt={t("composer.visualAnnotationPreviewAlt", {
+					page: draft.page,
+				})}
+				zoomLabel={t("composer.attachedImageOpen")}
+				zoomOpen={zoomOpen}
+				onZoomOpenChange={setZoomOpen}
+				removeLabel={t("common:remove")}
+				onRemove={() => {
+					onRemove(draft.id);
+					onHoverRelease();
+				}}
+			/>
+		</div>,
+		document.body,
 	);
 }
 
-function VisualDraftDialogBody({
+function VisualReferenceCardBody({
 	draft,
-	onClose,
-	onRemove,
-	title,
-	pageLabel,
+	index,
+	where,
 	commentLabel,
 	previewAlt,
+	zoomLabel,
+	zoomOpen,
+	onZoomOpenChange,
 	removeLabel,
+	onRemove,
 }: {
 	draft: PdfVisualDraft;
-	onClose: () => void;
-	onRemove: (id: string) => void;
-	title: string;
-	pageLabel: string;
+	index: number;
+	where: string;
 	commentLabel: string;
 	previewAlt: string;
+	zoomLabel: string;
+	zoomOpen: boolean;
+	onZoomOpenChange: (open: boolean) => void;
 	removeLabel: string;
+	onRemove: () => void;
 }) {
 	const [comment, setComment] = useState(draft.comment);
 	const thumb =
@@ -296,24 +273,60 @@ function VisualDraftDialogBody({
 			? `data:${draft.image.mimeType || "image/png"};base64,${draft.image.data}`
 			: null;
 	return (
-		<>
-			<DialogHeader>
-				<DialogTitle>{title}</DialogTitle>
-				<DialogDescription>
-					{pageLabel}
-					{draft.paperPath ? ` · ${draft.paperPath}` : ""}
-				</DialogDescription>
-			</DialogHeader>
-			{thumb ? (
-				<img
-					src={thumb}
-					alt={previewAlt}
-					className="max-h-[min(60vh,28rem)] w-full rounded-lg border border-border/70 bg-muted/30 object-contain"
-				/>
-			) : null}
-			<div className="space-y-1">
+		<div className="flex items-start gap-2 p-3">
+			<span className="text-muted-foreground">{index}.</span>
+			<div className="min-w-0 flex-1">
+				<div className="flex items-center gap-2">
+					<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+						{where}
+					</p>
+					<Button
+						type="button"
+						size="icon-sm"
+						variant="ghost"
+						className="shrink-0"
+						aria-label={removeLabel}
+						onClick={onRemove}
+					>
+						<Trash2 className="size-4" />
+					</Button>
+				</div>
+				{thumb ? (
+					<>
+						<button
+							type="button"
+							className="mt-2 block w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							title={zoomLabel}
+							aria-label={zoomLabel}
+							onClick={() => onZoomOpenChange(true)}
+						>
+							<img
+								src={thumb}
+								alt=""
+								draggable={false}
+								className="max-h-40 w-full rounded-md border border-border/70 bg-muted/30 object-contain"
+							/>
+						</button>
+						<Dialog open={zoomOpen} onOpenChange={onZoomOpenChange}>
+							<DialogContent
+								className="sm:max-w-[min(92vw,56rem)]"
+								aria-describedby={undefined}
+							>
+								<DialogHeader>
+									<DialogTitle>{previewAlt}</DialogTitle>
+								</DialogHeader>
+								<img
+									src={thumb}
+									alt={previewAlt}
+									draggable={false}
+									className="max-h-[min(80vh,48rem)] w-full object-contain"
+								/>
+							</DialogContent>
+						</Dialog>
+					</>
+				) : null}
 				<label
-					className="font-medium text-muted-foreground text-xs"
+					className="mt-3 mb-1 block text-xs text-muted-foreground"
 					htmlFor={`visual-draft-comment-${draft.id}`}
 				>
 					{commentLabel}
@@ -321,6 +334,7 @@ function VisualDraftDialogBody({
 				<Textarea
 					id={`visual-draft-comment-${draft.id}`}
 					value={comment}
+					rows={3}
 					onChange={(event) => {
 						const next = event.target.value.slice(0, MAX_VISUAL_COMMENT_CHARS);
 						setComment(next);
@@ -328,18 +342,6 @@ function VisualDraftDialogBody({
 					}}
 				/>
 			</div>
-			<DialogFooter>
-				<Button
-					type="button"
-					variant="destructive"
-					onClick={() => {
-						onRemove(draft.id);
-						onClose();
-					}}
-				>
-					{removeLabel}
-				</Button>
-			</DialogFooter>
-		</>
+		</div>
 	);
 }

@@ -82,6 +82,7 @@
 	},
 	"blockDrag": {
 		"handle": "拖动以移动",
+		"addToChat": "加入会话",
 		"duplicate": "创建副本",
 		"delete": "删除"
 	},

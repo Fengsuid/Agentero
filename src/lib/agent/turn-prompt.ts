@@ -5,8 +5,15 @@
  * No side effects — the send pipeline keeps session/ref mutation.
  */
 import type { TFunction } from "i18next";
+import {
+	annotationAppendix,
+	planAnnotationRefs,
+	proseWithAnnotationMarkers,
+	visualDraftsInAnnotationOrder,
+} from "@/lib/agent/annotation-prompt";
 import type { PromptImage } from "@/lib/agent/api";
 import type { ChatVisualAnnotation } from "@/lib/agent/chat-state";
+import { stripInlineTokens } from "@/lib/agent/composer-inline-tokens";
 import {
 	plazaMentionPromptBlock,
 	splitContextPaths,
@@ -45,7 +52,16 @@ export function assembleTurnPrompt({
 	plazaScratchByPath,
 	t,
 }: AssembleTurnPromptInput): AssembledTurnPrompt {
-	const hasVisualDrafts = visualDrafts.length > 0;
+	const displayText = stripInlineTokens(text).trim();
+	const annotationRefs = planAnnotationRefs(text);
+	const prose =
+		annotationRefs.length > 0 ? proseWithAnnotationMarkers(text) : displayText;
+	const draftsById = new Map(visualDrafts.map((draft) => [draft.id, draft]));
+	const orderedVisualDrafts =
+		annotationRefs.length > 0
+			? visualDraftsInAnnotationOrder(annotationRefs, visualDrafts)
+			: visualDrafts;
+	const hasVisualDrafts = orderedVisualDrafts.length > 0;
 	const hasAttachedImages = attachedImages.length > 0;
 
 	const contextBlocks: string[] = [];
@@ -68,13 +84,17 @@ export function assembleTurnPrompt({
 			}),
 		);
 	}
-	if (selections.length) {
+	if (annotationRefs.length > 0) {
+		contextBlocks.push(
+			annotationAppendix(annotationRefs, draftsById, hasAttachedImages),
+		);
+	} else if (selections.length) {
 		contextBlocks.push(selectionsPromptBlock(selections));
 	}
-	if (hasVisualDrafts && !isAcpCommand) {
+	if (annotationRefs.length === 0 && hasVisualDrafts && !isAcpCommand) {
 		contextBlocks.push(
 			buildVisualAnnotationsPrompt(
-				visualDrafts.map((draft) => ({
+				orderedVisualDrafts.map((draft) => ({
 					page: draft.page,
 					comment: draft.comment,
 				})),
@@ -83,17 +103,17 @@ export function assembleTurnPrompt({
 	}
 
 	const promptBodyParts: string[] = [];
-	if (text) promptBodyParts.push(text);
+	if (prose) promptBodyParts.push(prose);
 	if (!isAcpCommand && contextBlocks.length) {
 		promptBodyParts.push(...contextBlocks);
 	}
 	const prompt =
-		isAcpCommand && text
-			? text
+		isAcpCommand && displayText
+			? displayText
 			: promptBodyParts.join("\n\n") ||
 				(hasVisualDrafts
 					? buildVisualAnnotationsPrompt(
-							visualDrafts.map((draft) => ({
+							orderedVisualDrafts.map((draft) => ({
 								page: draft.page,
 								comment: draft.comment,
 							})),
@@ -105,7 +125,7 @@ export function assembleTurnPrompt({
 						: "");
 
 	const visualImages = hasVisualDrafts
-		? visualDrafts.map((draft) => draft.image)
+		? orderedVisualDrafts.map((draft) => draft.image)
 		: [];
 	const images =
 		visualImages.length || attachedImages.length
@@ -113,7 +133,7 @@ export function assembleTurnPrompt({
 			: undefined;
 
 	const visualAnnotations = hasVisualDrafts
-		? visualDrafts.map((draft) => ({
+		? orderedVisualDrafts.map((draft) => ({
 				id: draft.id,
 				page: draft.page,
 				comment: draft.comment,
@@ -126,11 +146,11 @@ export function assembleTurnPrompt({
 		: undefined;
 
 	const historyTitle =
-		text ||
-		visualDrafts.find((d) => d.comment.trim())?.comment.trim() ||
+		displayText ||
+		orderedVisualDrafts.find((d) => d.comment.trim())?.comment.trim() ||
 		(hasVisualDrafts
 			? t("composer.visualAnnotationsTitle", {
-					count: visualDrafts.length,
+					count: orderedVisualDrafts.length,
 				})
 			: hasAttachedImages
 				? t("composer.attachedImagesTitle", {

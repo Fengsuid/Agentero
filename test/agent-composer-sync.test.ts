@@ -54,6 +54,58 @@ describe("composer external value sync", () => {
 		).toBe("skip");
 	});
 
+	it("applies a pinned selection when the prose is unchanged", () => {
+		expect(
+			decideComposerExternalValueSync({
+				nextValue: "对于 {{sel:abc}}",
+				lastKnownDomValue: "对于",
+				currentDomValue: "对于",
+				focused: true,
+				composing: false,
+				awaitingParentEcho: true,
+			}),
+		).toBe("apply");
+	});
+
+	it("defers a selection sync that would drop text still in the field", () => {
+		expect(
+			decideComposerExternalValueSync({
+				nextValue: "对于 {{sel:abc}}",
+				lastKnownDomValue: "对于",
+				currentDomValue: "对于 啊",
+				focused: true,
+				composing: false,
+				awaitingParentEcho: true,
+			}),
+		).toBe("defer");
+	});
+
+	it("applies a quote inserted between words", () => {
+		expect(
+			decideComposerExternalValueSync({
+				nextValue: "对于 {{sel:abc}} 这段",
+				lastKnownDomValue: "对于这段",
+				currentDomValue: "对于这段",
+				focused: true,
+				composing: false,
+				awaitingParentEcho: true,
+			}),
+		).toBe("apply");
+	});
+
+	it("applies a visual reference when the prose is unchanged", () => {
+		expect(
+			decideComposerExternalValueSync({
+				nextValue: "看 {{vis:mark-1}}",
+				lastKnownDomValue: "看",
+				currentDomValue: "看",
+				focused: true,
+				composing: false,
+				awaitingParentEcho: true,
+			}),
+		).toBe("apply");
+	});
+
 	it("still applies inline token commits from the composer menu", () => {
 		expect(
 			decideComposerExternalValueSync({

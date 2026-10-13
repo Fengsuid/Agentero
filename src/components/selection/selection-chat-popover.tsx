@@ -304,7 +304,7 @@ function SelectionChatCard({ draft }: { draft: SelectionChatDraft }) {
 			openRightTab("agent");
 			return;
 		}
-		presentAgentComposer();
+		presentAgentComposer({ preserveCaret: true });
 	};
 	return (
 		<div
