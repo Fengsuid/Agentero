@@ -15,6 +15,7 @@ import {
 } from "@/lib/agent/visual-context-store";
 import {
 	beginTraceContinue,
+	bindVisualTracesForTurn,
 	buildChatLinesFromVisualTrace,
 	buildVisualAnnotationsPrompt,
 	buildVisualTraceContinuePrompt,
@@ -427,6 +428,58 @@ describe("agent-trace schema and lifecycle", () => {
 		expect(
 			await readPdfVisualTrace("/vault/papers/delete", trace.id),
 		).toBeNull();
+	});
+
+	it("leaves a visual mark unchanged when the turn is not that mark's pin", async () => {
+		resetPendingVisualTracesForTests();
+		const note = createNoteTrace({
+			id: "mark-ref",
+			paperPath: "papers/ref",
+			page: 3,
+			rects: [rect],
+			comment: "原批注",
+			image,
+		});
+		await writePdfVisualTrace("/vault/papers/ref", note);
+		await bindVisualTracesForTurn({
+			runtimeSessionId: "sidebar-run",
+			messageId: "msg-1",
+			agentId: "agent",
+			userText: "解释这个内容. 另外分析下这个表格",
+		});
+		const saved = await readPdfVisualTrace("/vault/papers/ref", "mark-ref");
+		expect(saved?.comment).toBe("原批注");
+		expect(saved?.agent).toBeUndefined();
+		expect(takePendingVisualTraces("sidebar-run")).toEqual([]);
+	});
+
+	it("appends a follow-up only for the mark the session was opened from", async () => {
+		resetPendingVisualTracesForTests();
+		const note = createNoteTrace({
+			id: "mark-pin",
+			paperPath: "papers/pin",
+			page: 6,
+			rects: [rect],
+			comment: "原批注",
+			image,
+		});
+		await writePdfVisualTrace("/vault/papers/pin", note);
+		await bindVisualTracesForTurn({
+			runtimeSessionId: "pin-run",
+			messageId: "msg-2",
+			agentId: "agent",
+			userText: "继续问这个区域",
+			continueVisualTraceId: "mark-pin",
+			continuePaperAbs: "/vault/papers/pin",
+		});
+		const saved = await readPdfVisualTrace("/vault/papers/pin", "mark-pin");
+		expect(saved?.comment).toBe("原批注");
+		expect(saved?.agent?.messages?.map((message) => message.content)).toEqual([
+			"继续问这个区域",
+		]);
+		expect(takePendingVisualTraces("pin-run")).toEqual([
+			{ paperAbsPath: "/vault/papers/pin", traceId: "mark-pin" },
+		]);
 	});
 
 	it("rejects wrong kind or missing geometry", () => {

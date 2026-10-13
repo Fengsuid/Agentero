@@ -456,14 +456,12 @@ export function useAgentSend({
 		});
 
 	/**
-	 * Pin-binding fields for the turn: without new visual drafts the turn
-	 * continues the pin bound to the history row / options; with drafts the
-	 * first draft's pin wins for the new history entry.
+	 * Pin binding for a session opened from a visual mark. Composer reference
+	 * crops are not a pin: they must not become this session's mark id.
 	 */
 	const visualTraceBinding = (
 		activeHistory: ChatSessionHistoryItem | undefined,
 		options: SendOptions | undefined,
-		resolvedVisualDrafts: PdfVisualDraft[],
 	): {
 		continueVisualTraceId: string | undefined;
 		continuePaperAbs: string | undefined;
@@ -478,24 +476,17 @@ export function useAgentSend({
 			activeHistory && "paperAbsPath" in activeHistory
 				? (activeHistory as { paperAbsPath?: string }).paperAbsPath
 				: undefined;
-		const continuesPin = resolvedVisualDrafts.length === 0;
+		const continueVisualTraceId =
+			options?.visualTraceId?.trim() ||
+			historyVisualTraceId?.trim() ||
+			undefined;
+		const continuePaperAbs =
+			options?.paperAbsPath?.trim() || historyPaperAbs?.trim() || undefined;
 		return {
-			continueVisualTraceId: continuesPin
-				? options?.visualTraceId?.trim() ||
-					historyVisualTraceId?.trim() ||
-					undefined
-				: undefined,
-			continuePaperAbs: continuesPin
-				? options?.paperAbsPath?.trim() || historyPaperAbs?.trim() || undefined
-				: undefined,
-			boundVisualTraceId:
-				options?.visualTraceId?.trim() ||
-				historyVisualTraceId ||
-				resolvedVisualDrafts[0]?.id,
-			boundPaperAbs:
-				options?.paperAbsPath?.trim() ||
-				historyPaperAbs ||
-				resolvedVisualDrafts[0]?.paperAbsPath,
+			continueVisualTraceId,
+			continuePaperAbs,
+			boundVisualTraceId: continueVisualTraceId,
+			boundPaperAbs: continuePaperAbs,
 		};
 	};
 
@@ -751,22 +742,14 @@ export function useAgentSend({
 			}
 			knownSessionIdsRef.current.add(accepted.sessionId);
 			pendingSubmissionSessionIdRef.current = accepted.sessionId;
-			const binding = visualTraceBinding(
-				target.activeHistory,
-				options,
-				resolvedVisualDrafts,
-			);
-			// Bind disk finalizers for this runtime session:
-			// - first turn with visualDrafts → create mark files
-			// - follow-up on a bound pin (no new drafts) → re-register pending
-			//   so complete/fail still patches marks/<id>.json
+			const binding = visualTraceBinding(target.activeHistory, options);
+			// Reference crops stay in the prompt. Only a session opened from a
+			// visual mark patches that mark when the turn completes.
 			await bindVisualTracesForTurn({
 				runtimeSessionId: accepted.sessionId,
 				messageId: accepted.messageId,
 				agentId: agent.agentId,
-				vaultPath,
 				userText: text,
-				visualDrafts: resolvedVisualDrafts,
 				continueVisualTraceId: binding.continueVisualTraceId,
 				continuePaperAbs: binding.continuePaperAbs,
 			});

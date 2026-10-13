@@ -174,7 +174,8 @@ export function addVisualDraft(input: {
 	id?: string;
 }): PdfVisualDraft {
 	const draft: PdfVisualDraft = {
-		// Stable across restarts — draft id becomes marks/<id>.json on submit.
+		// Existing marks pass their id. Sending uses the crop as prompt context
+		// and does not rewrite marks/<id>.json.
 		id: input.id ?? newTraceId(),
 		paperPath: resolvePaperPath(input.paperPath),
 		page: Math.max(1, Math.floor(input.page)),
