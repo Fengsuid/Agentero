@@ -51,6 +51,7 @@ import {
 	type PdfAskSettings,
 } from "@/lib/settings/types";
 import { DEFAULT_TRANSLATE_SETTINGS } from "@/lib/translate/defaults";
+import { stripUnknownTranslatePlaceholders } from "@/lib/translate/prompt";
 import {
 	isCommercialTranslateProvider,
 	isTranslateProviderId,
@@ -716,10 +717,20 @@ function normalizeTranslateSettings(
 		base.modelId = raw.modelId.trim();
 	}
 	if (typeof raw.customPrompt === "string") {
-		// Cap extreme values from hand-edited storage (the UI slices to 8000).
-		base.customPrompt = raw.customPrompt.slice(0, 8000);
+		base.customPrompt = normalizeTranslateTemplate(raw.customPrompt);
+	}
+	if (typeof raw.customSystem === "string") {
+		base.customSystem = normalizeTranslateTemplate(raw.customSystem);
+	}
+	if (typeof raw.customUser === "string") {
+		base.customUser = normalizeTranslateTemplate(raw.customUser);
 	}
 	return base;
+}
+
+/** Cap a template and drop placeholders other than the three known ones. */
+function normalizeTranslateTemplate(value: string): string {
+	return stripUnknownTranslatePlaceholders(value).slice(0, 8000);
 }
 
 function normalizeTranslateProviderConfigs(

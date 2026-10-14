@@ -20,6 +20,8 @@ import {
 	resolveTargetLangName,
 	resolveTranslateAgent,
 	targetLangDisplayName,
+	translateSystemTemplateIssue,
+	translateUserTemplateIssue,
 	unknownTranslatePlaceholders,
 } from "@/lib/translate";
 import { DEFAULT_TRANSLATE_SETTINGS } from "@/lib/translate/defaults";
@@ -323,9 +325,40 @@ describe("translate prompts", () => {
 		expect(
 			unknownTranslatePlaceholders("See {{tone}} and {{ targetLang }}."),
 		).toEqual(["tone"]);
+		expect(translateSystemTemplateIssue("{{tone}}")).toEqual({
+			kind: "unknown",
+			names: ["tone"],
+		});
+		expect(translateSystemTemplateIssue("")).toBeNull();
+		expect(translateUserTemplateIssue("")).toBeNull();
+		expect(translateUserTemplateIssue("just say it")).toEqual({
+			kind: "missingText",
+		});
+		expect(translateUserTemplateIssue("{{text}} {{mood}}")).toEqual({
+			kind: "unknown",
+			names: ["mood"],
+		});
+		expect(translateUserTemplateIssue("<<{{ text }}>>")).toBeNull();
 	});
 
-	it("default translate settings ship an empty custom prompt", () => {
+	it("prefers customSystem and inserts the source through customUser", () => {
+		const { system, user } = buildTranslateMessages({
+			text: "attention",
+			targetLangName: "Chinese",
+			customPrompt: "legacy preference",
+			customSystem: "Be terse.",
+			customUser: "SRC:\n{{ text }}",
+		});
+		expect(system).toContain("Be terse.");
+		expect(system).not.toContain("legacy preference");
+		expect(system).toContain("OUTPUT ONLY THE TRANSLATION.");
+		expect(user).toBe("SRC:\nattention");
+		expect(user).not.toContain('"""');
+	});
+
+	it("default translate settings ship empty custom prompts", () => {
 		expect(DEFAULT_TRANSLATE_SETTINGS.customPrompt).toBe("");
+		expect(DEFAULT_TRANSLATE_SETTINGS.customSystem).toBe("");
+		expect(DEFAULT_TRANSLATE_SETTINGS.customUser).toBe("");
 	});
 });

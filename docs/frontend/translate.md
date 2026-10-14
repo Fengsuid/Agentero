@@ -18,7 +18,7 @@ Settings → **翻译**：
   - OpenAI 兼容翻译要求服务支持 **Chat Completions** 格式：`POST {baseUrl}/chat/completions`，返回 `choices[0].message.content`。设置里填写 Base URL（例如 `https://api.openai.com/v1` 或服务商自己的 `/v1` 根地址），不要填写 Responses / Completions 端点；应用会自动追加 `/chat/completions`。
     用户配置说明见 [配置 OpenAI 兼容翻译](../usage/translate-openai-compatible.md)。
 - 默认服务为 Agent 时展示 Agent / 模型座。
-- **自定义翻译提示词**（`translate.customPrompt`，空 = 内置）：仅对 **Agent 与 OpenAI 兼容**两条 LLM 路径生效（免费引擎与内置 provider 无提示词概念）。引擎规则（只输出译文、不反问、公式 / 引用 / `⟦n⟧` 原样）始终生效。多行或带占位符的自定义内容只替换学术风格块；一行不超过 180 字、且不含 `{{…}}` 的口语（如「翻译得自然一点」）作为附加偏好追加，不替换引擎规则。支持 `{{targetLang}}` / `{{sourceLang}}`（display name；源语言恒为自动检测 → "the source language"）。原文放在 user 消息里，用 `"""…"""` 包裹；`[[n]]` 批量规则写在 system。上限 8000 字符。「填入默认」填入可编辑的学术风格块，「恢复默认」清空。OpenAI 兼容路径的提示词由 Host 在 `translate_text` 内从 settings 注入（WebView 调用方无感）。
+- **自定义翻译提示词**（`translate.customSystem` / `translate.customUser`，旧 `translate.customPrompt` 仍可读）：仅对 **Agent 与 OpenAI 兼容**两条 LLM 路径生效（免费引擎与内置 provider 无提示词概念）。设置里分系统提示词和用户模板两栏。引擎规则（只输出译文、不反问、公式 / 引用 / `⟦n⟧` 原样）始终生效。系统栏里多行或带占位符的内容只替换学术风格块；一行不超过 180 字、且不含 `{{…}}` 的口语（如「翻译得自然一点」）作为附加偏好追加。占位符只认 `{{targetLang}}` / `{{sourceLang}}` / `{{text}}`，其它在失焦时校验失败、不写入；手改 settings.json 里的未知占位符会在归一化时被剥离。用户模板留空时原文仍用 `"""…"""` 包裹；非空则必须包含 `{{text}}`，由它决定原文插入位置。`[[n]]` 批量规则写在 system。每栏上限 8000 字符。「填入默认」把学术风格块写入系统栏并清掉旧的单段 `customPrompt`，「恢复默认」三栏都清空。OpenAI 兼容路径由 Host 在 `translate_text` 内注入（WebView 调用方无感）。保存系统栏时写入 `customSystem` 并清空 `customPrompt`，避免两段叠在一起。
 
 ## 消费方
 
@@ -37,7 +37,7 @@ Settings → **翻译**：
   - **占位符保护**（`src/lib/translate/mask.ts`）：行内公式 / LaTeX 命令 / URL / DOI，以及方括号引用（`[12]`、`[1, 3]`、PDF 里带空格的 `[ 6 , 13 ]`）、作者-年份（含 PDF 括号内空格，以及译后的全角括号、中文逗号和「等人」）、`Figure` / `Table` / `Section` / `Equation` 等交叉引用、Markdown 链接，先换成 `⟦n⟧` 再发引擎，回填时还原；引擎吞掉占位符则该句用原文重译一次。译文覆盖原文后，这些标记在字形层重新挂上原来的 Link 目标（只包住标记本身，沿用原文链接字形的颜色（字形是正文黑时用可见边框的颜色；当前可见页的填色在打开译文前就读好），不再另加下划线；`[17,38]` 这类一组多个编号，只拆中心落在该标记字形上的 Link；字形还没读到时，一根已经盖住整组的宽标注不会把同一行后面的引用借进来。同一行上矩形顶边略有高低时，仍按从左到右配对。中心还在这段标记上方或左方的 Link 先跳过。个数对不上时整段只挂第一个 Link，每个拆开的编号单独悬停和点击（同一矩形的重复 Link 只算一条）。从句对调后仍按原文里的同一处标记对回 Link。字形已经对上、但这段上没有链接中心时，这段保持纯文本，不占用下一个 Link。裸 URL 末尾成对的括号保留，只剥掉多出来的句末括号和标点），英文坐标的整块命中区仍留在下层，不挡住译文划选。
   - 按阅读顺序把句子**分批**翻译（`buildTranslateBatches`）：批内 payload ≤ 4500 字符（约一页双栏正文），用 `[[n]]` 编号，一个标记一句。标记解析失败时该批改为逐句重译；某一句仍失败则该块不写 `sentences`。成功时每块写入句对 `{ quote, source, translated }`，跨框切片另记 `display`。并发 2（Agent 串行）；**每批完成立刻**在 bbox 上盖译文层（非整页等齐）。这里的并发 2 是**前端批次**并发，与内置 provider 在 Host 内对单批做的句级 fan-out（并发 3）正交：选内置时同时在飞的请求最多 2 × 3。
   - 每页纸张内侧左上角在 hover 时出现窄页签，可只翻译本页；页签 hover 不弹出额外文字；本页已有可见译文时，页签切换为隐藏本页译文。隐藏只影响当前 UI 覆盖层，不删除磁盘缓存。
-  - 译文按论文写入 `{paper}/source/layout-translate.json`（`schemaVersion` 2）。版本不对的文件整份视为未命中，按块重译。缓存命中需匹配 provider / 源语言 / 目标语言 / 非密钥服务配置，并逐块校验 region id + 原文（存的是归一化后的原文，归一化规则变化时旧缓存会 miss 一次并重译）；版面或目标语言变化时只复用仍匹配的块。句对随块写入；没有句对的块只复用整段译文。自定义翻译提示词非空时,service key 追加其 FNV-1a 指纹——改提示词即重译；空提示词的 key 与旧版字节一致,存量缓存升级后仍命中。
+  - 译文按论文写入 `{paper}/source/layout-translate.json`（`schemaVersion` 2）。版本不对的文件整份视为未命中，按块重译。缓存命中需匹配 provider / 源语言 / 目标语言 / 非密钥服务配置，并逐块校验 region id + 原文（存的是归一化后的原文，归一化规则变化时旧缓存会 miss 一次并重译）；版面或目标语言变化时只复用仍匹配的块。句对随块写入；没有句对的块只复用整段译文。`customPrompt` / `customSystem` / `customUser` 里任一非空时，service key 追加这三段去空白后拼接的 FNV-1a 指纹——改提示词即重译；三者都空时 key 与旧版字节一致，存量缓存升级后仍命中。
   - 单页翻译写缓存时按同一 cache key 增量合并，避免只翻译一页时覆盖其它页已经落盘的译文。
   - 运行中再点=停止；有译文再点=清除。实现：`layout-translate.ts` + `layout-translate-source.ts` + `layout-sentences.ts` + `layout-translate-overlay.tsx`。
   - 翻译失败（如内置 provider 返回 502）时 toast 为「全文翻译失败」加错误描述，并带「打开翻译设置」动作（`use-pdf-layout-translate.ts` 的 `notifyTranslateFailure` → `openSettingsWindow("translate")`，带动作时停留 20s），与版面解析失败的设置跳转一致。
@@ -58,7 +58,7 @@ Settings → **翻译**：
 
 **内置 provider（`agentero`）不适用以上整套约束**：`tencent/Hunyuan-MT-7B` 是专用 MT 模型而非 instruct 模型，只认它自己的单行模板，Host 改发单条 user message（无 system message），并且**不把 `[[n]]` 喂给模型**——批量对齐依赖指令遵循，对它无效，所以标记由 Host 拆分、逐句请求、按序重组。`⟦n⟧` 占位符仍由前端 `mask.ts` 插入并原样透传。详见 [../backend/builtin-provider.md](../backend/builtin-provider.md) §翻译：Hunyuan-MT。
 
-**自定义提示词（`translate.customPrompt` 非空）**：不再整段替换 system。引擎规则始终保留。多行或含 `{{targetLang}}` / `{{sourceLang}}` 的内容替换学术风格块（`DEFAULT_TRANSLATE_PROMPT_TEMPLATE`）；一行短口语只作为附加偏好，默认风格和 few-shot 仍在。`[[n]]` 批量规则仍由应用写进 system，原文仍是 user。Host 与前端一起改。
+**自定义提示词**：`customSystem` 非空时优先于旧的 `customPrompt`，都不再整段替换 system。引擎规则始终保留。多行或含占位符的系统内容替换学术风格块（`DEFAULT_TRANSLATE_PROMPT_TEMPLATE`）；一行短口语只作为附加偏好，默认风格和 few-shot 仍在。`customUser` 含 `{{text}}` 时成为 user 消息，否则原文仍用引号包裹。`[[n]]` 批量规则仍由应用写进 system。Host 与前端一起改。
 
 ## 路径
 

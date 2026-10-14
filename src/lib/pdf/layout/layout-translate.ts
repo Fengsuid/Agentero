@@ -288,10 +288,16 @@ function promptFingerprint(prompt: string): string {
  */
 export function translateServiceKey(settings: TranslateSettings): string {
 	const providerId = settings.provider;
+	const promptSource = [
+		settings.customPrompt,
+		settings.customSystem,
+		settings.customUser,
+	]
+		.map((part) => part.trim())
+		.filter(Boolean)
+		.join("\n");
 	const promptPart =
-		settings.customPrompt.trim().length > 0
-			? `:p${promptFingerprint(settings.customPrompt)}`
-			: "";
+		promptSource.length > 0 ? `:p${promptFingerprint(promptSource)}` : "";
 	if (providerId === "agent") {
 		return `agent:${settings.agentId || "default"}:${settings.modelId || "default"}${promptPart}`;
 	}

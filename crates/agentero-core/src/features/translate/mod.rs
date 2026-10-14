@@ -9,6 +9,8 @@ use std::time::Duration;
 
 mod sources;
 
+pub use sources::openai_compatible::strip_unknown_translate_placeholders;
+
 /// Soft cap for a single translation request (characters).
 pub const MAX_TEXT_CHARS: usize = 5000;
 
@@ -74,6 +76,8 @@ pub async fn free_mt_to_zh(text: &str) -> Option<String> {
                 region: None,
                 model: None,
                 custom_prompt: None,
+                custom_system: None,
+                custom_user: None,
                 timeout_ms: Some(FREE_MT_ZH_TIMEOUT_MS),
             })
             .await
@@ -132,11 +136,18 @@ pub struct TranslateTextArgs {
     /// OpenAI-compatible model id.
     #[serde(default)]
     pub model: Option<String>,
-    /// Custom translate instruction (settings `translate.customPrompt`); empty →
-    /// built-in academic prompt. Injected by the Host command; replaces the
-    /// system+rules block on the OpenAI-compatible path only.
+    /// Legacy single template (settings `translate.customPrompt`). A short line
+    /// is a preference; a longer value replaces the academic style block only.
+    /// Ignored when `custom_system` is non-empty.
     #[serde(default)]
     pub custom_prompt: Option<String>,
+    /// Settings `translate.customSystem`. Wins over `custom_prompt`.
+    #[serde(default)]
+    pub custom_system: Option<String>,
+    /// Settings `translate.customUser`. Replaces the quoted source when it
+    /// contains `{{text}}`.
+    #[serde(default)]
+    pub custom_user: Option<String>,
     /// Optional request timeout in milliseconds (clamped 1s–30s). Default 30s.
     /// Settings probe uses a shorter value for snappy parallel checks.
     #[serde(default)]
@@ -256,8 +267,8 @@ pub async fn translate_text(args: TranslateTextArgs) -> Result<TranslateTextResu
                 args.base_url.as_deref(),
                 args.model.as_deref(),
                 args.custom_prompt.as_deref(),
-                None,
-                None,
+                args.custom_system.as_deref(),
+                args.custom_user.as_deref(),
             )
             .await?
         }

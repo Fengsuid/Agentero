@@ -81,7 +81,7 @@ fn is_known_placeholder(name: &str) -> bool {
 
 /// Drop `{{…}}` tokens other than targetLang / sourceLang / text.
 /// Mirrors `stripUnknownTranslatePlaceholders` in `src/lib/translate/prompt.ts`.
-fn strip_unknown_placeholders(template: &str) -> String {
+pub fn strip_unknown_translate_placeholders(template: &str) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(start) = rest.find("{{") {
@@ -106,8 +106,53 @@ fn strip_unknown_placeholders(template: &str) -> String {
     out
 }
 
+fn contains_text_placeholder(template: &str) -> bool {
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        if let Some(end) = after.find("}}") {
+            let name = &after[..end];
+            if !name.contains('{') && !name.contains('}') && name.trim() == "text" {
+                return true;
+            }
+            rest = &after[end + 2..];
+            continue;
+        }
+        rest = after;
+    }
+    false
+}
+
+/// Replace every `{{text}}` (optional inner whitespace) with `text`.
+fn fill_text_placeholder(template: &str, text: &str) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        if let Some(end) = after.find("}}") {
+            let name = &after[..end];
+            if !name.contains('{') && !name.contains('}') {
+                if name.trim() == "text" {
+                    out.push_str(text);
+                } else {
+                    out.push_str("{{");
+                    out.push_str(name);
+                    out.push_str("}}");
+                }
+                rest = &after[end + 2..];
+                continue;
+            }
+        }
+        out.push_str("{{");
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 fn render_template(template: &str, source_name: &str, target_name: &str) -> String {
-    strip_unknown_placeholders(template)
+    strip_unknown_translate_placeholders(template)
         .replace("{{targetLang}}", target_name)
         .replace("{{sourceLang}}", source_name)
 }
@@ -214,7 +259,7 @@ pub(crate) fn openai_translate_messages(
 
     let mut parts = vec![render(ENGINE_TEMPLATE)];
     if let Some(custom) = system_override.filter(|_| substantial) {
-        let rendered = render(custom).replace("{{text}}", "");
+        let rendered = fill_text_placeholder(&render(custom), "");
         let rendered = rendered.trim();
         if !rendered.is_empty() {
             parts.push(rendered.to_string());
@@ -234,11 +279,11 @@ pub(crate) fn openai_translate_messages(
             render(custom)
         ));
     }
-    let user = if let Some(template) = user_override.filter(|s| s.contains("{{text}}")) {
-        render(template).replace("{{text}}", text)
+    let user = if let Some(template) = user_override.filter(|s| contains_text_placeholder(s)) {
+        fill_text_placeholder(&render(template), text)
     } else {
         if let Some(template) = user_override {
-            let rendered = render(template).replace("{{text}}", "");
+            let rendered = fill_text_placeholder(&render(template), "");
             let rendered = rendered.trim();
             if !rendered.is_empty() {
                 parts.push(format!(
@@ -513,6 +558,23 @@ mod tests {
         assert!(!system.contains("{{targetLang}}"));
         assert!(user.contains("[[1]] a"));
         assert!(!user.contains("Rules:"));
+    }
+
+    #[test]
+    fn custom_system_wins_and_custom_user_inserts_the_source() {
+        let (system, user) = openai_translate_messages(
+            "attention",
+            "auto",
+            "zh-CN",
+            Some("legacy preference"),
+            Some("Be terse."),
+            Some("SRC:\n{{ text }}"),
+        );
+        assert!(system.contains("Be terse."));
+        assert!(!system.contains("legacy preference"));
+        assert!(system.contains("OUTPUT ONLY THE TRANSLATION."));
+        assert_eq!(user, "SRC:\nattention");
+        assert!(!user.contains("\"\"\""));
     }
 
     #[test]

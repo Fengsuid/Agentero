@@ -51,6 +51,8 @@ export async function runTranslate(
 				? settings.translate.providerConfigs[providerId]
 				: undefined),
 		customPrompt: opts.customPrompt ?? settings.translate.customPrompt,
+		customSystem: opts.customSystem ?? settings.translate.customSystem,
+		customUser: opts.customUser ?? settings.translate.customUser,
 	};
 
 	try {
@@ -76,8 +78,10 @@ export function prepareTranslateTask(
 	task: TranslateTask;
 	providerId: TranslateProviderId;
 	targetLangName: string;
-	/** Settings-level custom prompt (empty = built-in instructions). */
+	/** Legacy settings prompt (empty = built-in instructions). */
 	customPrompt: string;
+	customSystem: string;
+	customUser: string;
 } {
 	const settings = loadSettings();
 	const langs = langsFromSettings(settings.translate, i18n.language ?? "en");
@@ -85,6 +89,8 @@ export function prepareTranslateTask(
 		providerId: settings.translate.provider,
 		targetLangName: langs.targetLangName,
 		customPrompt: settings.translate.customPrompt,
+		customSystem: settings.translate.customSystem,
+		customUser: settings.translate.customUser,
 		task: {
 			text: partial.text,
 			sourceLang: partial.sourceLang ?? langs.sourceLang,

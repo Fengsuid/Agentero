@@ -765,4 +765,29 @@ describe("translateServiceKey custom prompt fingerprint", () => {
 			translateServiceKey({ ...agentBase, customPrompt: "Be terse." }),
 		).not.toBe("agent:claude-1:default");
 	});
+
+	it("folds system and user templates into the same fingerprint", () => {
+		const legacy = translateServiceKey({
+			...base,
+			customPrompt: "Be terse.",
+			customSystem: "",
+			customUser: "",
+		});
+		expect(translateServiceKey({ ...base, customPrompt: "Be terse." })).toBe(
+			legacy,
+		);
+		expect(
+			translateServiceKey({
+				...base,
+				customPrompt: "",
+				customSystem: "Keep formulas.\nStay terse.",
+			}),
+		).not.toBe(legacy);
+		expect(
+			translateServiceKey({
+				...base,
+				customUser: "\n  \n",
+			}),
+		).toBe("googleapi");
+	});
 });

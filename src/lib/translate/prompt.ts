@@ -48,6 +48,50 @@ export function stripUnknownTranslatePlaceholders(template: string): string {
 	});
 }
 
+/** True when the template has a `{{text}}` placeholder (inner space allowed). */
+export function translateTemplateHasText(template: string): boolean {
+	return /\{\{\s*text\s*\}\}/.test(template);
+}
+
+/**
+ * Replace every `{{text}}` with `text`. A function replacement so `$` in the
+ * source is not treated as a replacement pattern.
+ */
+export function fillTranslateTextPlaceholder(
+	template: string,
+	text: string,
+): string {
+	return template.replace(/\{\{\s*text\s*\}\}/g, () => text);
+}
+
+export type TranslateTemplateIssue =
+	| { kind: "unknown"; names: string[] }
+	| { kind: "missingText" };
+
+/** System box: unknown placeholders fail. Empty is the built-in style. */
+export function translateSystemTemplateIssue(
+	template: string,
+): TranslateTemplateIssue | null {
+	const names = unknownTranslatePlaceholders(template);
+	if (names.length > 0) return { kind: "unknown", names };
+	return null;
+}
+
+/**
+ * User box: empty keeps the quoted source. A non-empty template must include
+ * `{{text}}` and only the known placeholders.
+ */
+export function translateUserTemplateIssue(
+	template: string,
+): TranslateTemplateIssue | null {
+	const trimmed = template.trim();
+	if (!trimmed) return null;
+	const names = unknownTranslatePlaceholders(trimmed);
+	if (names.length > 0) return { kind: "unknown", names };
+	if (!translateTemplateHasText(trimmed)) return { kind: "missingText" };
+	return null;
+}
+
 /**
  * Academic style block seeded by Settings → 翻译 → 翻译提示词.
  * A substantial custom system replaces this block only. Engine rules
@@ -156,8 +200,8 @@ export type TranslatePromptInput = {
 	customSystem?: string;
 	/**
 	 * Settings `translate.customUser`. Applied only when it contains
-	 * `{{text}}`. Otherwise the source is still sent quoted, and this text
-	 * is kept as an additional preference.
+	 * `{{text}}` (inner whitespace allowed). Otherwise the source is still
+	 * sent quoted, and this text is kept as an additional preference.
 	 */
 	customUser?: string;
 };
@@ -198,7 +242,7 @@ export function buildTranslateMessages(
 	const parts = [render(ENGINE_TEMPLATE)];
 	if (substantial) {
 		// `{{text}}` belongs in the user message, not the system rules.
-		parts.push(render(customSystem).replaceAll("{{text}}", "").trim());
+		parts.push(fillTranslateTextPlaceholder(render(customSystem), "").trim());
 	} else {
 		parts.push(render(DEFAULT_TRANSLATE_PROMPT_TEMPLATE));
 	}
@@ -215,10 +259,12 @@ export function buildTranslateMessages(
 		parts.push(preferenceBlock(render(customSystem)));
 	}
 	let user = quoteSource(text);
-	if (customUser.includes("{{text}}")) {
-		user = render(customUser).replaceAll("{{text}}", text);
+	if (translateTemplateHasText(customUser)) {
+		user = fillTranslateTextPlaceholder(render(customUser), text);
 	} else if (customUser) {
-		parts.push(preferenceBlock(render(customUser).replaceAll("{{text}}", "")));
+		parts.push(
+			preferenceBlock(fillTranslateTextPlaceholder(render(customUser), "")),
+		);
 	}
 	parts.push(FINAL_RULE);
 	return {

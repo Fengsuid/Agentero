@@ -325,11 +325,18 @@ pub struct TranslateSettings {
     pub agent_id: String,
     #[serde(default)]
     pub model_id: String,
-    /// Custom translate prompt replacing the built-in instructions for the
-    /// Agent and OpenAI-compatible providers (free MT and the built-in ignore
-    /// it). Empty = built-in. Max 8000 chars.
+    /// Legacy single template. Empty when `custom_system` is set. A short line
+    /// is an extra preference; a longer value replaces the academic style
+    /// block only. Engine rules always stay. Max 8000 chars.
     #[serde(default)]
     pub custom_prompt: String,
+    /// Custom system style / preference. Wins over `custom_prompt`.
+    /// Placeholders: `{{targetLang}}`, `{{sourceLang}}`, `{{text}}`.
+    #[serde(default)]
+    pub custom_system: String,
+    /// Custom user template. Applied only when it contains `{{text}}`.
+    #[serde(default)]
+    pub custom_user: String,
 }
 
 impl Default for TranslateSettings {
@@ -346,6 +353,8 @@ impl Default for TranslateSettings {
             agent_id: String::new(),
             model_id: String::new(),
             custom_prompt: String::new(),
+            custom_system: String::new(),
+            custom_user: String::new(),
         }
     }
 }
@@ -747,14 +756,20 @@ impl AppSettingsStore {
         }
     }
 
-    /// Custom translate prompt (Settings → 翻译; empty = built-in). Injected by
-    /// `translate_text` for the OpenAI-compatible path; the Agent path builds
-    /// its prompt on the frontend.
-    pub fn translate_custom_prompt(&self) -> String {
+    /// Custom translate templates (legacy prompt, system, user). Injected by
+    /// `translate_text` for the OpenAI-compatible path. The Agent path reads
+    /// the same fields on the frontend.
+    pub fn translate_custom_templates(&self) -> (String, String, String) {
         self.inner
             .lock()
             .ok()
-            .map(|guard| guard.translate.custom_prompt.trim().to_string())
+            .map(|guard| {
+                (
+                    guard.translate.custom_prompt.trim().to_string(),
+                    guard.translate.custom_system.trim().to_string(),
+                    guard.translate.custom_user.trim().to_string(),
+                )
+            })
             .unwrap_or_default()
     }
 
@@ -1107,6 +1122,15 @@ fn merge_secrets(incoming: &mut AppSettings, previous: &AppSettings) {
     }
 }
 
+/// Cap a translate template and drop placeholders other than
+/// `{{targetLang}}` / `{{sourceLang}}` / `{{text}}`. Does not trim.
+fn cap_translate_template(raw: &str) -> String {
+    agentero_core::features::translate::strip_unknown_translate_placeholders(raw)
+        .chars()
+        .take(8000)
+        .collect()
+}
+
 fn normalize(s: &mut AppSettings) {
     if s.connector_port == 0 {
         s.connector_port = default_connector_port();
@@ -1330,10 +1354,12 @@ fn normalize(s: &mut AppSettings) {
     if s.translate.source_lang != "auto" {
         s.translate.source_lang = default_translate_source();
     }
-    // Cap hand-edited oversized prompts; this value is echoed to a billed API
-    // on every request. No trim: leading whitespace may be intentional (the
-    // settings UI trims on blur, same as agent_personal_prompt).
-    s.translate.custom_prompt = s.translate.custom_prompt.chars().take(8000).collect();
+    // Cap hand-edited oversized prompts and drop unknown `{{…}}` tokens. The
+    // value is echoed to a billed API on every request. No trim: leading
+    // whitespace may be intentional (the settings UI trims on blur).
+    s.translate.custom_prompt = cap_translate_template(&s.translate.custom_prompt);
+    s.translate.custom_system = cap_translate_template(&s.translate.custom_system);
+    s.translate.custom_user = cap_translate_template(&s.translate.custom_user);
 
     const LAYOUT_BACKENDS: &[&str] = &["local", "paddle", "mineru"];
     if !LAYOUT_BACKENDS.contains(&s.layout.backend.as_str()) {
@@ -1736,6 +1762,23 @@ mod tests {
         };
         normalize(&mut s);
         assert_eq!(s.translate.custom_prompt, "keep me");
+    }
+
+    #[test]
+    fn normalize_strips_unknown_translate_placeholders() {
+        let mut s = AppSettings {
+            translate: TranslateSettings {
+                custom_prompt: "{{audience}} only".into(),
+                custom_system: "Style {{tone}} for {{targetLang}}.".into(),
+                custom_user: "<<<{{text}}>>> {{mood}}".into(),
+                ..Default::default()
+            },
+            ..AppSettings::default()
+        };
+        normalize(&mut s);
+        assert_eq!(s.translate.custom_prompt, " only");
+        assert_eq!(s.translate.custom_system, "Style  for {{targetLang}}.");
+        assert_eq!(s.translate.custom_user, "<<<{{text}}>>> ");
     }
 
     #[test]

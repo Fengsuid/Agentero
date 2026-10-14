@@ -76,13 +76,22 @@ export type TranslateSettings = {
 	 */
 	modelId: string;
 	/**
-	 * Custom translate prompt replacing the built-in instructions for the
-	 * Agent and OpenAI-compatible providers (free MT and the built-in ignore
-	 * it). Empty = built-in. Supports {{targetLang}} / {{sourceLang}}; the
-	 * source text and [[n]] batch rules are always appended by the app.
-	 * Max 8000 chars.
+	 * Legacy single template. Kept so older settings.json still apply.
+	 * Empty when `customSystem` is set. A one-line colloquial value is an
+	 * extra preference; anything longer replaces the academic style block
+	 * only. Engine rules always stay. Max 8000 chars.
 	 */
 	customPrompt: string;
+	/**
+	 * Custom system style or preference. Wins over `customPrompt`.
+	 * Placeholders: targetLang, sourceLang, and text.
+	 */
+	customSystem: string;
+	/**
+	 * Custom user template. Used only when it contains the text placeholder;
+	 * otherwise the source is still quoted. Max 8000 chars.
+	 */
+	customUser: string;
 };
 
 export type TranslateProviderConfig = {
@@ -123,6 +132,10 @@ export type TranslateRunOptions = {
 	 * settings.translate.customPrompt (set by `runTranslate`).
 	 */
 	customPrompt?: string;
+	/** Wins over `customPrompt`. Defaults to settings.translate.customSystem. */
+	customSystem?: string;
+	/** Defaults to settings.translate.customUser. */
+	customUser?: string;
 	/**
 	 * Agent path: inject runner so lib/ does not depend on ACP wiring.
 	 * Streaming is the caller's concern; this returns the final string when used.

@@ -16,6 +16,8 @@ export const DEFAULT_TRANSLATE_SETTINGS: TranslateSettings = {
 	agentId: "",
 	modelId: "",
 	customPrompt: "",
+	customSystem: "",
+	customUser: "",
 };
 
 /** Blank commercial provider config (missing draft/stored entry fallback). */

@@ -63,6 +63,8 @@ import {
 	maskTranslateApiKey,
 	probeCommercialMtProvider,
 	probeFreeMtProviders,
+	translateSystemTemplateIssue,
+	translateUserTemplateIssue,
 } from "@/lib/translate";
 import { EMPTY_TRANSLATE_PROVIDER_CONFIG } from "@/lib/translate/defaults";
 import type { ProbeStatus } from "@/lib/ui/probe-status";
@@ -115,6 +117,19 @@ export function TranslatePane({
 	const { t } = useTranslation("settings");
 	const tr = settings.translate;
 	const builtinAvailable = useBuiltinProviderAvailable();
+	const storedSystem = tr.customSystem || tr.customPrompt;
+	const [systemDraft, setSystemDraft] = useState(storedSystem);
+	const [userDraft, setUserDraft] = useState(tr.customUser);
+	const [systemError, setSystemError] = useState<string | null>(null);
+	const [userError, setUserError] = useState<string | null>(null);
+	useEffect(() => {
+		setSystemDraft(tr.customSystem || tr.customPrompt);
+		setSystemError(null);
+	}, [tr.customSystem, tr.customPrompt]);
+	useEffect(() => {
+		setUserDraft(tr.customUser);
+		setUserError(null);
+	}, [tr.customUser]);
 	const patchTranslate = useCallback(
 		(partial: Partial<typeof tr>) =>
 			patch({ translate: { ...tr, ...partial } }),
@@ -668,12 +683,17 @@ export function TranslatePane({
 							type="button"
 							variant="outline"
 							size="xs"
-							disabled={tr.customPrompt === DEFAULT_TRANSLATE_PROMPT_TEMPLATE}
-							onClick={() =>
-								patchTranslate({
-									customPrompt: DEFAULT_TRANSLATE_PROMPT_TEMPLATE,
-								})
+							disabled={
+								systemDraft.trim() === DEFAULT_TRANSLATE_PROMPT_TEMPLATE
 							}
+							onClick={() => {
+								setSystemError(null);
+								setSystemDraft(DEFAULT_TRANSLATE_PROMPT_TEMPLATE);
+								patchTranslate({
+									customSystem: DEFAULT_TRANSLATE_PROMPT_TEMPLATE,
+									customPrompt: "",
+								});
+							}}
 						>
 							{t("translate.customPrompt.seed")}
 						</Button>
@@ -681,34 +701,130 @@ export function TranslatePane({
 							type="button"
 							variant="outline"
 							size="xs"
-							disabled={!tr.customPrompt}
-							onClick={() => patchTranslate({ customPrompt: "" })}
+							disabled={
+								!tr.customPrompt &&
+								!tr.customSystem &&
+								!tr.customUser &&
+								!systemDraft.trim() &&
+								!userDraft.trim()
+							}
+							onClick={() => {
+								setSystemError(null);
+								setUserError(null);
+								setSystemDraft("");
+								setUserDraft("");
+								patchTranslate({
+									customPrompt: "",
+									customSystem: "",
+									customUser: "",
+								});
+							}}
 						>
 							{t("translate.customPrompt.reset")}
 						</Button>
 					</div>
 				</div>
 				<SettingsGroup>
-					<div className="flex flex-col gap-1.5 px-3.5 py-2.5">
-						<Textarea
-							id="translate-custom-prompt"
-							value={tr.customPrompt}
-							onChange={(e) =>
-								patchTranslate({
-									customPrompt: e.target.value.slice(0, 8000),
-								})
-							}
-							onBlur={() => {
-								const trimmed = tr.customPrompt.trim();
-								if (trimmed !== tr.customPrompt) {
-									patchTranslate({ customPrompt: trimmed });
-								}
-							}}
-							placeholder={t("translate.customPrompt.placeholder")}
-							rows={5}
-							className="min-h-[110px] resize-y font-mono text-xs placeholder:text-muted-foreground/50"
-							spellCheck={true}
-						/>
+					<div className="flex flex-col gap-3 px-3.5 py-2.5">
+						<label
+							className="flex flex-col gap-1.5"
+							htmlFor="translate-custom-system"
+						>
+							<span className="text-muted-foreground text-xs">
+								{t("translate.customPrompt.systemLabel")}
+							</span>
+							<Textarea
+								id="translate-custom-system"
+								value={systemDraft}
+								onChange={(e) => {
+									setSystemDraft(e.target.value.slice(0, 8000));
+									setSystemError(null);
+								}}
+								onBlur={() => {
+									const trimmed = systemDraft.trim().slice(0, 8000);
+									const issue = translateSystemTemplateIssue(trimmed);
+									if (issue?.kind === "unknown") {
+										setSystemError(
+											t("translate.customPrompt.unknownPlaceholder", {
+												name: issue.names.join(", "),
+											}),
+										);
+										return;
+									}
+									setSystemError(null);
+									setSystemDraft(trimmed);
+									const stored = tr.customSystem || tr.customPrompt;
+									// Leave an untouched legacy customPrompt in place.
+									// Editing it, or saving a customSystem, clears the legacy field.
+									if (
+										trimmed === stored &&
+										(!tr.customPrompt || !tr.customSystem)
+									) {
+										return;
+									}
+									patchTranslate({
+										customSystem: trimmed,
+										customPrompt: "",
+									});
+								}}
+								placeholder={t("translate.customPrompt.systemPlaceholder")}
+								rows={5}
+								aria-invalid={systemError ? true : undefined}
+								className="min-h-[110px] resize-y font-mono text-xs placeholder:text-muted-foreground/50"
+								spellCheck={true}
+							/>
+							{systemError ? (
+								<p className="text-destructive text-xs" role="alert">
+									{systemError}
+								</p>
+							) : null}
+						</label>
+						<label
+							className="flex flex-col gap-1.5"
+							htmlFor="translate-custom-user"
+						>
+							<span className="text-muted-foreground text-xs">
+								{t("translate.customPrompt.userLabel")}
+							</span>
+							<Textarea
+								id="translate-custom-user"
+								value={userDraft}
+								onChange={(e) => {
+									setUserDraft(e.target.value.slice(0, 8000));
+									setUserError(null);
+								}}
+								onBlur={() => {
+									const trimmed = userDraft.trim().slice(0, 8000);
+									const issue = translateUserTemplateIssue(trimmed);
+									if (issue?.kind === "unknown") {
+										setUserError(
+											t("translate.customPrompt.unknownPlaceholder", {
+												name: issue.names.join(", "),
+											}),
+										);
+										return;
+									}
+									if (issue?.kind === "missingText") {
+										setUserError(t("translate.customPrompt.userNeedsText"));
+										return;
+									}
+									setUserError(null);
+									setUserDraft(trimmed);
+									if (trimmed === tr.customUser) return;
+									patchTranslate({ customUser: trimmed });
+								}}
+								placeholder={t("translate.customPrompt.userPlaceholder")}
+								rows={3}
+								aria-invalid={userError ? true : undefined}
+								className="min-h-[72px] resize-y font-mono text-xs placeholder:text-muted-foreground/50"
+								spellCheck={true}
+							/>
+							{userError ? (
+								<p className="text-destructive text-xs" role="alert">
+									{userError}
+								</p>
+							) : null}
+						</label>
 					</div>
 				</SettingsGroup>
 			</div>

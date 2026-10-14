@@ -528,9 +528,14 @@
 		},
 		"customPrompt": {
 			"label": "Translation prompt",
-			"placeholder": "Empty = built-in academic prompt. Insert the default to edit a copy.",
+			"systemLabel": "System",
+			"userLabel": "User template",
+			"systemPlaceholder": "Empty keeps the built-in academic style. A one-line note is an extra preference; engine rules stay.",
+			"userPlaceholder": "Optional. Put the source where the text placeholder goes.",
 			"seed": "Insert default",
-			"reset": "Reset"
+			"reset": "Reset",
+			"unknownPlaceholder": "Unknown placeholder: {{name}}. Only targetLang, sourceLang, and text are allowed.",
+			"userNeedsText": "A user template must include the text placeholder."
 		}
 	},
 	"layout": {

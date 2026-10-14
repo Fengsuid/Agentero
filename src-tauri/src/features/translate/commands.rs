@@ -55,23 +55,44 @@ pub async fn translate_text(
         }
     }
 
-    // Custom prompt: the WebView never sends it; the Host injects the durable
-    // settings value for the only prompt-driven MT provider (the Agent path
+    // Custom templates: the WebView never sends them; the Host injects the
+    // durable settings for the only prompt-driven MT provider (the Agent path
     // builds its prompt on the frontend). Free MT / built-in ignore prompts.
     if args
         .provider
         .trim()
         .eq_ignore_ascii_case("openaicompatible")
-        && args
+    {
+        let (prompt, system, user) = app.state::<AppSettingsStore>().translate_custom_templates();
+        if args
             .custom_prompt
             .as_deref()
             .map(str::trim)
             .unwrap_or("")
             .is_empty()
-    {
-        let custom = app.state::<AppSettingsStore>().translate_custom_prompt();
-        if !custom.is_empty() {
-            args.custom_prompt = Some(custom);
+            && !prompt.is_empty()
+        {
+            args.custom_prompt = Some(prompt);
+        }
+        if args
+            .custom_system
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+            && !system.is_empty()
+        {
+            args.custom_system = Some(system);
+        }
+        if args
+            .custom_user
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+            && !user.is_empty()
+        {
+            args.custom_user = Some(user);
         }
     }
 

@@ -4944,11 +4944,18 @@ export type TranslateSettings = {
 	agentId?: string,
 	modelId?: string,
 	/**
-	 *  Custom translate prompt replacing the built-in instructions for the
-	 *  Agent and OpenAI-compatible providers (free MT and the built-in ignore
-	 *  it). Empty = built-in. Max 8000 chars.
+	 *  Legacy single template. Empty when `custom_system` is set. A short line
+	 *  is an extra preference; a longer value replaces the academic style
+	 *  block only. Engine rules always stay. Max 8000 chars.
 	 */
 	customPrompt?: string,
+	/**
+	 *  Custom system style / preference. Wins over `custom_prompt`.
+	 *  Placeholders: `{{targetLang}}`, `{{sourceLang}}`, `{{text}}`.
+	 */
+	customSystem?: string,
+	/**  Custom user template. Applied only when it contains `{{text}}`. */
+	customUser?: string,
 };
 
 export type TranslateTextArgs = {
@@ -4966,11 +4973,18 @@ export type TranslateTextArgs = {
 	/**  OpenAI-compatible model id. */
 	model?: string | null,
 	/**
-	 *  Custom translate instruction (settings `translate.customPrompt`); empty →
-	 *  built-in academic prompt. Injected by the Host command; replaces the
-	 *  system+rules block on the OpenAI-compatible path only.
+	 *  Legacy single template (settings `translate.customPrompt`). A short line
+	 *  is a preference; a longer value replaces the academic style block only.
+	 *  Ignored when `custom_system` is non-empty.
 	 */
 	customPrompt?: string | null,
+	/**  Settings `translate.customSystem`. Wins over `custom_prompt`. */
+	customSystem?: string | null,
+	/**
+	 *  Settings `translate.customUser`. Replaces the quoted source when it
+	 *  contains `{{text}}`.
+	 */
+	customUser?: string | null,
 	/**
 	 *  Optional request timeout in milliseconds (clamped 1s–30s). Default 30s.
 	 *  Settings probe uses a shorter value for snappy parallel checks.
