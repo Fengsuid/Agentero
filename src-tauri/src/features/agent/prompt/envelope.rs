@@ -18,12 +18,13 @@ pub fn build_prompt(
         .map(|t| format!("Target path (Vault-relative): `{t}`\n"))
         .unwrap_or_default();
 
-    // Translation is a closed transform: the caller's prompt already names the
-    // target language and demands "only the translation". Every envelope piece
-    // fights that — `## Sources` adds commentary, the CLI policy is irrelevant,
-    // and `language_directive` would override the requested target language.
+    // Translation is a closed transform. The caller already puts engine rules
+    // first and the source text last. Prefixing "User request:" makes the
+    // model treat that as a chat turn and ask what the user wants.
+    // `language_directive` and the personal prompt would also override the
+    // requested target language.
     if workflow == "translate" {
-        return format!("{target_line}{USER_REQUEST_MARKER}{user_prompt}");
+        return format!("{target_line}{user_prompt}");
     }
 
     // Vault layout, reading order, citations, and CLI policy live in `AGENTS.md`
@@ -298,6 +299,7 @@ mod tests {
             Some("Prefer concise bullet points."),
         );
         assert!(p.contains("Return only the translation"));
+        assert!(!p.contains("User request:"));
         assert!(!p.contains("## Sources"));
         assert!(!p.contains("Agentero CLI policy"));
         assert!(!p.contains("Simplified Chinese"));

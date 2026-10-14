@@ -50,7 +50,7 @@
 编号和回切复用 `[[n]]`：
 
 - 应用追加的批量规则写明：不跨编号搬动内容，不合并编号，不丢编号。句内可以调整语序，也可以把一句英文写成两句译文。
-- 自定义提示词仍然只替换指令块。批量规则由应用追加。`buildTranslatePrompt` 与 Host `openai_translate_messages` 一起改。
+- 自定义提示词只替换学术风格块（一行短口语则只作附加偏好）。引擎规则和批量规则由应用写进 system。`buildTranslateMessages` 与 Host `openai_translate_messages` 一起改。
 - 内置 Hunyuan 不吃 `[[n]]`，Host 已按段逐条请求。这里的段改成一句。
 - 标记解析失败时，该批退回逐句重译。某一句仍然失败，这一块不写 `sentences`，划选退回整段英文。
 

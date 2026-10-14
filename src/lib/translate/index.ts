@@ -20,8 +20,15 @@ export {
 	probeFreeMtProviders,
 } from "@/lib/translate/probe";
 export {
+	buildTranslateMessages,
 	buildTranslatePrompt,
+	classifyTranslateQuery,
 	DEFAULT_TRANSLATE_PROMPT_TEMPLATE,
+	hasNumberedMarkers,
+	isShortColloquialPrompt,
+	renderTranslatePromptTemplate,
+	stripUnknownTranslatePlaceholders,
+	unknownTranslatePlaceholders,
 } from "@/lib/translate/prompt";
 export {
 	listAvailableAgents,

@@ -22,16 +22,44 @@ pub(crate) struct RunPreferences {
     pub collaboration_mode_id: Option<String>,
     pub reasoning_effort: Option<String>,
     pub prefer_highest_reasoning_effort: bool,
+    /// Translation turns pick the lowest advertised effort (`none` / `off` /
+    /// `minimal` / `low`, …) so the agent does not spend a reasoning pass on
+    /// a closed transform. Ignored when an explicit effort is set.
+    pub prefer_lowest_reasoning_effort: bool,
     pub fast_mode: Option<bool>,
 }
 
 impl RunPreferences {
+    /// Translation is a closed transform: do not request the agent's highest
+    /// reasoning effort. An explicit user effort still wins.
+    pub fn for_workflow(
+        workflow: Option<&str>,
+        model_id: Option<String>,
+        collaboration_mode_id: Option<String>,
+        reasoning_effort: Option<String>,
+        prefer_highest_reasoning_effort: bool,
+        fast_mode: Option<bool>,
+    ) -> Self {
+        let prefer_lowest = workflow == Some("translate") && reasoning_effort.is_none();
+        Self {
+            model_id,
+            collaboration_mode_id,
+            reasoning_effort,
+            prefer_highest_reasoning_effort: prefer_highest_reasoning_effort && !prefer_lowest,
+            prefer_lowest_reasoning_effort: prefer_lowest,
+            fast_mode,
+        }
+    }
+
     pub fn resolve_reasoning_effort(
         &self,
         choices: &[crate::features::agent::models::AgentEffortChoice],
     ) -> Option<String> {
         if self.reasoning_effort.is_some() {
             return self.reasoning_effort.clone();
+        }
+        if self.prefer_lowest_reasoning_effort {
+            return lowest_known_effort(choices);
         }
         if !self.prefer_highest_reasoning_effort {
             return None;
@@ -51,6 +79,27 @@ impl RunPreferences {
         }
         highest.map(|(_, id)| id)
     }
+}
+
+/// Lowest id in the known effort order. An unrecognized id makes the whole
+/// catalog unresolved, matching the highest-effort path, so we never invent
+/// an effort the agent did not list under a name we understand.
+fn lowest_known_effort(
+    choices: &[crate::features::agent::models::AgentEffortChoice],
+) -> Option<String> {
+    let order = [
+        "none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+    ];
+    let mut lowest = None;
+    for choice in choices {
+        let rank = order
+            .iter()
+            .position(|id| *id == choice.id.to_ascii_lowercase())?;
+        if lowest.as_ref().is_none_or(|(best, _)| rank < *best) {
+            lowest = Some((rank, choice.id.clone()));
+        }
+    }
+    lowest.map(|(_, id)| id)
 }
 
 /// Apply preferred model (free-form) and collaboration mode after session/new.
@@ -198,5 +247,48 @@ mod tests {
             .resolve_reasoning_effort(&choices(&["deep", "high"]))
             .is_none());
         assert!(prefs.resolve_reasoning_effort(&[]).is_none());
+    }
+
+    #[test]
+    fn translate_workflow_requests_the_lowest_advertised_effort() {
+        let prefs = RunPreferences::for_workflow(Some("translate"), None, None, None, true, None);
+        assert!(prefs.prefer_lowest_reasoning_effort);
+        assert!(!prefs.prefer_highest_reasoning_effort);
+        assert_eq!(
+            prefs
+                .resolve_reasoning_effort(&choices(&["high", "none", "low"]))
+                .as_deref(),
+            Some("none")
+        );
+        assert_eq!(
+            prefs
+                .resolve_reasoning_effort(&choices(&["high", "low"]))
+                .as_deref(),
+            Some("low")
+        );
+        // Unknown ordering: do not guess a value the session did not advertise
+        // under a name we can rank.
+        assert!(prefs
+            .resolve_reasoning_effort(&choices(&["deep", "high"]))
+            .is_none());
+    }
+
+    #[test]
+    fn explicit_effort_beats_translate_lowest() {
+        let prefs = RunPreferences::for_workflow(
+            Some("translate"),
+            None,
+            None,
+            Some("high".into()),
+            false,
+            None,
+        );
+        assert!(!prefs.prefer_lowest_reasoning_effort);
+        assert_eq!(
+            prefs
+                .resolve_reasoning_effort(&choices(&["none", "low", "high"]))
+                .as_deref(),
+            Some("high")
+        );
     }
 }

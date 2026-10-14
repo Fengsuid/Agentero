@@ -18,7 +18,7 @@ Settings → **翻译**：
   - OpenAI 兼容翻译要求服务支持 **Chat Completions** 格式：`POST {baseUrl}/chat/completions`，返回 `choices[0].message.content`。设置里填写 Base URL（例如 `https://api.openai.com/v1` 或服务商自己的 `/v1` 根地址），不要填写 Responses / Completions 端点；应用会自动追加 `/chat/completions`。
     用户配置说明见 [配置 OpenAI 兼容翻译](../usage/translate-openai-compatible.md)。
 - 默认服务为 Agent 时展示 Agent / 模型座。
-- **自定义翻译提示词**（`translate.customPrompt`，空 = 内置）：非空时整体替换默认指令块（角色 + 规则），仅对 **Agent 与 OpenAI 兼容**两条 LLM 路径生效（免费引擎与内置 provider 无提示词概念）。支持 `{{targetLang}}` / `{{sourceLang}}` 变量（display name；源语言恒为自动检测 → "the source language"）；**原文与 `[[n]]` 批量规则始终由应用自动追加**，不提供 `{{text}}` 变量，提示词极简也不会破坏批量切分。「填入默认」把当前内置提示词填进输入框供修改，「恢复默认」清空。上限 8000 字符。OpenAI 兼容路径的提示词由 Host 在 `translate_text` 内从 settings 注入（WebView 调用方无感）。
+- **自定义翻译提示词**（`translate.customPrompt`，空 = 内置）：仅对 **Agent 与 OpenAI 兼容**两条 LLM 路径生效（免费引擎与内置 provider 无提示词概念）。引擎规则（只输出译文、不反问、公式 / 引用 / `⟦n⟧` 原样）始终生效。多行或带占位符的自定义内容只替换学术风格块；一行不超过 180 字、且不含 `{{…}}` 的口语（如「翻译得自然一点」）作为附加偏好追加，不替换引擎规则。支持 `{{targetLang}}` / `{{sourceLang}}`（display name；源语言恒为自动检测 → "the source language"）。原文放在 user 消息里，用 `"""…"""` 包裹；`[[n]]` 批量规则写在 system。上限 8000 字符。「填入默认」填入可编辑的学术风格块，「恢复默认」清空。OpenAI 兼容路径的提示词由 Host 在 `translate_text` 内从 settings 注入（WebView 调用方无感）。
 
 ## 消费方
 
@@ -47,18 +47,18 @@ Settings → **翻译**：
 
 ## Prompt
 
-`buildTranslatePrompt`（Agent 路径）与 Host `openai_translate_prompt`（OpenAI-compatible 路径）共用同一套约束，改一处要同步另一处：
+`buildTranslateMessages` / `buildTranslatePrompt`（Agent 路径）与 Host `openai_translate_messages`（OpenAI-compatible 路径）共用同一套约束，改一处要同步另一处：
 
-- 定位为学术论文译者；要求**按意思重组语序**（可拆长句），而不是逐词直译。
-- 公式 / 符号 / 变量 / 单位 / 行内代码 / URL / 引用标记 / 图表公式编号 / `⟦n⟧` 占位符原样保留。
-- 术语用领域惯用译法并保持一致，首次出现补原文，如 `注意力机制（attention）`。
-- 不增删、不解释、不加译注和 markdown 围栏；只输出译文。
-- 批量 payload 里每个 `[[n]]` 是一句。保留全部标记、顺序和编号，不跨编号搬运、不合并、不丢弃。一个编号内部可以调整语序，也可以把一句原文拆成多句译文。
-- OpenAI-compatible 的 `temperature` 用 0.2（0.0 的直译感太强）。
+- **system** 是翻译引擎，不是聊天助手：`focusing solely on translating… Only return the translated text`。不解释、不润色、不总结、不反问「翻译还是解释」。
+- **user** 只有原文，默认用 `"""…"""` 包裹。Agent 的 ACP `runOnce` 只有一条字符串，所以 `buildTranslatePrompt` 把 system 放在最前并写明 `OUTPUT ONLY THE TRANSLATION`；Host 翻译信封不再加 `User request:`。
+- 学术风格（按意思重组语序、术语首次可附原文，如 `注意力机制（attention）`）和少量英↔中论文例句放在 system。公式 / 符号 / 变量 / 单位 / 行内代码 / URL / 引用标记 / 图表公式编号 / `⟦n⟧` 占位符原样保留。
+- 词或短短语（约 1–4 个词，或不超过 8 个汉字，且没有句末标点；`[[n]]` 批量不算）追加词典式约束：只给译文或一行词性释义，禁止反问意图。长句仍走翻译引擎。
+- 批量 payload 里每个 `[[n]]` 是一句。规则在 system：保留全部标记、顺序和编号，不跨编号搬运、不合并、不丢弃。一个编号内部可以调整语序，也可以把一句原文拆成多句译文。
+- OpenAI-compatible 的 `temperature` 用 0.2（0.0 的直译感太强）。能关 thinking 才关，而且只对认得出的模型：`o1`/`o3`/`o4` 发 `reasoning_effort: low` 并不发 temperature；`gpt-5`（非 `*-chat*`）发 `reasoning_effort: none` 并不发 temperature；Qwen3 / QwQ 发 `enable_thinking: false`；DeepSeek reasoner、GLM 4.5+、MiniMax M2 发 `thinking: {type: disabled}`。其它兼容端只发 temperature，避免未知字段被拒。Agent 翻译把会话 effort 调到已声明档位里最低的一档（有 `none` 就用 `none`）。
 
 **内置 provider（`agentero`）不适用以上整套约束**：`tencent/Hunyuan-MT-7B` 是专用 MT 模型而非 instruct 模型，只认它自己的单行模板，Host 改发单条 user message（无 system message），并且**不把 `[[n]]` 喂给模型**——批量对齐依赖指令遵循，对它无效，所以标记由 Host 拆分、逐句请求、按序重组。`⟦n⟧` 占位符仍由前端 `mask.ts` 插入并原样透传。详见 [../backend/builtin-provider.md](../backend/builtin-provider.md) §翻译：Hunyuan-MT。
 
-**自定义提示词（`translate.customPrompt` 非空）替换语义**：前端 `buildTranslatePrompt` 用它整体取代默认指令块（内置模板抽成 `DEFAULT_TRANSLATE_PROMPT_TEMPLATE`，空值渲染结果与旧版字节一致）；Host `openai_translate_messages` 用它取代 system message（`{{targetLang}}`/`{{sourceLang}}` 插值，映射与前端 `targetLangDisplayName` 一致）。两条路径都保留应用侧追加的 `[[n]]` 批量规则与 `Text:` 原文。改一处要同步另一处的约定不变。
+**自定义提示词（`translate.customPrompt` 非空）**：不再整段替换 system。引擎规则始终保留。多行或含 `{{targetLang}}` / `{{sourceLang}}` 的内容替换学术风格块（`DEFAULT_TRANSLATE_PROMPT_TEMPLATE`）；一行短口语只作为附加偏好，默认风格和 few-shot 仍在。`[[n]]` 批量规则仍由应用写进 system，原文仍是 user。Host 与前端一起改。
 
 ## 路径
 

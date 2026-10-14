@@ -377,6 +377,7 @@ impl RunOnceContext {
             preferred_reasoning_effort,
             prefer_highest_reasoning_effort,
             fast_mode,
+            workflow,
             ..
         } = params;
         let turn = RunTurnInput {
@@ -384,13 +385,14 @@ impl RunOnceContext {
             prompt_images: prep.prompt_images,
             cwd: prep.cwd,
             resume_session_id,
-            preferences: RunPreferences {
-                model_id: preferred_model_id,
-                collaboration_mode_id: preferred_collaboration_mode_id,
-                reasoning_effort: preferred_reasoning_effort,
+            preferences: RunPreferences::for_workflow(
+                workflow.as_deref(),
+                preferred_model_id,
+                preferred_collaboration_mode_id,
+                preferred_reasoning_effort,
                 prefer_highest_reasoning_effort,
                 fast_mode,
-            },
+            ),
         };
 
         // Cold path: the turn registry is pre-filled for the whole connection
@@ -949,13 +951,14 @@ async fn run_on_pooled(
     let used_session_id = session.acp_session_id.clone();
     slot.mark_used();
 
-    let preferences = RunPreferences {
-        model_id: params.preferred_model_id.clone(),
-        collaboration_mode_id: params.preferred_collaboration_mode_id.clone(),
-        reasoning_effort: params.preferred_reasoning_effort.clone(),
-        prefer_highest_reasoning_effort: params.prefer_highest_reasoning_effort,
-        fast_mode: params.fast_mode,
-    };
+    let preferences = RunPreferences::for_workflow(
+        params.workflow.as_deref(),
+        params.preferred_model_id.clone(),
+        params.preferred_collaboration_mode_id.clone(),
+        params.preferred_reasoning_effort.clone(),
+        params.prefer_highest_reasoning_effort,
+        params.fast_mode,
+    );
     let result = state
         .prompt_phase(
             &slot.connection,

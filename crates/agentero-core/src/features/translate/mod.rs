@@ -256,6 +256,8 @@ pub async fn translate_text(args: TranslateTextArgs) -> Result<TranslateTextResu
                 args.base_url.as_deref(),
                 args.model.as_deref(),
                 args.custom_prompt.as_deref(),
+                None,
+                None,
             )
             .await?
         }

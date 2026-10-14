@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	buildTranslateMessages,
 	buildTranslatePrompt,
 	COMMERCIAL_MT_PROVIDER_IDS,
+	classifyTranslateQuery,
 	FREE_MT_PROVIDER_IDS,
 	getTranslateService,
 	isCommercialProviderConfigured,
 	isCommercialTranslateProvider,
 	isFreeMtProvider,
+	isShortColloquialPrompt,
 	isTranslateApiKeyMask,
 	isTranslateProviderId,
 	langsFromSettings,
@@ -17,6 +20,7 @@ import {
 	resolveTargetLangName,
 	resolveTranslateAgent,
 	targetLangDisplayName,
+	unknownTranslatePlaceholders,
 } from "@/lib/translate";
 import { DEFAULT_TRANSLATE_SETTINGS } from "@/lib/translate/defaults";
 
@@ -192,50 +196,113 @@ describe("resolveTranslateAgent", () => {
 });
 
 describe("translate prompts", () => {
-	it("builds a generic agent prompt", () => {
-		const p = buildTranslatePrompt({
-			text: "Hello world",
+	it("splits a generic prompt into engine rules and quoted source", () => {
+		const text =
+			"The ablation study confirms the gain comes from the attention module.";
+		const { system, user } = buildTranslateMessages({
+			text,
 			targetLangName: "Chinese",
 		});
-		expect(p).toContain("Chinese");
-		expect(p).toContain("Hello world");
-		expect(p).toContain("only the translation");
+		expect(system).toContain("focusing solely on translating");
+		expect(system).toContain("Only return the translated text");
+		expect(system).toContain("Chinese");
+		expect(system).toContain("the source language");
+		expect(system).toContain("OUTPUT ONLY THE TRANSLATION.");
+		expect(system).toContain("Transformer 架构");
+		expect(system).not.toContain("compact dictionary gloss");
+		expect(system).not.toContain(text);
+		expect(system).not.toContain("{{targetLang}}");
+		expect(user).toBe(`"""${text}"""`);
+		expect(classifyTranslateQuery(text)).toBe("prose");
 	});
 
-	it("pdf selection surface includes page context", () => {
-		const p = buildTranslatePrompt({
+	it("forbids a clarifying question on a word or short phrase", () => {
+		expect(classifyTranslateQuery("attention")).toBe("word");
+		expect(classifyTranslateQuery("multi-head attention")).toBe("word");
+		expect(classifyTranslateQuery("注意力")).toBe("word");
+		expect(
+			classifyTranslateQuery(
+				"We propose a transformer architecture for sequence transduction.",
+			),
+		).toBe("prose");
+
+		for (const text of ["attention", "multi-head attention", "注意力"]) {
+			const { system, user } = buildTranslateMessages({
+				text,
+				targetLangName: "Chinese",
+			});
+			expect(system).toContain("compact dictionary gloss");
+			expect(system).toContain(
+				"Do not ask whether the user wants a translation",
+			);
+			expect(system).not.toMatch(/你想翻译还是解释/);
+			expect(user).toBe(`"""${text}"""`);
+		}
+
+		const sentence = buildTranslateMessages({
+			text: "We propose a transformer architecture for sequence transduction.",
+			targetLangName: "Chinese",
+		});
+		expect(sentence.system).not.toContain("compact dictionary gloss");
+	});
+
+	it("puts system rules first in the agent string", () => {
+		const prompt = buildTranslatePrompt({
 			text: "attention",
 			targetLangName: "Chinese",
 			page: 3,
 			surface: "pdf-selection",
 		});
-		expect(p).toContain("page 3");
-		expect(p).toContain("attention");
+		expect(prompt.startsWith("OUTPUT ONLY THE TRANSLATION.")).toBe(true);
+		expect(prompt.indexOf("SYSTEM:")).toBeLessThan(
+			prompt.indexOf("USER TEXT:"),
+		);
+		expect(prompt).toContain("page 3");
+		expect(prompt.endsWith('"""attention"""')).toBe(true);
+		expect(prompt).not.toContain("User request:");
 	});
 
-	it("custom prompt replaces instructions but keeps app-composed parts", () => {
-		const p = buildTranslatePrompt({
+	it("keeps a one-line custom prompt as a preference", () => {
+		expect(isShortColloquialPrompt("Be terse.")).toBe(true);
+		expect(isShortColloquialPrompt("翻译得自然一点")).toBe(true);
+		const { system, user } = buildTranslateMessages({
+			text: "Hello world",
+			targetLangName: "Chinese",
+			customPrompt: "Be terse.",
+		});
+		expect(system).toContain("OUTPUT ONLY THE TRANSLATION.");
+		expect(system).toContain("Transformer 架构");
+		expect(system).toContain("Additional preference");
+		expect(system).toContain("Be terse.");
+		expect(system.indexOf("Be terse.")).toBeLessThan(
+			system.indexOf("Final rule:"),
+		);
+		expect(user).toBe('"""Hello world"""');
+	});
+
+	it("lets a substantial custom system replace style only", () => {
+		const { system, user } = buildTranslateMessages({
 			text: "[[1]] alpha\n\n[[2]] beta",
 			targetLangName: "Chinese",
 			page: 7,
 			surface: "pdf-selection",
 			customPrompt:
-				"Terse literary translator. {{targetLang}} from {{sourceLang}}, no preamble.",
+				"Terse literary translator. {{targetLang}} from {{sourceLang}}.\nKeep formulas.",
 		});
-		expect(p).toContain(
-			"Terse literary translator. Chinese from the source language, no preamble.",
+		expect(system).toContain(
+			"Terse literary translator. Chinese from the source language.",
 		);
-		// Built-in rules are gone.
-		expect(p).not.toContain("Rules:");
-		expect(p).not.toContain("academic translator");
-		// Page line, [[n]] batch rules and the text payload stay app-composed.
-		expect(p).toContain("page 7");
-		expect(p).toContain("[[n]] marker");
-		expect(p).toContain("do not merge markers");
-		expect(p.endsWith("Text:\n\n[[1]] alpha\n\n[[2]] beta")).toBe(true);
+		expect(system).toContain("not a chat assistant");
+		expect(system).toContain("OUTPUT ONLY THE TRANSLATION.");
+		expect(system).not.toContain("Transformer 架构");
+		expect(system).toContain("page 7");
+		expect(system).toContain("[[n]] marker");
+		expect(system).toContain("do not merge markers");
+		expect(system).not.toContain("compact dictionary gloss");
+		expect(user).toBe('"""[[1]] alpha\n\n[[2]] beta"""');
 	});
 
-	it("empty custom prompt falls back to the built-in template byte-identically", () => {
+	it("empty custom prompt matches the built-in prompt", () => {
 		const base = {
 			text: "Hello world",
 			targetLangName: "Chinese",
@@ -245,11 +312,17 @@ describe("translate prompts", () => {
 		expect(buildTranslatePrompt({ ...base, customPrompt: "" })).toBe(
 			buildTranslatePrompt(base),
 		);
-		// The rendered default interpolates every placeholder.
 		const rendered = buildTranslatePrompt(base);
-		expect(rendered).toContain("Translate the text below into Chinese.");
+		expect(rendered).toContain("into Chinese");
 		expect(rendered).not.toContain("{{targetLang}}");
 		expect(rendered).not.toContain("{{sourceLang}}");
+	});
+
+	it("rejects unknown placeholders and keeps the three known ones", () => {
+		expect(unknownTranslatePlaceholders("{{targetLang}} {{text}}")).toEqual([]);
+		expect(
+			unknownTranslatePlaceholders("See {{tone}} and {{ targetLang }}."),
+		).toEqual(["tone"]);
 	});
 
 	it("default translate settings ship an empty custom prompt", () => {
