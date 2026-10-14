@@ -48,6 +48,9 @@ src-tauri/target/
 # Brainstorming visual-companion scratch
 .superpowers/
 
+# Local spec workflow scratch
+.spec-workflow/
+
 .pnpm-store/
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
