@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "agentero"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "agent-client-protocol",
  "agentero-core",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "agentero-cli"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "agentero-core",
  "assert_cmd",
@@ -176,7 +176,7 @@ dependencies = [
 
 [[package]]
 name = "agentero-core"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "aes",
  "async-trait",
