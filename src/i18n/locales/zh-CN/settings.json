@@ -531,11 +531,11 @@
 			"systemLabel": "系统提示词",
 			"userLabel": "用户模板",
 			"systemPlaceholder": "留空使用内置学术风格。一行短口语只作为附加偏好，引擎规则仍然生效。",
-			"userPlaceholder": "可选。在需要放入原文的位置写 text 占位符。",
+			"userPlaceholder": "留空时，原文会用引号包住后发送。写了模板后，原文只替换 {{text}}，也可以使用 {{targetLang}} 和 {{sourceLang}}。",
 			"seed": "填入默认",
 			"reset": "恢复默认",
-			"unknownPlaceholder": "不能使用占位符 {{name}}。只允许 targetLang、sourceLang 和 text。",
-			"userNeedsText": "用户模板必须包含 text 占位符。"
+			"unknownPlaceholder": "不能使用占位符 {{name}}。只允许 {{targetLang}}、{{sourceLang}} 和 {{text}}。",
+			"userNeedsText": "用户模板必须包含 {{text}}，原文会替换到这里。"
 		}
 	},
 	"layout": {

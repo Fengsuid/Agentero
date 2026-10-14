@@ -531,11 +531,11 @@
 			"systemLabel": "System",
 			"userLabel": "User template",
 			"systemPlaceholder": "Empty keeps the built-in academic style. A one-line note is an extra preference; engine rules stay.",
-			"userPlaceholder": "Optional. Put the source where the text placeholder goes.",
+			"userPlaceholder": "Leave empty to send the source in quotes. In a template, the source replaces {{text}} only. {{targetLang}} and {{sourceLang}} are also available.",
 			"seed": "Insert default",
 			"reset": "Reset",
-			"unknownPlaceholder": "Unknown placeholder: {{name}}. Only targetLang, sourceLang, and text are allowed.",
-			"userNeedsText": "A user template must include the text placeholder."
+			"unknownPlaceholder": "Unknown placeholder: {{name}}. Only {{targetLang}}, {{sourceLang}}, and {{text}} are allowed.",
+			"userNeedsText": "A user template must include {{text}} where the source goes."
 		}
 	},
 	"layout": {
