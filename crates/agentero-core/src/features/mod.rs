@@ -4,6 +4,7 @@
 //! like jobs/agent/watcher). The flat aliases below are kept for the headless
 //! CLI and migrated code; the desktop Host calls the semantic paths directly.
 
+pub mod context;
 pub mod lifecycle;
 pub mod markdown;
 pub mod open_request;

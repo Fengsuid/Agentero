@@ -186,6 +186,37 @@ fn cache_path(vault: &Path) -> PathBuf {
     vault.join(CITING_SCAN_REL)
 }
 
+/// One paper that cites a library seed, as last stored by `library_citing_scan`.
+/// No network. An empty list means this paper has no cached citing page.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedCitingCard {
+    pub title: Option<String>,
+    pub date: Option<String>,
+    pub doi: Option<String>,
+    pub arxiv_id: Option<String>,
+    pub citation_count: u32,
+}
+
+/// Citing papers recorded for `paper_path` in `.agentero/citing-scan.json`.
+pub fn cached_citing_of(vault: &Path, paper_path: &str) -> Vec<CachedCitingCard> {
+    let path = crate::fs::normalize_rel_separators(paper_path);
+    let cache = load_cache(vault);
+    let Some(seed) = cache.seeds.get(&path) else {
+        return Vec::new();
+    };
+    seed.citing
+        .iter()
+        .map(|row| CachedCitingCard {
+            title: row.title.clone(),
+            date: row.date.clone(),
+            doi: row.doi.clone(),
+            arxiv_id: row.arxiv_id.clone(),
+            citation_count: row.citation_count,
+        })
+        .collect()
+}
+
 fn load_cache(vault: &Path) -> CitingScanCache {
     let Ok(raw) = fs::read_to_string(cache_path(vault)) else {
         return CitingScanCache::default();
