@@ -29,6 +29,7 @@ import {
 } from "@/components/selection/use-selection-ask";
 import { useSelectionQuickChat } from "@/components/selection/use-selection-quick-chat";
 import type { ScreenPoint } from "@/components/viewer/pdf/types";
+import { textAskContextRequest } from "@/lib/agent/context-request";
 import { openSelectionChat } from "@/lib/agent/selection-chat-store";
 import {
 	clearActiveSelection,
@@ -108,7 +109,9 @@ export function useTextEditorSelection({
 				title: basenameOf(pathRef.current),
 				path: pathRef.current,
 				surface: "text",
+				omitLocatedQuote: true,
 			}),
+		context: (thread) => textAskContextRequest(thread, pathRef.current),
 		activeSessionRef,
 	});
 	const { ask, setAsk } = askCtl;

@@ -12,6 +12,9 @@ use crate::features::agent::acp::updates::{
     emit_session_config_options, fast_mode_value_to_set, is_fast_option, is_pi_startup_banner,
     models_from_config_options, stream_from_update,
 };
+use crate::features::agent::context_turn::{
+    insert_context_block, insert_resume_transcript, prepare_context,
+};
 use crate::features::agent::models::{
     AgentDescriptor, AgentFailedEvent, AgentResultPayload, AgentStatusEvent, AgentStreamEvent,
     AgentStreamKind, AgentTemplate, PromptImage,
@@ -71,6 +74,11 @@ pub struct RunOnceParams {
     pub resume_session_id: Option<String>,
     /// Pool of warm connections consulted before the cold spawn chain.
     pub warm_pool: Option<Arc<AgentWarmPool>>,
+    /// Vault anchors for this turn. Empty means the historical prompt path.
+    pub context: Option<agentero_core::features::context::ContextRequest>,
+    /// Earlier chat turns. Used only when the context fingerprint refuses to
+    /// resume `resume_session_id`, so the new session still sees the conversation.
+    pub resume_transcript: Option<String>,
 }
 
 /// Prompt/cwd prepared before any ACP I/O.
@@ -79,6 +87,13 @@ struct RunTurnPrep {
     full_prompt: String,
     prompt_images: Vec<PromptImage>,
     cwd: PathBuf,
+    mcp_servers: Vec<agent_client_protocol::schema::v1::McpServer>,
+    /// Provider session to continue after the context fingerprint check.
+    resume_session_id: Option<String>,
+    context_fingerprint: Option<String>,
+    context_usage: Option<PathBuf>,
+    context_vault: Option<PathBuf>,
+    skip_warm_pool: bool,
 }
 
 /// Everything the connection turn needs beyond the shared state.
@@ -88,6 +103,7 @@ struct RunTurnInput {
     cwd: PathBuf,
     /// Provider session id to continue (resume/load) instead of `session/new`.
     resume_session_id: Option<String>,
+    mcp_servers: Vec<agent_client_protocol::schema::v1::McpServer>,
     preferences: RunPreferences,
 }
 
@@ -203,6 +219,33 @@ async fn prepare_run_turn(params: &RunOnceParams) -> Result<RunTurnPrep, AppErro
             skill_instructions
         )
     };
+    let prepared = if params.is_acp_command {
+        prepare_context(
+            &params.session_id,
+            None,
+            true,
+            None,
+            params.resume_session_id.clone(),
+        )
+    } else {
+        prepare_context(
+            &params.session_id,
+            params.vault_path.as_deref(),
+            params.remote.is_some(),
+            params.context.as_ref(),
+            params.resume_session_id.clone(),
+        )
+    };
+    let mut full_prompt = insert_context_block(&full_prompt, &prepared.block);
+    if params.resume_session_id.is_some() && prepared.resume_session_id.is_none() {
+        if let Some(transcript) = params
+            .resume_transcript
+            .as_deref()
+            .filter(|text| !text.trim().is_empty())
+        {
+            full_prompt = insert_resume_transcript(&full_prompt, transcript);
+        }
+    }
     let prompt_images = params.images.clone();
     let cwd = match agent_spawn_cwd(params.remote.as_deref(), params.vault_path.as_deref()) {
         Ok(cwd) => cwd,
@@ -215,6 +258,12 @@ async fn prepare_run_turn(params: &RunOnceParams) -> Result<RunTurnPrep, AppErro
         full_prompt,
         prompt_images,
         cwd,
+        mcp_servers: prepared.mcp_servers,
+        resume_session_id: prepared.resume_session_id,
+        context_fingerprint: prepared.fingerprint,
+        context_usage: prepared.usage_path,
+        context_vault: prepared.vault,
+        skip_warm_pool: prepared.skip_warm_pool,
     })
 }
 
@@ -238,6 +287,9 @@ pub(crate) struct RunOnceContext {
     stop_reason: Arc<Mutex<Option<String>>>,
     /// Terminal capability: headless command execution on behalf of the agent.
     terminals: Arc<tokio::sync::Mutex<AcpTerminalManager>>,
+    context_fingerprint: Option<String>,
+    context_usage: Option<PathBuf>,
+    context_vault: Option<PathBuf>,
 }
 
 impl RunOnceContext {
@@ -270,6 +322,18 @@ impl RunOnceContext {
             live_stream: Arc::new(AtomicBool::new(params.resume_session_id.is_none())),
             stop_reason: Arc::new(Mutex::new(None)),
             terminals: acp_terminals(Some(cwd)),
+            context_fingerprint: None,
+            context_usage: None,
+            context_vault: None,
+        }
+    }
+
+    fn bind_context(&mut self, prep: &RunTurnPrep) {
+        self.context_fingerprint = prep.context_fingerprint.clone();
+        self.context_usage = prep.context_usage.clone();
+        self.context_vault = prep.context_vault.clone();
+        if prep.resume_session_id.is_none() {
+            self.live_stream.store(true, Ordering::SeqCst);
         }
     }
 
@@ -371,7 +435,6 @@ impl RunOnceContext {
             elicitation_gate,
             ask_user_gate,
             cancellation,
-            resume_session_id,
             preferred_model_id,
             preferred_collaboration_mode_id,
             preferred_reasoning_effort,
@@ -383,8 +446,9 @@ impl RunOnceContext {
         let turn = RunTurnInput {
             full_prompt: prep.full_prompt,
             prompt_images: prep.prompt_images,
-            cwd: prep.cwd,
-            resume_session_id,
+            cwd: prep.cwd.clone(),
+            resume_session_id: prep.resume_session_id.clone(),
+            mcp_servers: prep.mcp_servers.clone(),
             preferences: RunPreferences::for_workflow(
                 workflow.as_deref(),
                 preferred_model_id,
@@ -433,11 +497,18 @@ impl RunOnceContext {
             prompt_images,
             cwd,
             resume_session_id,
+            mcp_servers,
             preferences,
         } = turn;
 
         let session = match self
-            .connect_session(&connection, &mut cancellation, resume_session_id, &cwd)
+            .connect_session(
+                &connection,
+                &mut cancellation,
+                resume_session_id,
+                &cwd,
+                mcp_servers,
+            )
             .await?
         {
             TurnPhase::Ready(session) => session,
@@ -557,6 +628,7 @@ impl RunOnceContext {
         cancellation: &mut watch::Receiver<bool>,
         resume_session_id: Option<String>,
         cwd: &Path,
+        mcp_servers: Vec<agent_client_protocol::schema::v1::McpServer>,
     ) -> Result<TurnPhase<ConnectedSession>, agent_client_protocol::Error> {
         let init = tokio::select! {
             result = timed_acp_initialize(
@@ -593,7 +665,14 @@ impl RunOnceContext {
 
         let (acp_session_id, config_options) = if let Some(ref rid) = resume_id {
             let session = match self
-                .open_resume_on(connection, cancellation, rid, cwd, can_resume)
+                .open_resume_on(
+                    connection,
+                    cancellation,
+                    rid,
+                    cwd,
+                    can_resume,
+                    mcp_servers.clone(),
+                )
                 .await?
             {
                 TurnPhase::Ready(session) => session,
@@ -605,7 +684,9 @@ impl RunOnceContext {
                 result = timed_acp_request(
                     "new_session",
                     connection
-                        .send_request(NewSessionRequest::new(cwd.to_path_buf()))
+                        .send_request(
+                            NewSessionRequest::new(cwd.to_path_buf()).mcp_servers(mcp_servers),
+                        )
                         .block_task(),
                 ) => result?,
                 () = wait_for_cancellation(&mut *cancellation) => {
@@ -635,16 +716,17 @@ impl RunOnceContext {
         rid: &str,
         cwd: &Path,
         can_resume: bool,
+        mcp_servers: Vec<agent_client_protocol::schema::v1::McpServer>,
     ) -> Result<TurnPhase<ConnectedSession>, agent_client_protocol::Error> {
         if can_resume {
             let resp = tokio::select! {
                 result = timed_acp_request(
                     "session/resume",
                     connection
-                        .send_request(ResumeSessionRequest::new(
-                            SessionId::new(rid),
-                            cwd.to_path_buf(),
-                        ))
+                        .send_request(
+                            ResumeSessionRequest::new(SessionId::new(rid), cwd.to_path_buf())
+                                .mcp_servers(mcp_servers.clone()),
+                        )
                         .block_task(),
                 ) => result?,
                 () = wait_for_cancellation(&mut *cancellation) => {
@@ -666,7 +748,7 @@ impl RunOnceContext {
                     connection
                         .send_request(
                             LoadSessionRequest::new(SessionId::new(rid), cwd.to_path_buf())
-                                .mcp_servers(vec![]),
+                                .mcp_servers(mcp_servers),
                         )
                         .block_task(),
                 ) => result?,
@@ -829,7 +911,23 @@ impl RunOnceContext {
             .lock()
             .map(|g| g.clone())
             .unwrap_or_default();
-        let sources = Vec::new();
+        if let (Some(vault), Some(fingerprint)) = (
+            self.context_vault.as_deref(),
+            self.context_fingerprint.as_deref(),
+        ) {
+            if let Err(error) = agentero_core::features::context::remember_session_fingerprint(
+                vault,
+                &acp_session_id.to_string(),
+                fingerprint,
+            ) {
+                log::warn!(target: "agentero::agent", "remember context fingerprint: {error}");
+            }
+        }
+        let sources = self
+            .context_usage
+            .as_deref()
+            .map(agentero_core::features::context::read_usage_uris)
+            .unwrap_or_default();
         let payload = AgentResultPayload {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
@@ -876,7 +974,9 @@ async fn run_on_pooled(
 ) -> PooledOutcome {
     let registry = slot.registry.clone();
     let mut cancellation = params.cancellation.clone();
-    let state = RunOnceContext::with_terminals(params, prep.cwd.clone(), slot.terminals.clone());
+    let mut state =
+        RunOnceContext::with_terminals(params, prep.cwd.clone(), slot.terminals.clone());
+    state.bind_context(prep);
 
     let prev = install_turn(
         &registry,
@@ -901,7 +1001,7 @@ async fn run_on_pooled(
     // Resolve the session: no resume id (or one matching the warm session)
     // prompts directly on the pooled session; a different id continues it via
     // session/resume|load on the same connection.
-    let session = match params.resume_session_id.as_deref() {
+    let session = match prep.resume_session_id.as_deref() {
         Some(rid) if rid != slot.acp_session_id.to_string() => {
             if !slot.can_resume && !slot.can_load {
                 // Neither continue capability: hand off so the cold path raises
@@ -918,6 +1018,7 @@ async fn run_on_pooled(
                     rid,
                     &prep.cwd,
                     slot.can_resume,
+                    prep.mcp_servers.clone(),
                 )
                 .await
             {
@@ -1000,27 +1101,33 @@ pub async fn run_once(params: RunOnceParams) -> Result<AgentResultPayload, AppEr
 
     // Phase 1.5 — pooled warm connection: skip spawn → initialize →
     // session/new entirely when a healthy slot matches this run.
-    if let Some(pool) = params.warm_pool.clone() {
-        if poolable_template(&params.desc.template) {
-            let key = pool_key(&params.desc.id, prep.cwd.clone(), params.remote.as_ref());
-            if let Some(slot) = pool.take(&key).await {
-                match run_on_pooled(&pool, slot, &params, &prep).await {
-                    PooledOutcome::Done(result) => {
-                        return match result {
-                            Ok(payload) => Ok(payload),
-                            Err(e) => {
-                                let msg = e.to_string();
-                                emit_run_failed(&params.app, &params.session_id, &msg);
-                                Err(AppError::domain("acp", format!("acp: {msg}")))
-                            }
-                        };
-                    }
-                    PooledOutcome::Handoff => {
-                        log::warn!(
-                            target: "agentero::agent",
-                            "agent={} pooled connection failed pre-prompt; retrying cold",
-                            params.desc.id
-                        );
+    if reuse_warm_pool(
+        prep.skip_warm_pool,
+        params.resume_session_id.as_deref(),
+        prep.resume_session_id.as_deref(),
+    ) {
+        if let Some(pool) = params.warm_pool.clone() {
+            if poolable_template(&params.desc.template) {
+                let key = pool_key(&params.desc.id, prep.cwd.clone(), params.remote.as_ref());
+                if let Some(slot) = pool.take(&key).await {
+                    match run_on_pooled(&pool, slot, &params, &prep).await {
+                        PooledOutcome::Done(result) => {
+                            return match result {
+                                Ok(payload) => Ok(payload),
+                                Err(e) => {
+                                    let msg = e.to_string();
+                                    emit_run_failed(&params.app, &params.session_id, &msg);
+                                    Err(AppError::domain("acp", format!("acp: {msg}")))
+                                }
+                            };
+                        }
+                        PooledOutcome::Handoff => {
+                            log::warn!(
+                                target: "agentero::agent",
+                                "agent={} pooled connection failed pre-prompt; retrying cold",
+                                params.desc.id
+                            );
+                        }
                     }
                 }
             }
@@ -1037,7 +1144,8 @@ pub async fn run_once(params: RunOnceParams) -> Result<AgentResultPayload, AppEr
     };
 
     // Phase 3 — connect, stream one turn, and finalize.
-    let state = RunOnceContext::new(&params, prep.cwd.clone());
+    let mut state = RunOnceContext::new(&params, prep.cwd.clone());
+    state.bind_context(&prep);
     let run_result = state.run(acp, params, prep).await;
 
     match run_result {
@@ -1051,6 +1159,20 @@ pub async fn run_once(params: RunOnceParams) -> Result<AgentResultPayload, AppEr
     }
 }
 
+/// A warm socket already belongs to one ACP session. Reuse it for a fresh
+/// turn or for a resume the context fingerprint still allows. A resume the
+/// fingerprint refused must not keep talking on that socket.
+pub(crate) fn reuse_warm_pool(
+    skip_warm_pool: bool,
+    requested_resume: Option<&str>,
+    granted_resume: Option<&str>,
+) -> bool {
+    if skip_warm_pool {
+        return false;
+    }
+    !(requested_resume.is_some() && granted_resume.is_none())
+}
+
 pub fn new_ids() -> (String, String) {
     (Uuid::new_v4().to_string(), Uuid::new_v4().to_string())
 }
@@ -1059,6 +1181,14 @@ pub fn new_ids() -> (String, String) {
 mod cancelled_payload_tests {
     use crate::features::agent::acp::client::cancelled_payload;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn refused_resume_does_not_reuse_the_warm_socket() {
+        assert!(!super::reuse_warm_pool(false, Some("old"), None));
+        assert!(!super::reuse_warm_pool(true, None, None));
+        assert!(super::reuse_warm_pool(false, Some("same"), Some("same")));
+        assert!(super::reuse_warm_pool(false, None, None));
+    }
 
     #[test]
     fn undelivered_prompt_is_retryable() {

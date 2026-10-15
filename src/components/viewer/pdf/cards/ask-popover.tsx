@@ -1,7 +1,7 @@
 import { MessageSquareIcon, MinusIcon, Pencil, Trash2Icon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-
+import { ContextSourceLinks } from "@/components/agent/context-source-links";
 import {
 	Message,
 	MessageAction,
@@ -378,6 +378,13 @@ export function AskPopover({
 										>
 											{m.content}
 										</MessageResponse>
+									) : null}
+									{from === "assistant" && m.sources?.length ? (
+										<ContextSourceLinks
+											sources={m.sources.flatMap((source) =>
+												source.uri ? [source.uri] : [],
+											)}
+										/>
 									) : null}
 								</MessageContent>
 								{from === "user" && onResend && !streaming ? (

@@ -7,8 +7,8 @@
  */
 
 import type { PdfLinkAnnoObject } from "@embedpdf/models";
-import { linkTargetUrl } from "@/components/viewer/pdf/layers/citation-links";
 import type { PreservedLinkAssignment } from "@/lib/pdf/layout/translated-links";
+import { linkTargetUrl } from "@/lib/pdf/link-target";
 
 export type TranslatedLinkHoverAction =
 	| { kind: "clear" }

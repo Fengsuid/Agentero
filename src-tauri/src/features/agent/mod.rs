@@ -3,6 +3,7 @@ pub mod acp;
 mod acp_tests;
 pub mod citation;
 pub mod commands;
+mod context_turn;
 pub mod doctor;
 pub mod doctor_agents;
 pub mod models;

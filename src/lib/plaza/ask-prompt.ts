@@ -19,6 +19,11 @@ export function buildPlazaAskPrompt(
 		surface?: "feed" | "web" | "text";
 		/** Vault file path (`surface: "text"`). */
 		path?: string | null;
+		/**
+		 * Vault text Quick Chat sends the path and quote through the host
+		 * context resolver instead of this prompt.
+		 */
+		omitLocatedQuote?: boolean;
 	},
 ): string {
 	const quote = thread.anchor.quote?.trim();
@@ -40,10 +45,10 @@ export function buildPlazaAskPrompt(
 		parts.push(`${opts?.surface === "text" ? "File" : "Item title"}: ${title}`);
 	}
 	const path = opts?.path?.trim();
-	if (path) parts.push(`File path: ${path}`);
+	if (path && !opts?.omitLocatedQuote) parts.push(`File path: ${path}`);
 	const url = opts?.url?.trim();
 	if (url) parts.push(`Item URL: ${url}`);
-	if (quote) {
+	if (quote && !opts?.omitLocatedQuote) {
 		parts.push(
 			opts?.surface === "text"
 				? "Quoted text from the file:"

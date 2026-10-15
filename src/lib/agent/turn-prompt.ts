@@ -18,15 +18,12 @@ import {
 	plazaMentionPromptBlock,
 	splitContextPaths,
 } from "@/lib/agent/plaza-mention";
-import { selectionsPromptBlock } from "@/lib/agent/selection-prompt";
-import type { SelectionContext } from "@/lib/agent/selection-store";
 import type { PdfVisualDraft } from "@/lib/agent/visual-context-store";
 import { buildVisualAnnotationsPrompt } from "@/lib/pdf/agent-trace/prompt";
 
 export type AssembleTurnPromptInput = {
 	text: string;
 	contextPaths: string[];
-	selections: SelectionContext[];
 	visualDrafts: PdfVisualDraft[];
 	attachedImages: PromptImage[];
 	isAcpCommand: boolean;
@@ -45,7 +42,6 @@ export type AssembledTurnPrompt = {
 export function assembleTurnPrompt({
 	text,
 	contextPaths,
-	selections,
 	visualDrafts,
 	attachedImages,
 	isAcpCommand,
@@ -67,14 +63,7 @@ export function assembleTurnPrompt({
 	const contextBlocks: string[] = [];
 	// Plaza mentions are virtual paths with no file for the agent to read —
 	// expand their metadata inline instead of the vault read-instruction list.
-	const { vaultPaths, plazaPaths } = splitContextPaths(contextPaths);
-	if (vaultPaths.length) {
-		contextBlocks.push(
-			`${t("composer.contextInstruction")}\n${vaultPaths
-				.map((path) => `- ${path}`)
-				.join("\n")}`,
-		);
-	}
+	const { plazaPaths } = splitContextPaths(contextPaths);
 	if (plazaPaths.length) {
 		contextBlocks.push(
 			plazaMentionPromptBlock({
@@ -85,11 +74,12 @@ export function assembleTurnPrompt({
 		);
 	}
 	if (annotationRefs.length > 0) {
-		contextBlocks.push(
-			annotationAppendix(annotationRefs, draftsById, hasAttachedImages),
+		const appendix = annotationAppendix(
+			annotationRefs,
+			draftsById,
+			hasAttachedImages,
 		);
-	} else if (selections.length) {
-		contextBlocks.push(selectionsPromptBlock(selections));
+		if (appendix) contextBlocks.push(appendix);
 	}
 	if (annotationRefs.length === 0 && hasVisualDrafts && !isAcpCommand) {
 		contextBlocks.push(

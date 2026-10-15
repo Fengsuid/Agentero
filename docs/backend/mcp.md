@@ -2,6 +2,8 @@
 
 桌面 Host 内嵌的 Streamable HTTP MCP。设置开关打开后在 loopback 监听；关掉即停。作用域是当前打开的**本地** Vault。
 
+应用内 Quick Chat / 侧边栏用的是另一条会话级 stdio MCP（`agentero-context`），只读本轮授权的来源，不复用这里的全局工具面。见 [context.md](context.md)。
+
 远端 Vault 不服务。App 必须开着。
 
 ## 开关与地址
