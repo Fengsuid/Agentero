@@ -27,13 +27,14 @@ import { agentChromeStore } from "@/lib/agent/agent-chrome-store";
 import {
 	agentSessionStore,
 	applyAgentSessionHandoffOnce,
+	getActiveLines,
 	isActiveTabRunning,
-	useActiveChatLines,
 	useAgentSessionStore,
 } from "@/lib/agent/agent-session-store";
 import {
 	type AgentOption,
 	buildOptions,
+	type ChatLine,
 	errorChatLine,
 	errorText,
 	resolveSelected,
@@ -99,7 +100,22 @@ export function useAgentPanel({
 	} = refs;
 
 	// Shared store selectors (single source of truth for the transcript).
-	const lines = useActiveChatLines();
+	// PERF: transcript lines are mirrored into a ref instead of subscribed —
+	// streaming flushes swap the array identity every rAF frame, which
+	// re-rendered the whole panel shell per frame. ChatTranscript owns the
+	// reactive subscription; sub-hooks only read the value at render time,
+	// and idle-time line writes always co-occur with a panel re-render
+	// (submitting / running / hydrating flips), so closures stay fresh.
+	const linesRef = useRef<ChatLine[] | null>(null);
+	if (linesRef.current === null) {
+		const initial = agentSessionStore.getState();
+		linesRef.current = getActiveLines(
+			initial.sessions,
+			initial.activeTabId,
+			initial.draftLines,
+		);
+	}
+	const lines = linesRef.current;
 	const setLines = useAgentSessionStore((s) => s.setLines);
 	const setSessionHistory = useAgentSessionStore((s) => s.setSessions);
 	const activeTabId = useAgentSessionStore((s) => s.activeTabId);
@@ -164,13 +180,22 @@ export function useAgentPanel({
 	 * Mirror the sessions array into the ref for synchronous guards without
 	 * re-rendering the panel: the array identity changes on every streamed
 	 * chunk, so a selector subscription re-rendered the whole panel ~25×/s.
+	 * Also refreshes the lines ref so the next panel render reads fresh
+	 * transcript lines without a per-frame subscription.
 	 */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refs are stable identity probes for the subscribe-once effect
 	useEffect(
 		() =>
 			agentSessionStore.subscribe(() => {
-				sessionHistoryRef.current = agentSessionStore.getState().sessions;
+				const state = agentSessionStore.getState();
+				sessionHistoryRef.current = state.sessions;
+				linesRef.current = getActiveLines(
+					state.sessions,
+					state.activeTabId,
+					state.draftLines,
+				);
 			}),
-		[sessionHistoryRef],
+		[sessionHistoryRef, linesRef],
 	);
 
 	/** Last-seen vault path; drives the vault-switch reset effect below. */
@@ -227,8 +252,13 @@ export function useAgentPanel({
 
 	const options = buildOptions(registry, catalog);
 	const selected = resolveSelected(options, selectedAgentId, registry);
+	// PERF: depend on the primitive template id — `selected` comes from
+	// buildOptions/resolveSelected with a fresh identity every render, which
+	// made selectedLogin → onAgentLogin unstable and defeated
+	// memo(ChatTranscript).
+	const selectedTemplateId = selected?.templateId ?? selected?.template ?? null;
 	const selectedLogin = useMemo(() => {
-		const templateId = selected?.templateId ?? selected?.template ?? null;
+		const templateId = selectedTemplateId;
 		if (!templateId || templateId === "custom") return null;
 		const entry = catalog?.entries.find(
 			(candidate) => candidate.templateId === templateId,
@@ -236,7 +266,7 @@ export function useAgentPanel({
 		const command = entry?.loginCommand?.trim();
 		if (!command) return null;
 		return { templateId, command };
-	}, [catalog, selected]);
+	}, [catalog, selectedTemplateId]);
 
 	const openSelectedAgentLogin = useCallback(async () => {
 		if (!selectedLogin) return;
@@ -568,8 +598,7 @@ export function useAgentPanel({
 
 	return {
 		t,
-		// Transcript
-		lines,
+		// Transcript (lines are owned by ChatTranscript's store subscription)
 		activeTabId,
 		hydratingSessionId,
 		selected,

@@ -79,9 +79,11 @@ import {
 	CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useActiveChatLines } from "@/lib/agent/agent-session-store";
 import { type AgentPhaseState, isAgentAuthFailure } from "@/lib/agent/api";
 import {
 	type AgentPart,
+	type AskUserQuestion,
 	agentTextFromParts,
 	type ChatLine,
 	copyText,
@@ -114,6 +116,26 @@ function isNonTextPart(part: AgentPart): boolean {
 	return (
 		part.type === "reasoning" || part.type === "plan" || part.type === "tool"
 	);
+}
+
+/**
+ * PERF: parseAskUserQuestions JSON.parses tool input, and the streaming row
+ * re-renders every flush — cache parsed results keyed by the input value.
+ * mergeToolState keeps `input` referentially stable across status patches,
+ * so one entry covers the whole streaming lifetime of a tool part. Bounded:
+ * cleared wholesale on overflow (re-parsing on cache miss is cheap).
+ */
+const askUserQuestionsCache = new Map<unknown, AskUserQuestion[] | null>();
+const ASK_USER_QUESTIONS_CACHE_MAX = 256;
+
+function cachedAskUserQuestions(input: unknown): AskUserQuestion[] | null {
+	if (askUserQuestionsCache.size >= ASK_USER_QUESTIONS_CACHE_MAX) {
+		askUserQuestionsCache.clear();
+	}
+	if (!askUserQuestionsCache.has(input)) {
+		askUserQuestionsCache.set(input, parseAskUserQuestions(input));
+	}
+	return askUserQuestionsCache.get(input) ?? null;
 }
 
 /** On tab switch, jump to the latest messages instead of keeping the old scroll position. */
@@ -267,19 +289,23 @@ type RowHandlers = {
 	};
 };
 
-/** Copy button with a brief checkmark feedback state. */
-function CopyAction({ text }: { text: string }) {
+/**
+ * Copy button with a brief checkmark feedback state. Takes a lazy getter so
+ * heavy payload assembly (full-text joins, selection quote blocks) only runs
+ * on click instead of on every row render.
+ */
+function CopyAction({ getText }: { getText: () => string }) {
 	const { t } = useTranslation("agent");
 	const [copied, setCopied] = useState(false);
 
 	const handleCopy = useCallback(async () => {
 		try {
-			await copyText(text);
+			await copyText(getText());
 			setCopied(true);
 		} catch {
 			// Keep the existing silent failure behavior.
 		}
-	}, [text]);
+	}, [getText]);
 
 	useEffect(() => {
 		if (!copied) return;
@@ -413,16 +439,19 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
 			!line.selections?.length
 		)
 			return null;
-		const copyPayload = [
-			formatUserLineForCopy({
-				text: userDisplay,
-				visualAnnotations: visuals,
-				images: attachedImages,
-			}),
-			selectionsPromptBlock(line.selections ?? []),
-		]
-			.filter(Boolean)
-			.join("\n\n");
+		// PERF: copy payload joins the full selection quote block — build it
+		// lazily in the copy handler instead of on every row render.
+		const buildCopyPayload = () =>
+			[
+				formatUserLineForCopy({
+					text: userDisplay,
+					visualAnnotations: visuals,
+					images: attachedImages,
+				}),
+				selectionsPromptBlock(line.selections ?? []),
+			]
+				.filter(Boolean)
+				.join("\n\n");
 		return (
 			<Message from="user" className="max-w-[85%]">
 				<ChatSelectionReferences selections={line.selections ?? []} />
@@ -464,7 +493,7 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
 								<Pencil className="size-3.5" />
 							</MessageAction>
 						)}
-						<CopyAction text={copyPayload} />
+						<CopyAction getText={buildCopyPayload} />
 					</MessageActions>
 				</div>
 			</Message>
@@ -477,7 +506,11 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
 		const rowKey = `${activeTabId}:${line.id}`;
 		const parts = line.parts;
 		const lastIndex = parts.length - 1;
-		const agentText = agentTextFromParts(parts);
+		// PERF: agentTextFromParts joins the whole reply on every render of
+		// the streaming row — gate on a cheap scan and build text on copy.
+		const hasAgentText = parts.some(
+			(part) => part.type === "text" && part.text.length > 0,
+		);
 		const isStreaming = Boolean(line.streaming);
 
 		const renderAgentPart = (
@@ -574,7 +607,7 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
 			if (part.type === "tool") {
 				const tool = part.tool;
 				const state = toolPartState(tool.status);
-				const askUserQuestion = parseAskUserQuestions(tool.input);
+				const askUserQuestion = cachedAskUserQuestions(tool.input);
 				// Interactive form is owned by the composer; transcript
 				// only shows a compact tool row (and a short pending note).
 				const askPending =
@@ -679,9 +712,9 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
 							parts.map((part, index) => renderAgentPart(part, index, false))
 						)}
 					</MessageContent>
-					{!line.streaming && agentText ? (
+					{!line.streaming && hasAgentText ? (
 						<MessageActions className="-mt-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-							<CopyAction text={agentText} />
+							<CopyAction getText={() => agentTextFromParts(parts)} />
 						</MessageActions>
 					) : null}
 				</Message>
@@ -767,20 +800,30 @@ function TranscriptBody({
 		forceVirtualize,
 	});
 
-	const navigation = useStore(selectionNavigationStore);
+	// PERF: narrow subscriptions — `nonce` only invalidates the navigation
+	// promise on the writer side, and a whole-store subscription re-rendered
+	// TranscriptBody on every re-navigation.
+	const navigationMessageId = useStore(
+		selectionNavigationStore,
+		(s) => s.messageId,
+	);
+	const navigationTabId = useStore(selectionNavigationStore, (s) => s.tabId);
 	useEffect(() => {
-		if (
-			!navigation.messageId ||
-			navigation.tabId !== activeTabId ||
-			!virtualized
-		)
+		if (!navigationMessageId || navigationTabId !== activeTabId || !virtualized)
 			return;
-		const index = lines.findIndex((line) => line.id === navigation.messageId);
+		const index = lines.findIndex((line) => line.id === navigationMessageId);
 		if (index >= 0) {
 			rowVirtualizer.scrollToIndex(index, { align: "center" });
 			selectionNavigationStore.setState({ messageId: null });
 		}
-	}, [navigation, lines, virtualized, rowVirtualizer, activeTabId]);
+	}, [
+		navigationMessageId,
+		navigationTabId,
+		lines,
+		virtualized,
+		rowVirtualizer,
+		activeTabId,
+	]);
 
 	// The edit button can target turns far above the viewport; bring the row
 	// into the mounted window when windowed rendering is active.
@@ -856,8 +899,12 @@ function TranscriptBody({
 	);
 }
 
-export function ChatTranscript({
-	lines,
+/**
+ * Renders the transcript. Subscribes to the active lines itself so the
+ * per-frame identity swaps during streaming re-render only this subtree,
+ * not the whole panel shell.
+ */
+export const ChatTranscript = memo(function ChatTranscript({
 	activeTabId,
 	hydratingSessionId,
 	compact = false,
@@ -879,7 +926,6 @@ export function ChatTranscript({
 	onOpenSource,
 	phase = null,
 }: {
-	lines: ChatLine[];
 	activeTabId: string;
 	hydratingSessionId: string | null;
 	compact?: boolean;
@@ -908,6 +954,10 @@ export function ChatTranscript({
 	phase?: AgentPhaseState | null;
 }) {
 	const { t } = useTranslation("agent");
+	// PERF: owned here instead of the panel — streaming flushes swap the
+	// lines array identity every rAF frame, and a panel-level subscription
+	// re-rendered the whole shell (composer, config bar, switcher) per frame.
+	const lines = useActiveChatLines();
 	const restoringHistorySession =
 		hydratingSessionId === activeTabId && lines.length === 0;
 
@@ -1045,4 +1095,4 @@ export function ChatTranscript({
 			<ConversationScrollButton />
 		</Conversation>
 	);
-}
+});
