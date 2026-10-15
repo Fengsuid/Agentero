@@ -61,6 +61,26 @@ export type PdfPageText = {
 	pageTextMapRef: RefObject<Map<number, NormalizedRect[]>>;
 };
 
+/**
+ * Content equality for one page's detected text links: `detectPdfTextLinks`
+ * builds fresh objects per call, so compare url + rect fields element-wise.
+ * Lets the setter keep the previous map reference when nothing changed.
+ */
+function sameTextLinks(
+	previous: PdfTextLink[] | undefined,
+	next: PdfTextLink[],
+): boolean {
+	if (!previous || previous.length !== next.length) return false;
+	return previous.every(
+		(link, i) =>
+			link.url === next[i].url &&
+			link.rect.origin.x === next[i].rect.origin.x &&
+			link.rect.origin.y === next[i].rect.origin.y &&
+			link.rect.size.width === next[i].rect.size.width &&
+			link.rect.size.height === next[i].rect.size.height,
+	);
+}
+
 export function usePdfPageText({
 	engine,
 	docCap,
@@ -147,6 +167,7 @@ export function usePdfPageText({
 						return next;
 					});
 					setPageTextLinkMap((prev) => {
+						if (sameTextLinks(prev.get(pageIndex), textLinks)) return prev;
 						const next = new Map(prev);
 						next.set(pageIndex, textLinks);
 						return next;

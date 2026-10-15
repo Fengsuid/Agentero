@@ -199,7 +199,29 @@ export function usePdfHighlights({
 				else links.set(o.pageIndex, [o]);
 			}
 		}
-		setCitationLinks(links);
+		// The link set only changes when a link annotation is added / removed /
+		// retargeted — saving a comment or recoloring a highlight leaves it
+		// identical. Keep the previous map reference then, so the pages' link
+		// layers don't re-render (elements are the plugin's tracked annotation
+		// objects, so identity per element is the equality that matters).
+		setCitationLinks((prev) => {
+			if (prev.size === links.size) {
+				let unchanged = true;
+				for (const [page, next] of links) {
+					const old = prev.get(page);
+					if (
+						!old ||
+						old.length !== next.length ||
+						next.some((link, i) => link !== old[i])
+					) {
+						unchanged = false;
+						break;
+					}
+				}
+				if (unchanged) return prev;
+			}
+			return links;
+		});
 	}, [annotationCap, docCap, docId, paperKey, onHighlightsChangeRef]);
 
 	// A batch import emits one event per annotation within a single task;
