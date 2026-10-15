@@ -1,14 +1,6 @@
 name: Sync release to AtomGit
 
 on:
-  workflow_call:
-    inputs:
-      tag:
-        required: true
-        type: string
-    secrets:
-      ATOMGIT_TOKEN:
-        required: true
   workflow_dispatch:
     inputs:
       tag:
@@ -19,8 +11,9 @@ on:
     types: [published, edited]
 
 permissions:
-  # Listing the still-draft release that the build jobs are populating needs
-  # push access; a read-only token never sees it.
+  # Resolving a release by tag (and judging `latest`) lists the releases
+  # endpoint, where drafts only appear for tokens with push access; a
+  # manual dispatch or an `edited` event can still land on a draft.
   contents: write
 
 # Serialize tags too, so a historical backfill cannot race latest promotion.

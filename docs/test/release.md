@@ -14,13 +14,15 @@
 2. 执行 `/commit`，将版本 bump 作为独立的 `chore(release): bump version to <version>` commit。
 3. 确认 tag `v<version>` 指向该版本 bump commit，且 tag 去掉 `v` 后与所有版本字段一致。
 4. 推送 tag，等待 `.github/workflows/release.yml` 构建 Tauri installers 和 CLI artifacts。构建前确认 repository secret 已配齐：updater 签名（见下）与内置 provider 的 `AGENTERO_BUILTIN_API_KEY`（见 §内置 Provider 构建期注入）。
-5. 在 Draft Release 中确认桌面安装包、应用内版本、CLI `--version` 和 CLI 文件名没有混用不同版本；确认 `latest.json` 与 updater `.sig` 资产齐全后才发布 Release。
+5. 在 Draft Release 中确认桌面安装包、应用内版本、CLI `--version` 和 CLI 文件名没有混用不同版本；确认 `latest.json` 与 updater `.sig` 资产齐全后才发布 Release。发布动作即触发 AtomGit 同步（见下节）。
 
 `/bump` 和 `/commit` 默认只修改工作区或创建本地 commit，不会自动创建 tag、push 或发布 Release。
 
 ### AtomGit Release 同步（#635）
 
-`.github/workflows/release.yml` 在 installers、Android、CLI 三组 job 全部成功后调用 `sync-atomgit-release.yml`，将该 tag 的 GitHub Release 标题、说明及全部已上传附件同步到 AtomGit。Android 未配置签名而主动跳过产物时，只同步实际存在的附件。任一构建 job 失败则不自动同步。
+`sync-atomgit-release.yml` 由 GitHub Release 的 `published` / `edited` 事件触发——在 Draft Release 验收产物并发布的那一刻，自动把该 tag 的 Release 标题、说明及全部已上传附件同步到 AtomGit；也可在 Actions 页面手动 Run workflow 按 tag 补传。Android 未配置签名而主动跳过产物时，只同步实际存在的附件。
+
+同步**不**再挂在 tag 构建成功后：那条路径（`release.yml` 曾以 `workflow_call` 在 installers、Android、CLI 全部成功后调用）距打 tag 约 1 小时，必须赌 AtomGit 仓库镜像在 `waitForTag` 的 2.5 分钟预算内到位，而镜像滞后实测达数小时，结果是每次发版固定失败一次、再等镜像追上人工重跑（#694）。publish 是人工动作，距打 tag 通常已有小时级余量，镜像多半已就位；v0.11.8 起 publish 触发的同步一次成功。
 
 配置 GitHub repository secret **`ATOMGIT_TOKEN`**：使用对目标 AtomGit 仓库有 Release / 附件读写权限的个人访问令牌。令牌只通过请求头传递，不写入附件、下载清单或日志；git 推送经 `GIT_ASKPASS` 传递，不出现在远端 URL 或命令行参数中。缺少令牌时同步 job 明确失败，已完成的 GitHub 构建和附件仍保留。
 
@@ -35,7 +37,7 @@
 
 同步 job 在上传前把 `api.atomgit.com`、`file.atomgit.com`、`file.gitcode.com`、`atomgit.com` 固定解析到 `ATOMGIT_PROXY_IP`：默认 DNS 交给 runner 的是境内地址，大文件长连接会在该路由上崩溃（120 MB 的 AppImage 三次 `HTTP 502`，单次最长 43 分钟，而紧邻的 51 MB 附件只需 6 秒，见 #694）。每个域名先用 `curl --resolve` 校验该 IP 能出示**对自身域名有效**的证书，只有通过的才写入 `/etc/hosts`；全部不通过则退回默认 DNS，该步骤本身不会令 job 失败。IP 失效时改 `ATOMGIT_PROXY_IP` 即可，无需改代码。`/etc/hosts` 仅在该 runner 内生效，任务结束自动丢弃。
 
-同步在 Release 仍为 Draft 时执行：`GITHUB_TOKEN` 需要 `contents: write`（草稿仅对具备 push 权限的令牌出现在 releases 列表中），脚本通过列表接口按 tag 解析 Release，而不是只返回已发布版本的 `releases/tags/<tag>` 接口。
+`GITHUB_TOKEN` 需要 `contents: write`：按 tag 解析 Release 和判断 `latest` 都要浏览 releases 列表，而 Draft 只对具备 push 权限的令牌出现在该列表中（手动补传或 `edited` 事件可能落在 Draft 上）。脚本通过列表接口按 tag 解析 Release，而不是只返回已发布版本的 `releases/tags/<tag>` 接口。
 
 AtomGit 不会像 GitHub 那样用 `target_commitish` 自动建 tag，tag 缺失时 `POST /releases` 只返回无法解释的 HTTP 400，而仓库自带镜像可以滞后 GitHub 数小时。同步 job 因此会尝试自己推送该 release tag：`git push` 到 `ATOMGIT_REPOSITORY`，不带 `--force`（远端已存在且指向别处的 tag 被拒绝并原样保留，再由脚本的 SHA 校验暴露成 commit 不一致），令牌经 `GIT_ASKPASS` 传递、不出现在远端 URL 或命令行参数中，git 用户名由令牌查 `/api/v5/user` 的 `login` 得到，无需额外 secret。
 
@@ -43,14 +45,14 @@ AtomGit 不会像 GitHub 那样用 `target_commitish` 自动建 tag，tag 缺失
 
 脚本在创建 Release **前**仍会等待 AtomGit 同名 tag 就位（有界退避轮询，约 2.5 分钟后放弃）；tag 缺失会明确报 `AtomGit has not mirrored tag …`，等镜像追上后按 tag 重跑即可。tag 就位后校验其 SHA 与 GitHub 一致，再用该 commit 创建 Release。目标提交不存在或 tag 不一致时，先修复仓库镜像，再重跑同步。
 
-- 构建完成时 GitHub 仍为 Draft，AtomGit 同步为 `pre`（**预发布可公开访问，不是私有草稿**）。
-- GitHub Release `published` / `edited` 事件会再次同步当前说明和附件；仅当来源是 GitHub 当前最新稳定版且所有附件校验通过，才标记 AtomGit `latest`。手动补传旧稳定版不会抢占最新版本；新建的历史版本保留 `pre`。
+- 发布即同步：publish 事件触发时 GitHub Release 已发布，最新的稳定版直接标记 AtomGit `latest`；预发布版本（tag 含 `-`）与手动补传的旧稳定版为 `pre`（**预发布可公开访问，不是私有草稿**）。
+- GitHub Release `published` / `edited` 事件触发同步当前说明和附件；仅当来源是 GitHub 当前最新稳定版且所有附件校验通过，才标记 AtomGit `latest`。手动补传旧稳定版不会抢占最新版本；新建的历史版本保留 `pre`。
 - `scripts/sync-atomgit-release.mjs` 逐文件下载、上传并回读校验大小和 SHA-256，包括安装包、APK、CLI、`.sig`、`.sha256`、`latest.json`；GitHub 自动生成的 Source code 归档不是上传附件，不在此列表中。
 - 重跑时相同内容跳过；同名不同内容的附件按 ID 删除后重新上传。发生中断可再次运行，不删除目标仓库其他附件。网络错误有限重试，任何附件失败会令 job 失败；只有全部成功才更新最终说明和状态。跨 tag 的同步串行执行。
 - 上传与回读校验不使用固定总时长上限：到 AtomGit 的路由在 ~8 MB/s 与数十分钟后 `HTTP 502` 之间摆动（#694），按快速情形定的上限必然饿死慢速情形。只有连续 5 分钟没有任何字节流动才判定为停滞并重试，整体时长由 job 的 `timeout-minutes`（当前 180）约束。日志中的 `Uploading: <name> (<size> bytes) via <host>` 只打印主机名（签名路径与 query 属于凭据），用于确认边缘节点固定是否真的覆盖了承载大文件的那个域名。
 - `latest.json` **原样镜像**，其中 URL 仍指向 GitHub。后续待办：landing 双源下载、应用 updater AtomGit 优先及下载失败回退、AtomGit 专用更新清单／稳定入口。本次不切换客户端更新源。
 
-补传／重试：GitHub Actions → **Sync release to AtomGit** → **Run workflow** → 填入已有、附件构建完成的 tag（如 `v0.11.3`）。无需重新编译。工作流须先进入默认分支；通过 `GITHUB_TOKEN` 触发的 Release 修改不会派生新的工作流，自动化改说明后需显式调用 reusable workflow 或手动补同步。
+补传／重试：GitHub Actions → **Sync release to AtomGit** → **Run workflow** → 填入已有、附件构建完成的 tag（如 `v0.11.3`）。无需重新编译。工作流须先进入默认分支。附件尚未上传完就发布 Release 时，同步只会带上当时已上传的附件，而通过 `GITHUB_TOKEN` 上传附件不会派生新的工作流（GitHub 防递归机制）——此时需手动 Run workflow 补传剩余附件；自动化改说明后同样需要手动补同步。
 
 本地验证（不访问发布服务）：`node --test scripts/sync-atomgit-release.test.mjs`。CI 的 quality 任务也运行这些测试。首次部署后需用真实令牌验收上传、回读下载、重跑和正式发布状态切换。
 
