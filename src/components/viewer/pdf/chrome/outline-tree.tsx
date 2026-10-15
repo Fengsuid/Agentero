@@ -1,8 +1,24 @@
 import type { PdfBookmarkObject } from "@embedpdf/models";
+import { memo } from "react";
 import { bookmarkPageIndex } from "@/lib/pdf/bookmark";
 
+/**
+ * Key per bookmark object, computed once: the raw JSON.stringify of the target
+ * walked every node on every render before this cache existed.
+ */
+const bookmarkKeyCache = new WeakMap<PdfBookmarkObject, string>();
+
+function bookmarkKey(node: PdfBookmarkObject, depth: number): string {
+	let key = bookmarkKeyCache.get(node);
+	if (key === undefined) {
+		key = `${depth}-${node.title}-${JSON.stringify(node.target ?? null)}`;
+		bookmarkKeyCache.set(node, key);
+	}
+	return key;
+}
+
 /** Recursive outline (bookmarks) list for the PDF side panel. */
-export function OutlineTree({
+export const OutlineTree = memo(function OutlineTree({
 	nodes,
 	depth,
 	onGoToPage,
@@ -14,7 +30,7 @@ export function OutlineTree({
 	return (
 		<ul className="space-y-0.5">
 			{nodes.map((n) => (
-				<li key={`${depth}-${n.title}-${JSON.stringify(n.target ?? null)}`}>
+				<li key={bookmarkKey(n, depth)}>
 					<button
 						type="button"
 						className="w-full truncate rounded px-2 py-1 text-left text-muted-foreground text-sm transition-colors duration-100 hover:bg-muted/60 hover:text-foreground active:bg-muted/80"
@@ -40,4 +56,4 @@ export function OutlineTree({
 			))}
 		</ul>
 	);
-}
+});

@@ -437,8 +437,15 @@ export type PdfPageMarksSlice = {
 	citationLinks: ReadonlyMap<number, PdfLinkAnnoObject[]>;
 	textLinks: ReadonlyMap<number, PdfTextLink[]>;
 	activeCardId: string | null;
-	/** Id of the comment-rail card currently being hovered; null when idle. */
-	hoveredCommentId: string | null;
+	/**
+	 * Id of the comment-rail card currently being hovered; null when idle.
+	 *
+	 * @deprecated Superseded by the per-page `hoveredCommentId` prop, which
+	 * the viewer gates to the owning page so a hover does not re-render every
+	 * mounted page through this shared bundle. Optional so the translation
+	 * pane's static slice keeps compiling; when set it is used as a fallback.
+	 */
+	hoveredCommentId?: string | null;
 	/**
 	 * Sticky text-selection comment chip (right rail). Null when idle or on a
 	 * read-only remote PDF.
@@ -601,6 +608,13 @@ export type PdfPageLayersProps = {
 	/** EmbedPDF capability from the owning viewer; null in panes without the annotation plugin. */
 	annotationCap: AnnotationCapabilityProvides;
 	marks: PdfPageMarksSlice;
+	/**
+	 * Id of the hovered comment-rail card, gated by the caller to the page
+	 * that owns the comment (null elsewhere): the emphasis overlay and the
+	 * rail highlight only exist on the owning page, so gating keeps every
+	 * other page's memo intact while the hover id flips.
+	 */
+	hoveredCommentId?: string | null;
 	layout: PdfPageLayoutSlice;
 	mode: PdfPageModeSlice;
 	handlers: PdfPageHandlers;
@@ -688,6 +702,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 	zoomRef,
 	annotationCap,
 	marks,
+	hoveredCommentId: hoveredCommentIdProp,
 	layout,
 	mode,
 	handlers,
@@ -781,6 +796,10 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 			: null;
 	const pins = marks.pinsByPage.get(pageNumber) ?? EMPTY_PINS;
 	const comments = marks.commentsByPage.get(pageNumber) ?? EMPTY_COMMENTS;
+	// Per-page gated prop wins; the translation pane still passes the id
+	// inside `marks`.
+	const hoveredCommentId =
+		hoveredCommentIdProp ?? marks.hoveredCommentId ?? null;
 	const selectionDraftOnPage =
 		marks.selectionCommentDraft?.page === pageNumber
 			? marks.selectionCommentDraft
@@ -820,7 +839,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 	const pageTranslateState = layout.layoutTranslatePageStateByPage.get(
 		pageIndex,
 	) ?? { active: false, running: false };
-	const emphasizedCommentId = marks.hoveredCommentId ?? marks.editingCommentId;
+	const emphasizedCommentId = hoveredCommentId ?? marks.editingCommentId;
 	const emphasizedComment = emphasizedCommentId
 		? (shownComments.find((c) => c.id === emphasizedCommentId) ?? null)
 		: null;
@@ -967,13 +986,13 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 		armSelection();
 		if ((event.target as Element | null)?.closest("[data-pdf-chrome]")) return;
 		const comment = textCommentAtPoint(event.clientX, event.clientY);
-		if (comment?.id === marks.hoveredCommentId) return;
+		if (comment?.id === hoveredCommentId) return;
 		if (comment) handlers.onHoverComment(comment);
-		else if (marks.hoveredCommentId) handlers.onLeaveComment();
+		else if (hoveredCommentId) handlers.onLeaveComment();
 	};
 
 	const handlePagePointerLeave = () => {
-		if (marks.hoveredCommentId) handlers.onLeaveComment();
+		if (hoveredCommentId) handlers.onLeaveComment();
 	};
 
 	const handlePageClickCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -1674,7 +1693,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 						pageHeightPx={height}
 						editingId={marks.editingCommentId}
 						wikiTarget={marks.commentWikiTarget}
-						hoveredId={marks.hoveredCommentId}
+						hoveredId={hoveredCommentId}
 						selectionDraft={selectionDraftOnPage}
 						onCommitSelectionComment={handlers.onCommitSelectionComment}
 						onSelectionCommentActiveChange={

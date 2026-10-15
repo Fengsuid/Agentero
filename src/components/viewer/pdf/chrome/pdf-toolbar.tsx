@@ -7,7 +7,7 @@ import {
 	Loader2,
 	ScanSearch,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,7 +44,7 @@ type PdfToolbarProps = {
 };
 
 /** Top-right toolbar: region select, bulk translate. Always visible. */
-export function PdfToolbar({
+export const PdfToolbar = memo(function PdfToolbar({
 	regionSelecting,
 	visualCropPending,
 	engine,
@@ -283,4 +283,4 @@ export function PdfToolbar({
 			</TooltipProvider>
 		</div>
 	);
-}
+});

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import {
 	FiguresOverlayToggle,
 	FiguresPanel,
@@ -28,7 +29,7 @@ type PdfFiguresPanelProps = {
 
 /** Left-side layout analysis panel. The overlay Eye toggle sits top-right,
  *  sharing the left toolbar's row. */
-export function PdfFiguresPanel({
+export const PdfFiguresPanel = memo(function PdfFiguresPanel({
 	documentId,
 	paperAbsPath,
 	paperRelPath,
@@ -77,4 +78,4 @@ export function PdfFiguresPanel({
 			/>
 		</aside>
 	);
-}
+});

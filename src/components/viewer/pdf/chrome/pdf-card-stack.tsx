@@ -1,4 +1,5 @@
 import { AnimatePresence } from "motion/react";
+import { memo } from "react";
 import { createPortal } from "react-dom";
 import { AskPopover } from "@/components/viewer/pdf/cards/ask-popover";
 import {
@@ -95,7 +96,7 @@ function selectionMenuInstanceKey(state: SelectionMenuState): string {
  * Floating cards of the viewer, portaled to `document.body` so page transforms
  * and the scroller's overflow never clip or scale them.
  */
-export function PdfCardStack({
+export const PdfCardStack = memo(function PdfCardStack({
 	selectionMenu,
 	citationPreview,
 	crossrefPreview,
@@ -214,4 +215,4 @@ export function PdfCardStack({
 		</div>,
 		document.body,
 	);
-}
+});
