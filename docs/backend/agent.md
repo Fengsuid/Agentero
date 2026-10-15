@@ -5,6 +5,7 @@ Agentero 作为 **ACP Client**，stdio JSON-RPC 连接用户本机或远端 Agen
 ## 协议与运行时
 
 - Crate：`agent-client-protocol`（及 Codex 的 npm ACP 适配器进程）。
+- Quick Chat 和侧边栏的论文上下文走同一解析器。本地会话在 `session/new`、`session/resume`、`session/load` 上传入 `agentero-context` stdio MCP；授权指纹变化时不恢复旧会话。见 [context.md](context.md)。
 - ACP `initialize` 在 run / warm / 历史 list / load 四处统一最多等待 30 秒（设置页
   探针同样保留 30 秒总预算），覆盖 BYOA 冷启动；其余 session RPC 保持 15 秒预算。
 - 会话 `cwd` = 当前 Vault 根（远程则为远端 Vault 根）。run / warm / list / load
