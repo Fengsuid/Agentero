@@ -4,12 +4,12 @@ import { useZoomCapability } from "@embedpdf/plugin-zoom/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { stripEmbedPdfRevision } from "@/lib/pdf/document-id";
 import {
+	alignScrollSyncFrom,
 	getScrollSyncElement,
 	getScrollSyncPartner,
 	getScrollSyncPeer,
 	getScrollSyncRole,
-	mapScrollByContent,
-	mergeSyncedScrollPosition,
+	holdScrollSync,
 	registerScrollSyncPair,
 	registerScrollSyncPeer,
 	type ScrollSyncPeer,
@@ -18,13 +18,6 @@ import {
 } from "@/lib/pdf/scroll-sync";
 
 const TRANSLATION_DOC_SUFFIX = "::translation";
-
-/**
- * Scroll events within this distance of the last position we commanded onto a
- * pane are echoes of our own write, not user input. Browser scrollTop rounding
- * keeps the tolerance above the 0.5px apply threshold.
- */
-const ECHO_TOLERANCE_PX = 2;
 
 /**
  * Frames to wait for the target's zoom relayout before realigning its scroll.
@@ -48,23 +41,13 @@ export type PdfScrollPosition = {
 };
 
 /**
- * Bidirectionally sync scroll position and zoom between this PDF viewer and
- * its paired partner (e.g. the right-hand translation pane).
+ * Sync zoom between this PDF viewer and its paired translation pane, and
+ * align scroll once both viewports have layout.
  *
- * Each dual-pane viewer mounts its own EmbedPDF provider, so peers publish
- * themselves into the module-level registry. Only the pair's source wires
- * listeners; the target merely registers so the source can drive it and so
- * target-originated scroll / zoom still reach the source via peer callbacks.
- *
- * Positions are mapped in content coordinates (both panes render the same
- * document at the same zoom) so differing viewport sizes — comment rail,
- * split ratio, scrollbars — do not shift the visible region. Scroll signals
- * are taken from the panes' live elements and applied as direct DOM writes:
- * the viewport plugin's scroll-request pipeline defers every programmatic
- * scroll by an extra animation frame, which put the follower 2-3 frames
- * behind and swallowed pan-drag writes. Loopback is suppressed by comparing
- * event positions against the last commanded position instead of a time
- * window, so genuine user scrolls are never swallowed.
+ * The pane under the pointer keeps the browser's own scroll. The partner
+ * stays put until that gesture settles, then jumps to the same content
+ * point. This hook publishes the zoom peer and, after a zoom gesture
+ * settles, realigns the follower.
  */
 export function usePdfScrollSync(docId: string): void {
 	const viewportCap = useViewportCapability().provides;
@@ -164,138 +147,22 @@ export function usePdfScrollSync(docId: string): void {
 		if (!me || !partner) return;
 
 		let cancelled = false;
-		let scrollFrame: number | null = null;
-		let pendingScroll: {
-			from: ScrollSyncPeer;
-			fromDocId: string;
-			to: ScrollSyncPeer;
-			targetDocId: string;
-			changed: { x: boolean; y: boolean };
-		} | null = null;
-		// Last position commanded onto each pane; matching scroll events are
-		// echoes of our own write rather than user input.
-		const commandedScroll = new Map<string, { x: number; y: number }>();
-		// Panes whose zoom relayout is still settling: their scroll events are
-		// zoom side effects and must not be mirrored back to the partner.
-		const settlingDocs = new Set<string>();
 		const settleTokens = new Map<string, number>();
-		// A zoom gesture is in flight: levels differ between the panes, so
-		// content coordinates no longer correspond — hold scroll follow until
-		// the gesture lands on the partner and reconcile realigns.
+		const settleHolds = new Map<string, () => void>();
 		let zoomGestureTimer: ReturnType<typeof setTimeout> | null = null;
-		let zoomGestureActive = false;
 
-		/** Live scroll position: the element when mounted, plugin metrics otherwise. */
-		const readPosition = (paneDocId: string, pane: ScrollSyncPeer) => {
-			const element = getScrollSyncElement(paneDocId);
-			if (element) return { x: element.scrollLeft, y: element.scrollTop };
-			const metrics = pane.getMetrics();
-			return { x: metrics.scrollLeft, y: metrics.scrollTop };
-		};
-
-		// Native DOM and plugin scroll notifications can both describe one
-		// gesture. Retain the last observed position per pane so we can mirror
-		// only the axis that genuinely moved.
-		const observedScroll = new Map<string, { x: number; y: number }>([
-			[docId, readPosition(docId, me)],
-			[partnerId, readPosition(partnerId, partner)],
-		]);
-
-		const isEchoScroll = (paneDocId: string, pane: ScrollSyncPeer) => {
-			const last = commandedScroll.get(paneDocId);
-			if (!last) return false;
-			const position = readPosition(paneDocId, pane);
-			return (
-				Math.abs(position.x - last.x) <= ECHO_TOLERANCE_PX &&
-				Math.abs(position.y - last.y) <= ECHO_TOLERANCE_PX
-			);
-		};
-
-		const applyScrollNow = (
-			from: ScrollSyncPeer,
-			fromDocId: string,
-			to: ScrollSyncPeer,
-			targetDocId: string,
-			changed: { x: boolean; y: boolean },
-		) => {
-			if (cancelled) return;
-			const fromMetrics = from.getMetrics();
-			const fromPosition = readPosition(fromDocId, from);
-			const toMetrics = to.getMetrics();
-			const mapped = mapScrollByContent(
-				{
-					...fromMetrics,
-					scrollLeft: fromPosition.x,
-					scrollTop: fromPosition.y,
-				},
-				toMetrics,
-			);
-			if (!mapped) return;
-			const toElement = getScrollSyncElement(targetDocId);
-			const current = {
-				x: toElement ? toElement.scrollLeft : toMetrics.scrollLeft,
-				y: toElement ? toElement.scrollTop : toMetrics.scrollTop,
-			};
-			const next = mergeSyncedScrollPosition(mapped, current, changed);
-			// Skip sub-pixel no-ops so paired scroll events do not fight each other.
-			if (
-				Math.abs(current.x - next.x) < 0.5 &&
-				Math.abs(current.y - next.y) < 0.5
-			) {
-				return;
-			}
-			commandedScroll.set(targetDocId, next);
-			observedScroll.set(targetDocId, next);
-			to.scrollTo(next);
-		};
-
-		const scheduleScroll = (
-			from: ScrollSyncPeer,
-			fromDocId: string,
-			to: ScrollSyncPeer,
-			targetDocId: string,
-			changed: { x: boolean; y: boolean },
-		) => {
-			if (pendingScroll) {
-				pendingScroll = {
-					from,
-					fromDocId,
-					to,
-					targetDocId,
-					changed: {
-						x: pendingScroll.changed.x || changed.x,
-						y: pendingScroll.changed.y || changed.y,
-					},
-				};
-			} else {
-				pendingScroll = { from, fromDocId, to, targetDocId, changed };
-			}
-			if (scrollFrame != null) return;
-			scrollFrame = requestAnimationFrame(() => {
-				scrollFrame = null;
-				const next = pendingScroll;
-				pendingScroll = null;
-				if (!next || cancelled) return;
-				applyScrollNow(
-					next.from,
-					next.fromDocId,
-					next.to,
-					next.targetDocId,
-					next.changed,
-				);
-			});
+		const releaseSettleHold = (targetDocId: string) => {
+			settleHolds.get(targetDocId)?.();
+			settleHolds.delete(targetDocId);
 		};
 
 		/**
-		 * Realign the target's scroll after a zoom change. The zoom level lands
-		 * synchronously, but the target's content metrics only settle once the
-		 * Scroller re-renders, so poll until the geometry stops changing (and,
-		 * when we commanded the zoom, until it has actually changed once), then
-		 * map the initiator's viewport center into content coordinates. A newer
-		 * reconcile supersedes an older one via the per-doc token.
+		 * Realign after a zoom change. The level lands synchronously, but the
+		 * target's content box only settles once the Scroller re-renders, so
+		 * poll until that geometry stops changing. Scroll events on the target
+		 * during this window are the zoom anchor, not a new gesture.
 		 */
 		const reconcileAfterZoom = (
-			from: ScrollSyncPeer,
 			fromDocId: string,
 			to: ScrollSyncPeer,
 			targetDocId: string,
@@ -304,7 +171,8 @@ export function usePdfScrollSync(docId: string): void {
 		) => {
 			const token = (settleTokens.get(targetDocId) ?? 0) + 1;
 			settleTokens.set(targetDocId, token);
-			settlingDocs.add(targetDocId);
+			releaseSettleHold(targetDocId);
+			settleHolds.set(targetDocId, holdScrollSync(targetDocId));
 			let frames = 0;
 			let lastHeight = -1;
 			let lastWidth = -1;
@@ -332,11 +200,8 @@ export function usePdfScrollSync(docId: string): void {
 					(zoomApplied && sawResize && stableFrames >= 1) ||
 					frames >= MAX_ZOOM_SETTLE_FRAMES
 				) {
-					settlingDocs.delete(targetDocId);
-					applyScrollNow(from, fromDocId, to, targetDocId, {
-						x: true,
-						y: true,
-					});
+					releaseSettleHold(targetDocId);
+					alignScrollSyncFrom(fromDocId, true);
 					return;
 				}
 				requestAnimationFrame(step);
@@ -350,7 +215,6 @@ export function usePdfScrollSync(docId: string): void {
 		 * per step on the main thread for an alignment that keeps moving.
 		 */
 		const applyZoom = (
-			from: ScrollSyncPeer,
 			fromDocId: string,
 			to: ScrollSyncPeer,
 			targetDocId: string,
@@ -359,84 +223,45 @@ export function usePdfScrollSync(docId: string): void {
 			if (cancelled) return;
 			if (!Number.isFinite(nextZoom) || nextZoom <= 0) return;
 			// Levels already match: this is either the echo of a zoom we
-			// commanded or a genuine no-op step. Either way the zoom plugin has
-			// re-anchored the initiator's own scroll, and that realignment
-			// reaches the partner through the normal scroll-event path.
+			// commanded or a genuine no-op step. The viewport mirror follows
+			// the initiator's own re-anchor.
 			if (Math.abs(to.getZoom() - nextZoom) < 0.0001) return;
-			zoomGestureActive = true;
 			if (zoomGestureTimer != null) clearTimeout(zoomGestureTimer);
 			const flush = () => {
 				zoomGestureTimer = null;
-				zoomGestureActive = false;
 				if (cancelled) return;
 				if (Math.abs(to.getZoom() - nextZoom) < 0.0001) return;
 				to.setZoom(nextZoom);
-				reconcileAfterZoom(from, fromDocId, to, targetDocId, nextZoom, true);
+				reconcileAfterZoom(fromDocId, to, targetDocId, nextZoom, true);
 			};
 			zoomGestureTimer = setTimeout(flush, ZOOM_SYNC_SETTLE_MS);
 		};
 
-		const handleScrollFrom = (
-			paneDocId: string,
-			pane: ScrollSyncPeer,
-			other: ScrollSyncPeer,
-			otherDocId: string,
-		) => {
-			const position = readPosition(paneDocId, pane);
-			const previous = observedScroll.get(paneDocId) ?? position;
-			observedScroll.set(paneDocId, position);
-			const changed = {
-				x: Math.abs(position.x - previous.x) >= 0.5,
-				y: Math.abs(position.y - previous.y) >= 0.5,
-			};
-			if (
-				cancelled ||
-				zoomGestureActive ||
-				settlingDocs.has(paneDocId) ||
-				isEchoScroll(paneDocId, pane) ||
-				(!changed.x && !changed.y)
-			) {
-				return;
-			}
-			scheduleScroll(pane, paneDocId, other, otherDocId, changed);
-		};
-
-		// Raw DOM scroll events are the primary signal: they fire for wheel,
-		// scrollbar and pan-drag writes alike, before any plugin state update.
-		const myElement = getScrollSyncElement(docId);
-		const partnerElement = getScrollSyncElement(partnerId);
-		const onMyNativeScroll = () =>
-			handleScrollFrom(docId, me, partner, partnerId);
-		const onPartnerNativeScroll = () =>
-			handleScrollFrom(partnerId, partner, me, docId);
-		myElement?.addEventListener("scroll", onMyNativeScroll, { passive: true });
-		partnerElement?.addEventListener("scroll", onPartnerNativeScroll, {
-			passive: true,
-		});
-
-		// Plugin events cover the window before the elements register (and any
-		// programmatic scrolls the plugin applies on its own).
-		const unsubscribeMyScroll = me.onScrollChange(() =>
-			handleScrollFrom(docId, me, partner, partnerId),
-		);
-		const unsubscribePartnerScroll = partner.onScrollChange(() =>
-			handleScrollFrom(partnerId, partner, me, docId),
-		);
 		const unsubscribeMyZoom = me.onZoomChange((nextZoom) => {
 			if (cancelled) return;
-			applyZoom(me, docId, partner, partnerId, nextZoom);
+			applyZoom(docId, partner, partnerId, nextZoom);
 		});
 		const unsubscribePartnerZoom = partner.onZoomChange((nextZoom) => {
 			if (cancelled) return;
-			applyZoom(partner, partnerId, me, docId, nextZoom);
+			applyZoom(partnerId, me, docId, nextZoom);
 		});
 
 		const pairKey = `${docId}::${partnerId}`;
 		let retryTimer: ReturnType<typeof setTimeout> | null = null;
+		const viewportsReady = () => {
+			const mine = getScrollSyncElement(docId);
+			const theirs = getScrollSyncElement(partnerId);
+			if (!mine || !theirs) return false;
+			return (
+				mine.clientHeight > 0 &&
+				mine.scrollHeight > 0 &&
+				theirs.clientHeight > 0 &&
+				theirs.scrollHeight > 0
+			);
+		};
 		const tryInitialSync = () => {
 			if (cancelled || initialSyncDoneRef.current === pairKey) return;
-			const mapped = mapScrollByContent(me.getMetrics(), partner.getMetrics());
-			if (!mapped) {
+			if (!viewportsReady()) {
 				retryTimer = setTimeout(tryInitialSync, 100);
 				return;
 			}
@@ -444,9 +269,9 @@ export function usePdfScrollSync(docId: string): void {
 			const nextZoom = me.getZoom();
 			if (Math.abs(partner.getZoom() - nextZoom) >= 0.0001) {
 				partner.setZoom(nextZoom);
-				reconcileAfterZoom(me, docId, partner, partnerId, nextZoom, true);
+				reconcileAfterZoom(docId, partner, partnerId, nextZoom, true);
 			} else {
-				reconcileAfterZoom(me, docId, partner, partnerId, nextZoom, false);
+				alignScrollSyncFrom(docId, true);
 			}
 		};
 		tryInitialSync();
@@ -455,11 +280,8 @@ export function usePdfScrollSync(docId: string): void {
 			cancelled = true;
 			if (retryTimer) clearTimeout(retryTimer);
 			if (zoomGestureTimer != null) clearTimeout(zoomGestureTimer);
-			if (scrollFrame != null) cancelAnimationFrame(scrollFrame);
-			myElement?.removeEventListener("scroll", onMyNativeScroll);
-			partnerElement?.removeEventListener("scroll", onPartnerNativeScroll);
-			unsubscribeMyScroll();
-			unsubscribePartnerScroll();
+			for (const release of settleHolds.values()) release();
+			settleHolds.clear();
 			unsubscribeMyZoom();
 			unsubscribePartnerZoom();
 		};
