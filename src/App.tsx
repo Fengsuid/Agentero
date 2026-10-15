@@ -7,7 +7,7 @@
  */
 
 import { FolderOpen } from "lucide-react";
-import { Fragment, useEffect } from "react";
+import { Fragment, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { OnboardingRoot } from "@/components/onboarding/onboarding-root";
 import { AppDialogs } from "@/components/shell/app-dialogs";
@@ -75,6 +75,7 @@ import {
 	toggleSettingsWindow,
 } from "@/lib/shell/settings-window";
 import {
+	type LayoutMode,
 	layout,
 	openPalette,
 	setLayoutMode,
@@ -150,6 +151,11 @@ function AppTitleBar() {
 	const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
 	const rightSidebarOpen = useUiStore((s) => s.rightSidebarOpen);
 	const layoutMode = useUiStore((s) => s.layoutMode);
+	// PERF: stable identity — an inline arrow would break TitleBar's memo.
+	const applyLayoutMode = useCallback(
+		(mode: Exclude<LayoutMode, "custom">) => layout()?.applyLayoutMode(mode),
+		[],
+	);
 
 	return (
 		<TitleBar
@@ -160,7 +166,7 @@ function AppTitleBar() {
 			layoutMode={layoutMode}
 			onToggleSidebar={toggleSidebar}
 			onToggleAgent={toggleChat}
-			onApplyLayoutMode={(mode) => layout()?.applyLayoutMode(mode)}
+			onApplyLayoutMode={applyLayoutMode}
 			onOpenSettings={openSettingsWindow}
 		/>
 	);
