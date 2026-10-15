@@ -12,6 +12,7 @@ use crate::features::paper::capabilities::find_local_pdf;
 use crate::features::paper::catalog::papers::{self, PaperRecord};
 use crate::features::pdf::layout_index::{self, RawLayout, RawLayoutRegion};
 use crate::fs::{normalize_rel, sanitize_vault_rel};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub struct ContextSession {
@@ -1281,13 +1282,12 @@ fn read_excerpt(path: &Path, quote: &str, limit: usize) -> Result<String, AppErr
 }
 
 fn fs_read_capped(path: &Path, max_bytes: usize) -> Result<String, AppError> {
-    let bytes = std::fs::read(path)
+    let file = std::fs::File::open(path)
         .map_err(|error| AppError::message(format!("read {}: {error}", path.display())))?;
-    let bytes = if bytes.len() > max_bytes {
-        &bytes[..max_bytes]
-    } else {
-        &bytes
-    };
+    let mut bytes = Vec::new();
+    file.take(max_bytes as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| AppError::message(format!("read {}: {error}", path.display())))?;
     let end = (0..=bytes.len())
         .rev()
         .find(|index| std::str::from_utf8(&bytes[..*index]).is_ok())
@@ -1519,6 +1519,22 @@ mod tests {
         let card = result.evidence.first().unwrap();
         assert!(card.excerpt.contains("LATE-QUOTE-MARKER"));
         assert!(card.excerpt.chars().count() <= 4_000);
+    }
+
+    #[test]
+    fn capped_read_stops_at_max_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.txt");
+        let mut file = fs::File::create(&path).unwrap();
+        let chunk = vec![b'a'; 64 * 1024];
+        for _ in 0..8 {
+            std::io::Write::write_all(&mut file, &chunk).unwrap();
+        }
+        std::io::Write::write_all(&mut file, b"TAIL-MARKER").unwrap();
+        let text = fs_read_capped(&path, 1000).unwrap();
+        assert!(text.len() <= 1000);
+        assert!(!text.contains("TAIL-MARKER"));
+        assert!(text.chars().all(|ch| ch == 'a'));
     }
 
     #[test]
