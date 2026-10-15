@@ -13,7 +13,7 @@ PDFium engine 由窗口共享。默认优先 **worker 引擎**（PDFium WASM 跑
 
 光栅化分辨率分两层封顶：整页底图 `RenderLayer` 按 `min(devicePixelRatio, 1.5)`（`pdfRasterDpr`）出图——高 DPI 屏全 dpr 光栅会让每次缩放重渲染过重；高清瓦片 `TilingLayer` 是用户实际阅读的层，按 `min(devicePixelRatio, 2)`（`pdfTileDpr`）出图，HiDPI 屏小字号保持清晰，瓦片只覆盖视口 + 一圈故成本有界（`TilingLayer` 的 `dpr` 属性由 `@embedpdf/plugin-tiling` patch 提供）。Agent 区域裁剪走 `renderPageRect`，不受封顶影响。
 
-`RenderLayer` 只是瓦片下的底图层，其 scale 另按 `PDF_BASE_LAYER_SCALE_CAP`（1.5）封顶：zoom 超过该值后整页光栅不再重渲染（单 worker 串行渲染下，长文档高倍缩放的整页光栅 + blob 传输是主要开销），清晰层由 `TilingLayer` 承担。瓦片 `tileSize: 1024` + `extraRings: 1`，减少长文档快速滚动时的渲染往返与边缘弹出。
+`RenderLayer` 只是瓦片下的底图层，其 scale 另按 `PDF_BASE_LAYER_SCALE_CAP`（1.5）封顶：zoom 超过该值后整页光栅不再重渲染（单 worker 串行渲染下，长文档高倍缩放的整页光栅 + blob 传输是主要开销），清晰层由 `TilingLayer` 承担。底图在下一张光栅提交之前一直留在页面上（含滚出缓冲后再次挂载），不再在 blob 返回前把页面撤成空白。瓦片 `tileSize: 1024` + `extraRings: 1`，减少长文档快速滚动时的渲染往返与边缘弹出。
 
 带 `/Rotate` 的页面：Document Manager 以 `normalizeRotation: true` 打开时，PDFium 返回的 `page.size` 是**未旋转内容空间**（MediaBox）的尺寸，`page.rotation` 保留 `/Rotate` 元数据——滚动布局、瓦片与底图光栅都按上游公式 `((page.rotation ?? 0) + coreDoc.rotation) % 4` 计算有效旋转，光栅只有叠加该旋转后才是正立显示。`renderPage` 内层 `PdfPageLayers` 使用 `PageLayout.rotatedWidth` / `rotatedHeight`（含 `/Rotate` 与手动旋转后的显示尺寸），第 90°/270° 页按横版页框呈现正立内容。该引擎语义由 `test/pdf-page-rotation.test.ts` 固化，改动旋转接线前先读它。`TilingLayer` 的 `dpr` 属性、瓦片占位与瓦片旋转接线由 `@embedpdf/plugin-tiling` patch 提供：`renderTile` 把有效旋转传给引擎（否则 `/Rotate` 页瓦片内容侧躺），`TileImg` 用 `transformRect` 把未旋转空间的 `screenRect` 变换到旋转后容器再摆放（否则竖版瓦片几何溢出横版页框，视觉上两页重叠）。补丁包在 `vite.config.ts` 里排除了依赖预构建，避免 dev 一直吃到发布包的旧副本；patch 更新后长驻 vite 仍会按旧 patch hash 路径缓存已加载模块，需重启 dev 进程才能生效。
 

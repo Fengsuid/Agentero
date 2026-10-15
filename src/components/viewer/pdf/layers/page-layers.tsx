@@ -67,6 +67,7 @@ import { CommentCardsLayer } from "@/components/viewer/pdf/layers/comment-cards-
 import { HighlightAnnotationMenu } from "@/components/viewer/pdf/layers/highlight-annotation-menu";
 import { LayoutTranslateOverlay } from "@/components/viewer/pdf/layers/layout-translate-overlay";
 import { PASSIVE_LINK_RENDERER } from "@/components/viewer/pdf/layers/link-annotation";
+import { pageBitmapCache } from "@/components/viewer/pdf/layers/page-bitmap-cache";
 import { PdfTextSelectionLayer } from "@/components/viewer/pdf/layers/pdf-text-selection-layer";
 import { PdfRegionSelectLayer } from "@/components/viewer/pdf/layers/region-select-layer";
 import { SelectionGutter } from "@/components/viewer/pdf/layers/selection-gutter";
@@ -324,8 +325,12 @@ function AgenteroRenderLayer({
 }: AgenteroRenderLayerProps) {
 	const { provides: renderProvides } = useRenderCapability();
 	const documentState = useDocumentState(documentId);
-	const [imageUrl, setImageUrl] = useState<string | null>(null);
-	const urlRef = useRef<string | null>(null);
+	const cacheId = `${documentId}:${pageIndex}`;
+	const [imageUrl, setImageUrl] = useState<string | null>(() =>
+		pageBitmapCache.retain(cacheId),
+	);
+	const pinnedId = useRef(cacheId);
+	const retiredRef = useRef<string[]>([]);
 	const refreshVersion = useMemo(() => {
 		if (!documentState) return 0;
 		return documentState.pageRefreshVersions[pageIndex] || 0;
@@ -344,8 +349,35 @@ function AgenteroRenderLayer({
 	);
 
 	useEffect(() => {
+		const id = `${documentId}:${pageIndex}`;
+		if (pinnedId.current !== id) {
+			pageBitmapCache.release(pinnedId.current);
+			pinnedId.current = id;
+			setImageUrl(pageBitmapCache.retain(id));
+		}
+		return () => {
+			pageBitmapCache.release(id);
+			pinnedId.current = "";
+		};
+	}, [documentId, pageIndex]);
+
+	useEffect(() => {
+		const retired = retiredRef.current;
+		if (retired.length === 0) return;
+		retiredRef.current = [];
+		for (const url of retired) {
+			if (url !== imageUrl) URL.revokeObjectURL(url);
+		}
+	}, [imageUrl]);
+
+	const renderKey = `${actualScale}|${actualDpr}|${rotation}|${refreshVersion}`;
+
+	useEffect(() => {
 		if (!renderProvides) return;
-		void refreshVersion;
+		const id = `${documentId}:${pageIndex}`;
+		if (pageBitmapCache.matches(id, renderKey)) return;
+		let settled = false;
+		let cancelled = false;
 		const task = renderProvides.forDocument(documentId).renderPage({
 			pageIndex,
 			options: {
@@ -355,16 +387,19 @@ function AgenteroRenderLayer({
 			},
 		});
 		task.wait((blob) => {
+			settled = true;
+			if (cancelled) return;
 			const url = URL.createObjectURL(blob);
+			retiredRef.current.push(
+				...pageBitmapCache
+					.store(id, url, renderKey)
+					.filter((old) => old !== url),
+			);
 			setImageUrl(url);
-			urlRef.current = url;
 		}, ignore);
 		return () => {
-			if (urlRef.current) {
-				URL.revokeObjectURL(urlRef.current);
-				urlRef.current = null;
-				return;
-			}
+			cancelled = true;
+			if (settled) return;
 			task.abort({
 				code: PdfErrorCode.Cancelled,
 				message: "canceled render task",
@@ -377,14 +412,8 @@ function AgenteroRenderLayer({
 		actualDpr,
 		rotation,
 		renderProvides,
-		refreshVersion,
+		renderKey,
 	]);
-
-	const handleImageLoad = () => {
-		if (!urlRef.current) return;
-		URL.revokeObjectURL(urlRef.current);
-		urlRef.current = null;
-	};
 
 	if (!imageUrl) return null;
 	return (
@@ -393,7 +422,6 @@ function AgenteroRenderLayer({
 			alt=""
 			aria-hidden="true"
 			draggable={false}
-			onLoad={handleImageLoad}
 			className={className}
 			style={{ width: "100%", height: "100%", ...style }}
 		/>
