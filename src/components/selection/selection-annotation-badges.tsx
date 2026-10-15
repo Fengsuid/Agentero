@@ -23,6 +23,8 @@ export function AnnotationBadges() {
 		Record<string, { x: number; y: number }>
 	>({});
 	useEffect(() => {
+		// No bound selections: nothing to position, so do not observe at all.
+		if (!binding?.selections?.length) return;
 		let frame = 0;
 		const measure = () => {
 			const next: typeof positions = {};
@@ -120,16 +122,21 @@ export function AnnotationBadges() {
 			frame = requestAnimationFrame(measure);
 		};
 		schedule();
-		window.addEventListener("scroll", schedule, true);
+		const scrollListenerOptions: AddEventListenerOptions = {
+			capture: true,
+			passive: true,
+		};
+		window.addEventListener("scroll", schedule, scrollListenerOptions);
 		window.addEventListener("resize", schedule);
 		// Source edits, panel resizing and virtualization can move ranges without a window resize.
+		// `characterData` is deliberately omitted: it fires on every keystroke in the
+		// notes editor, and the next scroll/resize/structural change re-measures.
 		const observer = new MutationObserver(schedule);
 		const resize = new ResizeObserver(schedule);
 		resize.observe(document.body);
 		observer.observe(document.body, {
 			childList: true,
 			subtree: true,
-			characterData: true,
 		});
 		for (const surface of document.querySelectorAll(
 			"[data-selection-chat-source], [data-annotation-pdf]",
@@ -137,7 +144,6 @@ export function AnnotationBadges() {
 			observer.observe(surface, {
 				childList: true,
 				subtree: true,
-				characterData: true,
 			});
 			resize.observe(surface);
 		}
@@ -145,7 +151,7 @@ export function AnnotationBadges() {
 			cancelAnimationFrame(frame);
 			observer.disconnect();
 			resize.disconnect();
-			window.removeEventListener("scroll", schedule, true);
+			window.removeEventListener("scroll", schedule, scrollListenerOptions);
 			window.removeEventListener("resize", schedule);
 		};
 	}, [binding]);
