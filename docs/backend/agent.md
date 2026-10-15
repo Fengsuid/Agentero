@@ -24,15 +24,15 @@ Agentero 作为 **ACP Client**，stdio JSON-RPC 连接用户本机或远端 Agen
   scratch，远端沿用目标自己的 Vault；SSH 路径不在本机检查。local-sim 新建连接前验证
   目录存在，失效时明确报错，不悄悄切到 scratch。
 - **Windows 保留既有 cwd 策略**：仅 Pi / Custom 的 run / warm / list / load 使用 `cmd /D /C`
-  切换目录，探针不增加 cwd 包装。原生 `.exe` 直启；npm 等 `.cmd` / `.bat` shim 经显式
-  `cmd /D /S /C` 执行。UNC Vault 不推广 `cd /d` 包装。
-- **Windows ACP 进程树归宿主管理**：run / warm / probe / history 共用 `acp/process.rs`，
-  通过 `windows-spawn` 的 `PROC_THREAD_ATTRIBUTE_JOB_LIST` 在创建进程时原子绑定独立的
-  Job Object，并设置 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`。Job handle 不向子进程继承，
-  连接结束/取消时终止整个 Job；宿主被强杀或崩溃时由内核回收该 Job 中的进程树。
-  Job 创建或绑定失败直接报启动错误，不退回无保护的启动路径。
-  `ExitRequested` / `Exit` 同步关闭 warm 池并终止所有 ACP Job（含预热中、已借出及冷连接），
-  不依赖 Tauri static async runtime 的析构。
+  切换目录，探针不增加 cwd 包装。原生 `.exe` 和 npm `.cmd` / `.bat` shim 的启动交给
+  ACP SDK。UNC Vault 不推广 `cd /d` 包装。
+- **Windows ACP 使用 SDK 启动**：run / warm / probe / history 均使用
+  `agent-client-protocol::AcpAgent`。自定义 `windows-spawn` / Job transport 因环境变量名称
+  含 `=` 时拒绝启动而回退（Windows 的 `=C:` 等特殊条目可能触发；见
+  [故障记录](../bug_fix/windows-acp-orphan-processes.md)）。`ExitRequested` / `Exit` 仍关闭
+  warm 池；SDK 1.3.0 在 Windows 只结束直接子进程，launcher 后代与宿主异常退出后的
+  ACP 进程可能残留，无法保证退出时完整回收。该限制由
+  [#774](https://github.com/poco-ai/Agentero/issues/774) 跟踪，后续评估 SDK 的 Windows 进程树能力。
 - Windows Pi / Custom 包装的 cwd 与完整 Agent 命令通过环境变量展开，cwd 始终携带双引号，
   防止无空格路径中的括号等 CMD 元字符被当作语法；盘符扩展前缀再幂等剥除一次（#458）。
   该旧包装仍不支持 UNC cwd，不能将其他模板保持直启等同于所有 Windows Agent 都支持 UNC。
@@ -232,9 +232,9 @@ prompt，结束后仍受 TTL 与退出清理约束。setup 总预算为 60 秒�
 取消后台任务，禁止迟到发布；错误/超时返回前等待任务完成回收。
 slot 替换、evict 和 shutdown 均有独立取消 token，不依赖 slot 是否还在池中。
 若 Agent 声明 `sessionCapabilities.delete`，未使用的空会话在 teardown 时尝试删除；
-取消清理最多允许 1 秒，之后无论 RPC 是否响应均丢弃连接并终止进程树。
-旧版本已产生的孤儿不属于新 Job，升级不会自动按进程名杀掉其他宿主的 Agent；需一次性确认
-路径与归属后清理。远端 SSH Agent 的宿主外进程不受本机 Windows Job 约束。
+取消清理最多允许 1 秒，之后无论 RPC 是否响应均丢弃连接，由 SDK 执行进程清理：
+Unix 终止进程组，Windows 仅结束直接子进程。已有残留不会按进程名自动清扫，需确认路径与
+归属后清理。Windows 完整进程树回收仍为已知限制（#774）；SSH 远端宿主的进程需独立管理。
 
 Kimi Code ACP 会把 `Bash`/`Glob`/`Grep` 等工具实现为 `terminal/create`。[当前实现](https://github.com/MoonshotAI/kimi-cli/blob/main/src/kimi_cli/acp/tools.py)
 会把完整 shell 文本放进 `command`；Host 对可解析的可执行文件继续按 `command + args`

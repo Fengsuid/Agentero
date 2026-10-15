@@ -1,5 +1,25 @@
 # Windows ACP 孤儿进程累积
 
+## 当前状态（2026-10-15）
+
+为恢复 Windows ACP 启动兼容性，已定向回退 `5f841360` 引入的自定义 Windows
+`windows-spawn` / Job transport，所有平台恢复使用 `agent-client-protocol::AcpAgent`。
+预热超时取消、目标切换回收、阻止迟到发布和退出关闭 warm 池仍保留。
+
+回退原因：[#772](https://github.com/poco-ai/Agentero/issues/772) 报告 Windows 11 / 0.11.8
+的 OpenCode ACP 启动报 `Internal error`，底层为
+``environment variable name must not contain `=` ``。`windows-spawn 0.1.0` 会拒绝显式设置
+名称含 `=` 的变量，而 `build_child_env()` 会读取并重设当前进程环境。Windows 可能包含
+`=C:` / `=D:` 等盘符当前目录条目，Rust 会读出这些名称；报错机器上的具体变量尚未确认。
+反馈中通过过滤名称含 `=` 的环境变量再启动应用可恢复 OpenCode，与上述链路一致。
+SDK 使用标准库进程启动路径，兼容这些 Windows 特殊条目。回归用例
+`sdk_launch_accepts_windows_drive_env_and_batch_shims` 覆盖特殊名称及带空格路径/参数的 `.cmd`。
+
+**已知限制仍存在**：SDK 1.3.0 在 Windows 只结束直接子进程，launcher 后代可能残留；
+宿主崩溃/强杀及正常退出时未析构的连接也没有完整进程树清理保证。
+由 [#774](https://github.com/poco-ai/Agentero/issues/774) 跟踪，后续评估 SDK 的 Windows
+进程树回收能力；不按进程名批量杀进程。以下保留原始修复设计和历史验证记录。
+
 ## 现象与原因
 
 Windows 上 ACP 适配器在应用退出、warm setup 超时和连接替换后可能留在后台，
@@ -11,7 +31,7 @@ Windows 上 ACP 适配器在应用退出、warm setup 超时和连接替换后�
 无法回收 launcher 后面的 Agent 及其后代。`warm_agent` 的 60 秒 timeout 原先
 仅限制接收 setup 结果，后台任务仍可迟到发布进池。
 
-## 修复
+## 历史修复（Job transport 已回退）
 
 - Windows 的所有 ACP 入口共用 `acp/process.rs`，继续使用 SDK 的 `Lines` JSON-RPC
   transport，启动由 `windows-spawn` 管理。每个连接拥有独立 Job，通过
@@ -30,7 +50,7 @@ Job 机制见 [Microsoft Job Objects](https://learn.microsoft.com/en-us/windows/
 原子创建机制见 [Create a process in a Job](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812)。
 日常运行边界见 [Agent 后端文档](../backend/agent.md)。
 
-## 回归验证
+## 原修复的回归验证（历史记录）
 
 ```powershell
 cargo check -p agentero --lib
