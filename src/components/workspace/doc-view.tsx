@@ -253,6 +253,18 @@ export const DocView = memo(function DocView({
 		(list: PdfVisualSessionTrace[]) => pdf.onVisualTracesChange(tab.id, list),
 		[pdf, tab.id],
 	);
+	const isNotes = tabIsPaperNotes(tab);
+	// Stable identity: an inline lambda here is a new prop on every DocView
+	// render, which defeats the memo boundary around MarkdownEditor.
+	const handleEditorDirtyChange = useCallback(
+		(dirty: boolean) => {
+			editor.onTabPatch(
+				tab.id,
+				isNotes ? { notesDirty: dirty } : { markdownDirty: dirty },
+			);
+		},
+		[editor.onTabPatch, isNotes, tab.id],
+	);
 	if (tab.texCompiling) {
 		return <TexCompilingPlaceholder />;
 	}
@@ -299,7 +311,6 @@ export const DocView = memo(function DocView({
 			</Suspense>
 		);
 	}
-	const isNotes = tabIsPaperNotes(tab);
 	if (tab.mode === "markdown") {
 		// PERF: same keep-alive gate as PDF. Dockview keeps the panel shell
 		// mounted (`renderer: 'always'` in dock-workspace); the workspace host
@@ -335,12 +346,7 @@ export const DocView = memo(function DocView({
 						onPersist={editor.onPersistFile}
 						onAssetsChanged={editor.onAssetsChanged}
 						onRenameHeading={editor.onRenameHeading}
-						onDirtyChange={(d) =>
-							editor.onTabPatch(
-								tab.id,
-								isNotes ? { notesDirty: d } : { markdownDirty: d },
-							)
-						}
+						onDirtyChange={handleEditorDirtyChange}
 					/>
 				</Suspense>
 			</div>

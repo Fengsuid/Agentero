@@ -9,6 +9,7 @@ import {
 	type CSSProperties,
 	type KeyboardEvent,
 	lazy,
+	memo,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -185,7 +186,12 @@ function selectEnclosingTopBlock(
 	return selectTopLevelBlockThenAll(editor, path);
 }
 
-export function MarkdownEditor({
+/**
+ * Memoized on its props: the workspace re-renders every pane's DocView on
+ * tab patches (active tab, dirty flags, PDF compile state), and an
+ * unmemoized editor paid a full Plate reconcile each time.
+ */
+export const MarkdownEditor = memo(function MarkdownEditor({
 	initialMarkdown,
 	reloadKey,
 	filePath,
@@ -996,4 +1002,4 @@ export function MarkdownEditor({
 			</MarkdownDocProvider>
 		</WikiEmbedProjectionProvider>
 	);
-}
+});

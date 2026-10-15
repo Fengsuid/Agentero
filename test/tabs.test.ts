@@ -136,6 +136,16 @@ describe("patchTab", () => {
 		expect(next[0]?.title).toBe("A");
 		expect(next[1]?.loaded).toBe(false);
 	});
+
+	it("keeps array and tab identity for a no-op patch", () => {
+		// DocView's memo compares `tab` by reference: a fresh object per
+		// no-op patch re-rendered every pane's editor.
+		const start = [makeTab("/vault/a.md", { notesDirty: true })];
+		expect(patchTab(start, "/vault/a.md", { notesDirty: true })).toBe(start);
+		expect(
+			patchTab(start, "/vault/a.md", { navigationIntent: undefined }),
+		).toBe(start);
+	});
 });
 
 describe("patchFromTabResources", () => {

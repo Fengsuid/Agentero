@@ -243,7 +243,23 @@ export function patchTab(
 	id: string,
 	patch: Partial<DocTab>,
 ): DocTab[] {
-	return prev.map((t) => (t.id === id ? { ...t, ...patch } : t));
+	const idx = prev.findIndex((t) => t.id === id);
+	if (idx < 0) return prev;
+	const current = prev[idx];
+	// No-op patches (e.g. notesDirty: true → true) must keep the array and the
+	// tab identity: DocView's memo compares `tab` by reference, so minting a
+	// fresh object per patch re-rendered every pane's editor.
+	let changed = false;
+	for (const key of Object.keys(patch) as (keyof DocTab)[]) {
+		if (current[key] !== patch[key]) {
+			changed = true;
+			break;
+		}
+	}
+	if (!changed) return prev;
+	const next = prev.slice();
+	next[idx] = { ...current, ...patch };
+	return next;
 }
 
 /**
