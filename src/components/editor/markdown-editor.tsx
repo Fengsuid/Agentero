@@ -788,7 +788,12 @@ export function MarkdownEditor({
 												if (el) scrollTopRef.current = el.scrollTop;
 												// Reposition instead of hard-dismiss: arrow-key list
 												// updates can reflow and fire scroll without leaving [[.
-												scheduleCompletionProbe();
+												// Only probe while a menu is open — the probe reads the
+												// DOM and walks the editor tree, which per scroll event
+												// makes scrollbar dragging janky on large notes.
+												if (wikiCompletionDraft || slashCommandDraft) {
+													scheduleCompletionProbe();
+												}
 											}}
 											onMouseDownCapture={(event) => {
 												if (
