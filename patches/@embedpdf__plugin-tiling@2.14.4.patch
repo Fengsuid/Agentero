@@ -1,8 +1,6 @@
-diff --git a/dist/index.js b/dist/index.js
-index 3d0dffcc5fb002f876721fc672076bafcd15e13a..47ec88ce473b08fef0444577a26df1208117b19f 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -172,7 +172,7 @@ function calculateTilesForPage({
+@@ -172,7 +172,7 @@
        const yPage = yScreen / scale;
        const hPage = hScreen / scale;
        tiles.push({
@@ -11,17 +9,55 @@ index 3d0dffcc5fb002f876721fc672076bafcd15e13a..47ec88ce473b08fef0444577a26df120
          col,
          row,
          pageRect: { origin: { x: xPage, y: yPage }, size: { width: wPage, height: hPage } },
-@@ -314,6 +314,9 @@ const _TilingPlugin = class _TilingPlugin extends BasePlugin {
+@@ -314,20 +314,103 @@
      if (!this.renderCapability) {
        throw new Error("Render capability not available.");
      }
+-    this.dispatch(markTileStatus(id, options.pageIndex, options.tile.id, "rendering"));
 +    const coreDoc = this.getCoreDocument(id);
 +    const page = coreDoc == null ? void 0 : coreDoc.document?.pages[options.pageIndex];
 +    const effectiveRotation = page ? ((page.rotation ?? 0) + (coreDoc.rotation ?? 0)) % 4 : 0;
-     this.dispatch(markTileStatus(id, options.pageIndex, options.tile.id, "rendering"));
++    const mark = (status) => this.dispatch(markTileStatus(id, options.pageIndex, options.tile.id, status));
++    // Dual-pane viewers share one PDFium worker. A second pane, or a remount
++    // of a tile that scrolled off, reuses the bitmap instead of rasterizing again.
++    const hooks = globalThis.__agenteroPdfScroll;
++    const shareKey = hooks && hooks.tileBlobs && typeof hooks.tileBitmapShareKey === "function"
++      ? hooks.tileBitmapShareKey(id, options.tile.id, options.dpr)
++      : null;
++    if (shareKey) {
++      const waiter = { resolve: () => {}, reject: () => {} };
++      const claim = hooks.tileBlobs.claim(shareKey, waiter);
++      if (claim.kind === "cached") {
++        mark("ready");
++        const blob = claim.value;
++        return {
++          wait(ok) {
++            ok(blob);
++          },
++          abort() {}
++        };
++      }
++      if (claim.kind === "follow") {
++        return {
++          wait(ok, err) {
++            waiter.resolve = (blob) => {
++              mark("ready");
++              ok(blob);
++            };
++            waiter.reject = (error) => {
++              if (err) err(error);
++            };
++          },
++          abort() {
++            hooks.tileBlobs.cancelFollow(shareKey, waiter);
++          }
++        };
++      }
++    }
++    mark("rendering");
      const task = this.renderCapability.forDocument(id).renderPageRect({
        pageIndex: options.pageIndex,
-@@ -321,6 +324,7 @@ const _TilingPlugin = class _TilingPlugin extends BasePlugin {
+       rect: options.tile.pageRect,
        options: {
          scaleFactor: options.tile.srcScale,
          dpr: options.dpr,
@@ -29,11 +65,62 @@ index 3d0dffcc5fb002f876721fc672076bafcd15e13a..47ec88ce473b08fef0444577a26df120
          ...options.imageType || this.config.defaultImageType ? { imageType: options.imageType ?? this.config.defaultImageType } : {}
        }
      });
-diff --git a/dist/react/index.js b/dist/react/index.js
-index 52e594b7e89dd516c5bb67e8eee07ddb0ef7c48f..2d60753d839a3d31d51395db65b918f1e5dcd6ba 100644
+-    task.wait(() => {
+-      this.dispatch(markTileStatus(id, options.pageIndex, options.tile.id, "ready"));
+-    }, ignore);
+-    return task;
++    if (!shareKey) {
++      task.wait(() => {
++        mark("ready");
++      }, ignore);
++      return task;
++    }
++    let aborted = false;
++    let settled = null;
++    let leadOk = null;
++    let leadErr = null;
++    const deliver = () => {
++      if (aborted || !settled) return;
++      if (settled.blob !== void 0 && leadOk) {
++        const blob = settled.blob;
++        settled = null;
++        leadOk(blob);
++        return;
++      }
++      if (settled.error !== void 0 && leadErr) {
++        const error = settled.error;
++        settled = null;
++        leadErr(error);
++      }
++    };
++    task.wait((blob) => {
++      hooks.tileBlobs.publish(shareKey, blob);
++      mark("ready");
++      settled = { blob };
++      deliver();
++    }, (error) => {
++      hooks.tileBlobs.fail(shareKey, error);
++      settled = { error };
++      deliver();
++    });
++    return {
++      wait(ok, err) {
++        leadOk = ok;
++        leadErr = err;
++        deliver();
++      },
++      abort(reason) {
++        aborted = true;
++        // A follower still waiting on this bitmap keeps the PDFium task alive.
++        if (hooks.tileBlobs.cancelLead(shareKey)) task.abort(reason);
++      }
++    };
+   }
+ };
+ _TilingPlugin.id = "tiling";
 --- a/dist/react/index.js
 +++ b/dist/react/index.js
-@@ -3,10 +3,10 @@ import { TilingPlugin } from "@embedpdf/plugin-tiling";
+@@ -3,10 +3,10 @@
  export * from "@embedpdf/plugin-tiling";
  import { jsx } from "react/jsx-runtime";
  import { useMemo, useState, useRef, useEffect } from "react";
@@ -46,8 +133,85 @@ index 52e594b7e89dd516c5bb67e8eee07ddb0ef7c48f..2d60753d839a3d31d51395db65b918f1
    const { provides: tilingCapability } = useTilingCapability();
    const scope = useMemo(
      () => tilingCapability == null ? void 0 : tilingCapability.forDocument(documentId),
-@@ -43,6 +43,22 @@ function TileImg({ documentId, pageIndex, tile, dpr, scale }) {
-     }
+@@ -18,31 +18,89 @@
+   useEffect(() => {
+     if (tile.status === "ready" && urlRef.current) return;
+     if (!scope) return;
++    const hooks = globalThis.__agenteroPdfScroll;
++    const shareKey = hooks && hooks.tileUrls && typeof hooks.tileBitmapShareKey === "function"
++      ? hooks.tileBitmapShareKey(documentId, tile.id, dpr)
++      : null;
++    const cachedUrl = shareKey ? hooks.tileUrls.get(shareKey) : void 0;
++    // Scrolling back, or the other pane, already decoded this tile. Touch the
++    // bitmap cache so its status flips to ready without a second raster when
++    // the blob is still there, and never revoke the shared URL.
++    if (cachedUrl) {
++      urlRef.current = cachedUrl;
++      setUrl(cachedUrl);
++      const task = scope.renderTile({ pageIndex, tile, dpr });
++      task.wait(() => {}, ignore);
++      return () => {
++        task.abort({
++          code: PdfErrorCode.Cancelled,
++          message: "canceled render task"
++        });
++      };
++    }
+     const task = scope.renderTile({ pageIndex, tile, dpr });
+     task.wait((blob) => {
++      const fresh = globalThis.__agenteroPdfScroll;
++      const key = fresh && fresh.tileUrls && typeof fresh.tileBitmapShareKey === "function"
++        ? fresh.tileBitmapShareKey(documentId, tile.id, dpr)
++        : null;
++      const reused = key ? fresh.tileUrls.get(key) : void 0;
++      if (reused) {
++        urlRef.current = reused;
++        setUrl(reused);
++        return;
++      }
+       const objectUrl = URL.createObjectURL(blob);
+-      urlRef.current = objectUrl;
+-      setUrl(objectUrl);
++      const kept = key ? fresh.tileUrls.putIfAbsent(key, objectUrl) : objectUrl;
++      urlRef.current = kept;
++      setUrl(kept);
+     }, ignore);
+     return () => {
+-      if (urlRef.current) {
+-        URL.revokeObjectURL(urlRef.current);
++      const current = urlRef.current;
++      const fresh = globalThis.__agenteroPdfScroll;
++      const key = fresh && fresh.tileUrls && typeof fresh.tileBitmapShareKey === "function"
++        ? fresh.tileBitmapShareKey(documentId, tile.id, dpr)
++        : null;
++      const cached = key ? fresh.tileUrls.get(key) : void 0;
++      if (current && current !== cached) {
++        URL.revokeObjectURL(current);
+         urlRef.current = null;
+-      } else {
++      } else if (!current) {
+         task.abort({
+           code: PdfErrorCode.Cancelled,
+           message: "canceled render task"
+         });
+       }
+     };
+-  }, [scope, pageIndex, tile.id]);
++  }, [scope, pageIndex, tile.id, dpr, documentId]);
+   const handleImageLoad = () => {
+-    if (urlRef.current) {
+-      URL.revokeObjectURL(urlRef.current);
+-      urlRef.current = null;
+-    }
++    const current = urlRef.current;
++    if (!current) return;
++    const hooks = globalThis.__agenteroPdfScroll;
++    const shareKey = hooks && hooks.tileUrls && typeof hooks.tileBitmapShareKey === "function"
++      ? hooks.tileBitmapShareKey(documentId, tile.id, dpr)
++      : null;
++    if (shareKey && hooks.tileUrls.get(shareKey) === current) return;
++    URL.revokeObjectURL(current);
++    urlRef.current = null;
    };
    if (!url) return null;
 +  let left = tile.screenRect.origin.x * relativeScale;
@@ -69,7 +233,7 @@ index 52e594b7e89dd516c5bb67e8eee07ddb0ef7c48f..2d60753d839a3d31d51395db65b918f1
    return /* @__PURE__ */ jsx(
      "img",
      {
-@@ -50,10 +66,10 @@ function TileImg({ documentId, pageIndex, tile, dpr, scale }) {
+@@ -50,10 +108,10 @@
        onLoad: handleImageLoad,
        style: {
          position: "absolute",
@@ -84,7 +248,7 @@ index 52e594b7e89dd516c5bb67e8eee07ddb0ef7c48f..2d60753d839a3d31d51395db65b918f1
          display: "block"
        }
      }
-@@ -63,12 +79,16 @@ function TilingLayer({
+@@ -63,12 +121,16 @@
    documentId,
    pageIndex,
    scale: scaleOverride,
@@ -101,7 +265,7 @@ index 52e594b7e89dd516c5bb67e8eee07ddb0ef7c48f..2d60753d839a3d31d51395db65b918f1
    useEffect(() => {
      if (tilingProvides) {
        return tilingProvides.onTileRendering((event) => {
-@@ -78,10 +98,58 @@ function TilingLayer({
+@@ -78,10 +140,58 @@
        });
      }
    }, [tilingProvides, documentId, pageIndex]);
@@ -160,7 +324,7 @@ index 52e594b7e89dd516c5bb67e8eee07ddb0ef7c48f..2d60753d839a3d31d51395db65b918f1
    return /* @__PURE__ */ jsx(
      "div",
      {
-@@ -89,14 +157,16 @@ function TilingLayer({
+@@ -89,14 +199,16 @@
          ...style
        },
        ...props,
@@ -180,11 +344,9 @@ index 52e594b7e89dd516c5bb67e8eee07ddb0ef7c48f..2d60753d839a3d31d51395db65b918f1
          },
          tile.id
        ))
-diff --git a/dist/shared-react/components/tiling-layer.d.ts b/dist/shared-react/components/tiling-layer.d.ts
-index b2172b0fd95b474eafc75ea8784baaf98f4bf594..ef84bef3843ae35a00049de8a549498ba17c77e8 100644
 --- a/dist/shared-react/components/tiling-layer.d.ts
 +++ b/dist/shared-react/components/tiling-layer.d.ts
-@@ -3,6 +3,7 @@ type TilingLayoutProps = Omit<HTMLAttributes<HTMLDivElement>, 'style'> & {
+@@ -3,6 +3,7 @@
      documentId: string;
      pageIndex: number;
      scale?: number;

@@ -1053,14 +1053,21 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 
 	const paperRaster = (
 		<div className="absolute inset-0 isolate">
-			<AgenteroRenderLayer
-				documentId={docId}
-				pageIndex={pageIndex}
-				scale={Math.min(zoomRef.current, PDF_BASE_LAYER_SCALE_CAP)}
-				dpr={pdfRasterDpr()}
-				className={pdfDark ? PDF_PAGE_RASTER_DARK_CLASS : undefined}
-				style={PAGE_LAYER_STYLE}
-			/>
+			{/*
+			 * Dual-pane translation already paints tiles, and the whole-page base
+			 * coat is a second PDFium job on the shared worker. The page shell
+			 * covers the gap until those tiles arrive.
+			 */}
+			{mode.translationOnly ? null : (
+				<AgenteroRenderLayer
+					documentId={docId}
+					pageIndex={pageIndex}
+					scale={Math.min(zoomRef.current, PDF_BASE_LAYER_SCALE_CAP)}
+					dpr={pdfRasterDpr()}
+					className={pdfDark ? PDF_PAGE_RASTER_DARK_CLASS : undefined}
+					style={PAGE_LAYER_STYLE}
+				/>
+			)}
 			<TilingLayer
 				documentId={docId}
 				pageIndex={pageIndex}

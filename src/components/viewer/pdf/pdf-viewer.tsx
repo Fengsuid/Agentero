@@ -146,6 +146,7 @@ import {
 	wikiTargetForPaper,
 } from "@/lib/pdf/annotation-ref";
 import { embedPdfDocumentId } from "@/lib/pdf/document-id";
+import { noteTileBitmapDocument } from "@/lib/pdf/dual-pane-scroll";
 import {
 	HIGHLIGHT_HEX_LIST,
 	normalizeHighlightColor,
@@ -228,6 +229,7 @@ export const PdfViewer = memo(function PdfViewer(props: PdfViewerProps) {
 		}
 	}, [sourceBytes]);
 	const effectiveSourceBytes = pdfBuffer ?? sourceBytes;
+	noteTileBitmapDocument(docId, effectiveSourceBytes);
 
 	const translationOnly = Boolean(props.translationOnly);
 	const plugins = useMemo(() => {

@@ -19,7 +19,9 @@ PDFium engine 由窗口共享。默认优先 **worker 引擎**（PDFium WASM 跑
 
 抗抽动（twitch）措施：瓦片 `extraRings: 1` 预渲染视口外圈，减少快速滚动时边缘瓦片延迟弹出；`TilingLayer` patch 在新瓦片集异步光栅到达前保留旧瓦片作拉伸占位（`scale/srcScale` 重映射，1.5s 超时兜底），消除缩放瞬间的空白闪烁；marks 不再定时轮询，改由 Vault 文件监听（`vault:file-changed`，命中 `{paper}/marks/` 前缀，200ms 合并突发）触发刷新，配合激活时与窗口 focus 兜底；应用自身对 `marks/` 的写入会登记路径（3s TTL），其 watcher 回声直接跳过（写入方已更新内存态），mark 文件并发读取，读取结果仍做 JSON 指纹比对，内容未变不提交 state，避免整 viewer 重渲染。高亮派生态（视图模型 / 页边针锚点 / 链接分页图）的 annotation 事件按微任务合并后重建一次，批量导入 n 条不再逐事件 O(n²) 重建。
 
-滚动路径开销（触控板一帧内可触发多次 scroll）另有两处收敛：viewport 滚动指标按动画帧合并后再 `setViewportScrollMetrics`（每次提交都会推出新的 scroller layout 对象，令所有挂载页重渲染）；layout hover 命中框与 Eye 调试框按 `hoverableLayoutRegionsByPage` / `rawLayoutRegionsByPage` 预先分页缓存，页渲染只做 `Map.get`，不再每页重跑一遍全文档 NMS。PDF viewport 的延迟跳转请求同样按帧合并，并在用户滚轮先发生时取消；虚拟页重排、缩放布局和双栏同步产生的程序化滚动不会触发取消；虚拟页节点换入换出时关闭浏览器 scroll anchoring，避免 Windows/WebView2 将阅读位置校正到首尾页（见 [bug_fix/pdf-windows-scroll-endpoint-jump.md](../bug_fix/pdf-windows-scroll-endpoint-jump.md)）。
+滚动路径开销（触控板一帧内可触发多次 scroll）另有两处收敛：viewport 滚动指标按动画帧合并后再 `setViewportScrollMetrics`（每次提交仍推出 scroller layout；挂载窗口未变时不再 `setState`，见下段）；layout hover 命中框与 Eye 调试框按 `hoverableLayoutRegionsByPage` / `rawLayoutRegionsByPage` 预先分页缓存，页渲染只做 `Map.get`，不再每页重跑一遍全文档 NMS。PDF viewport 的延迟跳转请求同样按帧合并，并在用户滚轮先发生时取消；虚拟页重排、缩放布局和双栏同步产生的程序化滚动不会触发取消；虚拟页节点换入换出时关闭浏览器 scroll anchoring，避免 Windows/WebView2 将阅读位置校正到首尾页（见 [bug_fix/pdf-windows-scroll-endpoint-jump.md](../bug_fix/pdf-windows-scroll-endpoint-jump.md)）。
+
+双栏对照左右各挂一套 EmbedPDF，滚动时会把同一页光栅画两遍，并把 scroller layout 推进两个 React 树。瓦片按论文 id、打开时的字节指纹、瓦片 id 和 `pdfTileDpr()` 共用一份位图（`src/lib/pdf/tile-bitmap-cache.ts`，接线在 `@embedpdf/plugin-tiling` patch）：滚回已看过的区域，或另一栏请求同一块瓦片，直接复用，不再向共享的 PDFium worker 要第二遍。重新编译后字节指纹变化，旧瓦片作废。`@embedpdf/plugin-scroll` patch 在挂载窗口（间距、总尺寸、页序与页尺寸）没变时跳过 scroller 的 `setState`，纯滚动不再让已挂载页整页重渲染。译文栏跳过整页底图 `AgenteroRenderLayer`，只留 `TilingLayer`，空档由页面壳垫色。译文段落的浏览器度量按框和文本缓存，一帧大约只量 5ms，页面滚出就取消还没做的度量。这两个 patch 都在 `vite.config.ts` 的 `optimizeDeps.exclude` 里；patch 更新后需重启 dev，长驻 vite 才会吃到新副本。
 
 ## 阅读能力
 
