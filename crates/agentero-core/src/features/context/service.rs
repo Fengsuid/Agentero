@@ -332,17 +332,19 @@ impl ContextSession {
             _ => {}
         }
         let abs = self.vault.join(rel);
-        let text = fs_read_capped(&abs, self.grant.budget.full_chars as usize + 1)?;
         let budget = self.grant.budget.chars_for(level);
-        let body = match level {
-            ReadLevel::Metadata => format!("File: {rel}\nCharacters: {}", text.chars().count()),
-            ReadLevel::Excerpt => {
-                let quote = query.quote.as_deref().unwrap_or("");
-                window_around(&text, quote, budget).unwrap_or_else(|| cap_text(&text, budget).0)
+        let body = if level == ReadLevel::Excerpt {
+            read_excerpt(&abs, query.quote.as_deref().unwrap_or(""), budget)?
+        } else {
+            let text = fs_read_capped(&abs, self.grant.budget.full_chars as usize + 1)?;
+            match level {
+                ReadLevel::Metadata => {
+                    format!("File: {rel}\nCharacters: {}", text.chars().count())
+                }
+                ReadLevel::Section => markdown_section(&text, query.section.as_deref(), budget),
+                ReadLevel::Full => cap_text(&text, budget).0,
+                ReadLevel::Excerpt | ReadLevel::Page | ReadLevel::Region => unreachable!(),
             }
-            ReadLevel::Section => markdown_section(&text, query.section.as_deref(), budget),
-            ReadLevel::Full => cap_text(&text, budget).0,
-            ReadLevel::Page | ReadLevel::Region => unreachable!(),
         };
         Ok(vec![self.evidence(
             rel.to_string(),
@@ -1229,6 +1231,20 @@ fn cap_text(text: &str, max_chars: usize) -> (String, bool) {
     (clipped, chars.next().is_some())
 }
 
+/// Bytes scanned while locating a quote. The returned window still uses the
+/// read budget. This is only so a selection past `full_chars` is not missed.
+const EXCERPT_SEARCH_BYTES: usize = 32 * 1024 * 1024;
+
+fn read_excerpt(path: &Path, quote: &str, limit: usize) -> Result<String, AppError> {
+    let quote = quote.trim();
+    if quote.is_empty() {
+        let text = fs_read_capped(path, limit.saturating_mul(4).max(limit) + 4)?;
+        return Ok(cap_text(&text, limit).0);
+    }
+    let text = fs_read_capped(path, EXCERPT_SEARCH_BYTES)?;
+    Ok(window_around(&text, quote, limit).unwrap_or_else(|| cap_text(&text, limit).0))
+}
+
 fn fs_read_capped(path: &Path, max_bytes: usize) -> Result<String, AppError> {
     let bytes = std::fs::read(path)
         .map_err(|error| AppError::message(format!("read {}: {error}", path.display())))?;
@@ -1426,6 +1442,48 @@ mod tests {
         assert!(serde_json::to_string(&note)
             .unwrap()
             .contains("directory-needle"));
+    }
+
+    #[test]
+    fn excerpt_finds_a_quote_past_the_full_text_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("long.md"),
+            format!("{} LATE-QUOTE-MARKER", "x".repeat(20_000)),
+        )
+        .unwrap();
+        let grant = ContextGrant {
+            schema_version: GRANT_SCHEMA_VERSION,
+            session_id: "s".into(),
+            vault_path: dir.path().display().to_string(),
+            fingerprint: "fp".into(),
+            allowed: vec![AllowedSource {
+                kind: AllowedSourceKind::File,
+                path: "long.md".into(),
+                paper_id: None,
+                title: None,
+            }],
+            budget: ContextBudget::default(),
+            mode: ContextMode::ReadOnly,
+        };
+        let session = ContextSession::from_parts(
+            dir.path().to_path_buf(),
+            grant,
+            dir.path().join("usage.jsonl"),
+        );
+        let result = session
+            .read(
+                &EvidenceQuery {
+                    file_path: Some("long.md".into()),
+                    quote: Some("LATE-QUOTE-MARKER".into()),
+                    ..EvidenceQuery::default()
+                },
+                Some("excerpt"),
+            )
+            .unwrap();
+        let card = result.evidence.first().unwrap();
+        assert!(card.excerpt.contains("LATE-QUOTE-MARKER"));
+        assert!(card.excerpt.chars().count() <= 4_000);
     }
 
     #[test]
