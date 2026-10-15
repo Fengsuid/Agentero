@@ -53,6 +53,7 @@ import {
 	EMPTY_PINS,
 	PAGE_LAYER_STYLE,
 	PDF_BASE_LAYER_SCALE_CAP,
+	PDF_WORKER_SETTLE_MS,
 	pdfRasterDpr,
 	pdfTileDpr,
 } from "@/components/viewer/pdf/constants";
@@ -773,27 +774,39 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 		if (!selectionArmed) setSelectionArmed(true);
 	};
 	/**
-	 * Prefetch selection geometry for pages the user can actually see, so the
-	 * page is already selectable by the time the pointer reaches it. Off-screen
-	 * scroller-buffer pages stay unloaded. The observer disconnects after the
-	 * first intersection; a page armed this way also fires after the page's own
-	 * raster effect, so the worker still renders the visible page first.
+	 * Prefetch selection geometry only after the page stays visible. Arming on
+	 * the first intersection queued `getPageGeometry` for every page a fling
+	 * crosses, and that extraction shares the single PDFium worker with the
+	 * raster. Pointer entry still arms immediately.
 	 */
 	useEffect(() => {
+		if (selectionArmed) return;
 		const el = pageShellRef.current;
 		if (!el) return;
 		if (typeof IntersectionObserver === "undefined") {
 			setSelectionArmed(true);
 			return;
 		}
+		let timer = 0;
 		const observer = new IntersectionObserver((entries) => {
-			if (!entries.some((entry) => entry.isIntersecting)) return;
-			observer.disconnect();
-			setSelectionArmed(true);
+			const visible = entries.some((entry) => entry.isIntersecting);
+			if (!visible) {
+				window.clearTimeout(timer);
+				timer = 0;
+				return;
+			}
+			if (timer) return;
+			timer = window.setTimeout(() => {
+				observer.disconnect();
+				setSelectionArmed(true);
+			}, PDF_WORKER_SETTLE_MS);
 		});
 		observer.observe(el);
-		return () => observer.disconnect();
-	}, []);
+		return () => {
+			window.clearTimeout(timer);
+			observer.disconnect();
+		};
+	}, [selectionArmed]);
 	/**
 	 * Pointer position at the last pointerdown on a layout hit target. A click
 	 * that travelled beyond the tolerance was a drag, not an activation.

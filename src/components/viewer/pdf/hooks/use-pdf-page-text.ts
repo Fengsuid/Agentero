@@ -11,6 +11,9 @@
  * The window is intentionally narrow: `getPageTextRects` is an O(glyphs)
  * extraction in the single PDFium worker, so widening it competes with raster
  * rendering and with the selection plugin's own `getPageGeometry` extraction.
+ * It also waits until the current page has stopped changing, so a fling does
+ * not enqueue one extraction per page it flies through. Pages that already
+ * carry a mark still load immediately.
  *
  * It lives in its own hook because the fetch is the only writer while three
  * unrelated clusters (ask / translate / visual marks) are readers.
@@ -19,6 +22,7 @@
 import type { PdfEngine } from "@embedpdf/models";
 import type { useDocumentManagerCapability } from "@embedpdf/plugin-document-manager/react";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { PDF_WORKER_SETTLE_MS } from "@/components/viewer/pdf/constants";
 import {
 	detectPdfTextLinks,
 	type PdfTextLink,
@@ -101,6 +105,15 @@ export function usePdfPageText({
 	const pageTextPendingRef = useRef(new Set<number>());
 	const pageTextMapRef = useRef(pageTextMap);
 	pageTextMapRef.current = pageTextMap;
+	const [settledPage, setSettledPage] = useState(currentPage);
+
+	useEffect(() => {
+		const timer = window.setTimeout(
+			() => setSettledPage(currentPage),
+			PDF_WORKER_SETTLE_MS,
+		);
+		return () => window.clearTimeout(timer);
+	}, [currentPage]);
 
 	// Which off-screen pages carry a mark and must load their text geometry.
 	// Keyed on the resulting page set (a primitive), not the mark arrays: while a
@@ -130,8 +143,8 @@ export function usePdfPageText({
 		if (!doc) return;
 
 		const need = new Set<number>();
-		const from = Math.max(0, currentPage - 2);
-		const to = Math.min(totalPages, currentPage + 1);
+		const from = Math.max(0, settledPage - 2);
+		const to = Math.min(totalPages, settledPage + 1);
 		for (let i = from; i < to; i++) need.add(i);
 		for (const tr of translates) {
 			if (!tr.error) need.add(tr.page - 1);
@@ -180,7 +193,7 @@ export function usePdfPageText({
 					pageTextPendingRef.current.delete(pageIndex);
 				});
 		}
-	}, [engine, docCap, docId, totalPages, currentPage, markPagesKey]);
+	}, [engine, docCap, docId, totalPages, settledPage, markPagesKey]);
 
 	return { pageTextMap, pageTextLinkMap, pageTextMapRef };
 }
