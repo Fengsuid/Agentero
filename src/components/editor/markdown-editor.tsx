@@ -261,6 +261,14 @@ export function MarkdownEditor({
 		[],
 	);
 
+	/**
+	 * Set while a navigation jump owns the scroll position. The scroll-memory
+	 * restore below runs one frame later, and its synchronous `scrollTop` write
+	 * cancels the in-flight smooth scroll — which used to yank the view back
+	 * to the remembered offset right after a `[[note#heading]]` jump.
+	 */
+	const navigationJumpRef = useRef(false);
+
 	useEffect(() => {
 		if (!navigationIntent) return;
 		const root = editorContainerRef.current;
@@ -287,12 +295,17 @@ export function MarkdownEditor({
 							hasWikiBlockAnchor(element.textContent ?? "", fragment.id),
 					);
 		if (!target) return;
+		navigationJumpRef.current = true;
 		target.dataset.navTarget = "true";
 		target.scrollIntoView({ behavior: scrollBehavior(), block: "center" });
 		const timeout = window.setTimeout(() => {
 			delete target.dataset.navTarget;
+			navigationJumpRef.current = false;
 		}, 1600);
-		return () => window.clearTimeout(timeout);
+		return () => {
+			navigationJumpRef.current = false;
+			window.clearTimeout(timeout);
+		};
 	}, [navigationIntent]);
 
 	/**
@@ -400,6 +413,12 @@ export function MarkdownEditor({
 		const frame = window.requestAnimationFrame(() => {
 			const el = editorContainerRef.current;
 			if (!el) return;
+			// A navigation jump owns the position this frame; restoring the
+			// remembered offset would cancel its (smooth) scroll.
+			if (navigationJumpRef.current) {
+				scrollTopRef.current = el.scrollTop;
+				return;
+			}
 			const top = getMarkdownScrollTop(scrollKey);
 			if (top > 0) el.scrollTop = top;
 			scrollTopRef.current = el.scrollTop;
