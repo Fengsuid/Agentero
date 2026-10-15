@@ -64,6 +64,8 @@
 | 定位 | 激活文档变化时展开祖先并 `scrollToIndex`（VS Code `List.reveal` 语义：`align: "auto"` 最小滚动，行已可见则不滚，从不居中）；同一目标只定位一次，导入后台阶段引起的树刷新不再重复滚动；用户折叠包含当前选中的目录后不会被自动定位立即重新展开（#576） |
 | 刷新 | File → Refresh（`⌘R`）；watcher 局部刷新 |
 
+树内新建与重命名共用 `tree-inputs.tsx` 中的命名输入组件，统一名称校验、提交、取消与失焦处理。两者及移动面板的新文件夹输入复用 `useImeGuard`：输入法组字期间 Enter 只确认候选词、Escape 只取消候选词；同时覆盖 `keyCode 229` 与组字结束后确认按键的时序差异。组字结束后再次按 Enter 才提交；移动面板也不会因候选词的 Escape 提前关闭（#746）。树内输入失焦时读取最终输入值，并防止 Enter 与失焦重复提交。
+
 ### 拖拽的平台差异
 
 树内拖拽必须**同时**保留 DOM 与 Tauri 原生两条路径（[#353](https://github.com/poco-ai/Agentero/issues/353)）：
