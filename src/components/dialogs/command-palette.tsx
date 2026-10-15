@@ -8,6 +8,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { buildPaperSearchText } from "@/components/library/library-row-utils";
 import {
 	Command,
 	CommandDialog,
@@ -108,20 +109,31 @@ export function CommandPalette({
 		});
 	}, [commands, commandQuery, t]);
 
-	// Instant, in-memory paper matches (title / authors / id / tags). Empty query → recents.
+	// PERF: precompute each paper's haystack once per catalog snapshot
+	// (buildPaperSearchText — same source as the library table filter) so
+	// per-keystroke filtering only runs `includes` on cached strings.
+	const searchRows = useMemo(() => {
+		const rows: { paper: PaperMetadata; hay: string }[] = [];
+		for (const p of papers) {
+			if (!p.path) continue;
+			rows.push({ paper: p, hay: buildPaperSearchText(p) });
+		}
+		return rows;
+	}, [papers]);
+
+	// Instant, in-memory paper matches (searchText: title / identifiers /
+	// path / authors / tags). Empty query → recents.
 	const paperMatches = useMemo(() => {
 		if (effectiveMode !== "go") return [];
-		const withPath = papers.filter((p) => p.path);
 		const terms = goQuery.toLowerCase().split(/\s+/).filter(Boolean);
-		if (!terms.length) return withPath.slice(0, PAPER_LIMIT);
-		return withPath
-			.filter((p) => {
-				const hay =
-					`${p.title} ${p.authors?.join(" ") ?? ""} ${p.id} ${tagNames(p).join(" ")}`.toLowerCase();
-				return terms.every((term) => hay.includes(term));
-			})
-			.slice(0, PAPER_LIMIT);
-	}, [papers, goQuery, effectiveMode]);
+		if (!terms.length) {
+			return searchRows.slice(0, PAPER_LIMIT).map((r) => r.paper);
+		}
+		return searchRows
+			.filter((r) => terms.every((term) => r.hay.includes(term)))
+			.slice(0, PAPER_LIMIT)
+			.map((r) => r.paper);
+	}, [searchRows, goQuery, effectiveMode]);
 
 	// Debounced backend full-text search over Vault Markdown.
 	useEffect(() => {
