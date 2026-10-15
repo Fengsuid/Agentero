@@ -181,38 +181,42 @@ export function PapersLibrary({
 	}, [columns]);
 	const [viewportRem, setViewportRem] = useState(56.25);
 	const [resizing, setResizing] = useState<number[] | null>(null);
-	const columnWidths =
-		resizing ??
-		resolveColumnWidths(
-			visibleColumns,
-			viewportRem,
-			(col) => COLUMN_META[col.key].widthWeight,
-		);
-	const resizeColumn = (
-		key: SortKey,
-		width: number | null,
-		commit: boolean,
-	) => {
-		if (width === null) {
-			setResizing(null);
-			return;
-		}
-		// Freeze the other visible columns so every separator follows the pointer 1:1.
-		const widths = columnWidths.map((value, index) =>
-			visibleColumns[index].key === key ? width : value,
-		);
-		setResizing(commit ? null : widths);
-		if (commit) {
-			onColumnsChange?.(
-				columns.map((col) => {
-					const index = visibleColumns.findIndex(
-						(visible) => visible.key === col.key,
-					);
-					return index < 0 ? col : { ...col, widthRem: widths[index] };
-				}),
+	const columnWidths = useMemo(
+		() =>
+			resizing ??
+			resolveColumnWidths(
+				visibleColumns,
+				viewportRem,
+				(col) => COLUMN_META[col.key].widthWeight,
+			),
+		[resizing, visibleColumns, viewportRem],
+	);
+	// PERF: stable identity keeps the memoized header from re-rendering on
+	// unrelated parent renders; widths are captured per resize render.
+	const resizeColumn = useCallback(
+		(key: SortKey, width: number | null, commit: boolean) => {
+			if (width === null) {
+				setResizing(null);
+				return;
+			}
+			// Freeze the other visible columns so every separator follows the pointer 1:1.
+			const widths = columnWidths.map((value, index) =>
+				visibleColumns[index].key === key ? width : value,
 			);
-		}
-	};
+			setResizing(commit ? null : widths);
+			if (commit) {
+				onColumnsChange?.(
+					columns.map((col) => {
+						const index = visibleColumns.findIndex(
+							(visible) => visible.key === col.key,
+						);
+						return index < 0 ? col : { ...col, widthRem: widths[index] };
+					}),
+				);
+			}
+		},
+		[columnWidths, visibleColumns, columns, onColumnsChange],
+	);
 
 	const toggleColumn = useCallback(
 		(key: SortKey) => {
@@ -276,6 +280,9 @@ export function PapersLibrary({
 			prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
 		);
 	}, []);
+
+	// PERF: stable identity for the memoized header.
+	const clearTagFilter = useCallback(() => setTagFilter([]), []);
 
 	/** Coerce tags + sort keys once per paper list change (not per keystroke). */
 	const indexedRows = useMemo(
@@ -449,7 +456,7 @@ export function PapersLibrary({
 							tagFilterSet={tagFilterSet}
 							tagFilterActive={tagFilterActive}
 							onToggleTagFilter={toggleTagFilter}
-							onClearTagFilter={() => setTagFilter([])}
+							onClearTagFilter={clearTagFilter}
 							canCustomizeColumns={Boolean(onColumnsChange)}
 							onToggleColumn={toggleColumn}
 							onResetColumns={resetColumns}

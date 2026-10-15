@@ -50,34 +50,60 @@ export type PaperRow = {
 	sort: Record<SortKey, string | number>;
 };
 
+/**
+ * PERF: cache built rows keyed by paper object identity. Library store updates
+ * replace only changed rows (`setLibraryPapers` maps and keeps untouched
+ * objects by reference), so the unchanged majority reuses its PaperRow
+ * instead of rebuilding searchText + sort keys on every array update.
+ * Any field change arrives as a fresh object (spread or full reload), so a
+ * cached entry can never go stale; GC drops rows of removed papers.
+ */
+const paperRowCache = new WeakMap<PaperLibraryRow, PaperRow>();
+
+/**
+ * Per-paper filter text (title / identifiers / path / authors / visible
+ * tags, lowercased) — the single source shared by the library table rows
+ * and the command palette quick-open so neither rebuilds a haystack per
+ * keystroke.
+ */
+export function buildPaperSearchText(p: PaperMetadata): string {
+	const tagSearch = visiblePaperTags(p.tags)
+		.map((t) => t.name)
+		.join(" ")
+		.toLocaleLowerCase();
+	return [
+		p.title,
+		p.id,
+		identifierValue(p) ?? "",
+		p.path,
+		p.doi,
+		p.arxiv_id,
+		p.pmid ? `PMID:${p.pmid}` : null,
+		p.isbn,
+		p.publication,
+		p.publisher,
+		...(p.authors ?? []),
+		tagSearch,
+	]
+		.filter((value): value is string => Boolean(value?.trim()))
+		.join(" ")
+		.toLocaleLowerCase();
+}
+
 export function buildPaperRow(p: PaperLibraryRow): PaperRow {
+	const cached = paperRowCache.get(p);
+	if (cached) return cached;
 	const tags = visiblePaperTags(p.tags);
 	const id = identifierValue(p) ?? "";
 	const tagSearch = tags
 		.map((t) => t.name)
 		.join(" ")
 		.toLocaleLowerCase();
-	return {
+	const row: PaperRow = {
 		paper: p,
 		tags,
 		tagSearch,
-		searchText: [
-			p.title,
-			p.id,
-			id,
-			p.path,
-			p.doi,
-			p.arxiv_id,
-			p.pmid ? `PMID:${p.pmid}` : null,
-			p.isbn,
-			p.publication,
-			p.publisher,
-			...(p.authors ?? []),
-			tagSearch,
-		]
-			.filter((value): value is string => Boolean(value?.trim()))
-			.join(" ")
-			.toLocaleLowerCase(),
+		searchText: buildPaperSearchText(p),
 		sort: {
 			title: (p.title ?? "").toLocaleLowerCase(),
 			authors: (p.authors?.[0] ?? "").toLocaleLowerCase(),
@@ -92,6 +118,8 @@ export function buildPaperRow(p: PaperLibraryRow): PaperRow {
 			citations: p.citation_count ?? Number.NEGATIVE_INFINITY,
 		},
 	};
+	paperRowCache.set(p, row);
+	return row;
 }
 
 export function comparePaperRows(
