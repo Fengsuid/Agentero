@@ -236,6 +236,9 @@ export function reseedTextTab(
 	const key = normalizeTabPath(absPath);
 	return prev.map((t) => {
 		if (normalizeTabPath(t.path) === key && t.mode === "text") {
+			// PERF: keep the tab identity when nothing changes (the common
+			// case right after our own save) so memoized viewers bail out.
+			if (t.textSeed === content && !t.textDirty) return t;
 			return { ...t, textSeed: content, textDirty: false };
 		}
 		return t;
@@ -299,7 +302,10 @@ export function syncTabSeedsForPath(
 	const pathId = tabIdForPath(path);
 	return prev.map((tab) => {
 		const notesKey = tab.notesPath?.replace(/\\/g, "/").toLowerCase();
+		// PERF: an unchanged seed keeps the tab identity stable — a fresh
+		// object per autosave would re-render the whole memoized viewer tree.
 		if (notesKey === key) {
+			if (tab.notesSeed === content) return tab;
 			return { ...tab, notesSeed: content };
 		}
 		if (
@@ -310,12 +316,12 @@ export function syncTabSeedsForPath(
 				tab.notesPath &&
 					normalizeTabPath(tab.path) === normalizeTabPath(tab.notesPath),
 			);
-			return {
-				...tab,
-				...(isNotes || notesKey === key
-					? { notesSeed: content }
-					: { markdownSeed: content }),
-			};
+			if (isNotes || notesKey === key) {
+				if (tab.notesSeed === content) return tab;
+				return { ...tab, notesSeed: content };
+			}
+			if (tab.markdownSeed === content) return tab;
+			return { ...tab, markdownSeed: content };
 		}
 		return tab;
 	});

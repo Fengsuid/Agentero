@@ -187,6 +187,29 @@ function selectEnclosingTopBlock(
 }
 
 /**
+ * Shallow-compares every prop except `initialMarkdown`, which only counts
+ * when `reloadKey` changes too: the seed is consumed solely at mount and by
+ * the reload effect (which early-outs while `reloadKey` is unchanged). The
+ * tab layer rewrites the seed after each save sync (`syncTabSeedsForPath`),
+ * and without this comparator those seed-only patches would reconcile the
+ * whole editor chrome on every autosave.
+ */
+function markdownEditorPropsEqual(
+	prev: MarkdownEditorProps,
+	next: MarkdownEditorProps,
+): boolean {
+	for (const key of Object.keys(next) as (keyof MarkdownEditorProps)[]) {
+		if (key === "initialMarkdown") continue;
+		if (prev[key] !== next[key]) return false;
+	}
+	if (prev.initialMarkdown !== next.initialMarkdown) {
+		// A new seed matters only when it comes with a reload signal.
+		return prev.reloadKey === next.reloadKey;
+	}
+	return true;
+}
+
+/**
  * Memoized on its props: the workspace re-renders every pane's DocView on
  * tab patches (active tab, dirty flags, PDF compile state), and an
  * unmemoized editor paid a full Plate reconcile each time.
@@ -1002,4 +1025,4 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 			</MarkdownDocProvider>
 		</WikiEmbedProjectionProvider>
 	);
-});
+}, markdownEditorPropsEqual);
