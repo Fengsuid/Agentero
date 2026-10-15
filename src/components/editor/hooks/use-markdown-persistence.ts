@@ -136,6 +136,7 @@ export function useMarkdownPersistence({
 		[onDirtyChange],
 	);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: editor.children is an identity probe; depending on it would rebuild persist per keystroke
 	const persist = useCallback(() => {
 		if (readOnly || !filePath || !onPersist) return;
 		persistQueuedRef.current = true;
@@ -145,6 +146,12 @@ export function useMarkdownPersistence({
 			while (persistQueuedRef.current) {
 				persistQueuedRef.current = false;
 				const markdown = serialize();
+				// Snapshot both serialize() inputs. Slate replaces `children` on
+				// every edit and frontmatter edits swap the ref, so reference
+				// equality tells us whether the document moved during the write
+				// without paying a second full-document serialization per save.
+				const childrenSnapshot = editor.children;
+				const frontmatterSnapshot = frontmatterRef.current;
 				const lastSaved = savedRef.current;
 				if (markdown === lastSaved) {
 					setDirty(false);
@@ -165,7 +172,11 @@ export function useMarkdownPersistence({
 				if (generation !== reloadGenerationRef.current) return;
 				const settlement = settleMarkdownSaveAttempt({
 					attemptedMarkdown: markdown,
-					currentMarkdown: serialize(),
+					currentMarkdown:
+						editor.children === childrenSnapshot &&
+						frontmatterRef.current === frontmatterSnapshot
+							? markdown
+							: serialize(),
 					lastSaved,
 					persisted,
 				});
