@@ -108,6 +108,7 @@ import {
 	type PointerOrigin,
 } from "@/lib/pdf/layout";
 import { translatedTextLinkKey } from "@/lib/pdf/layout/link-ink";
+import { translatedLinkHoverAction } from "@/lib/pdf/layout/translated-link-hover";
 import type {
 	PreservedLinkAssignment,
 	TranslateLinkBox,
@@ -1175,16 +1176,21 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 			assignment: PreservedLinkAssignment | null,
 			point: { x: number; y: number; top: number; bottom: number } | null,
 		) => {
-			if (!assignment?.key) {
+			const link = assignment?.key
+				? citationById.get(assignment.key)
+				: undefined;
+			const action = translatedLinkHoverAction(assignment, link);
+			if (action.kind === "url") {
 				handlers.onCitationHover(null);
+				handlers.onLinkUrlHover?.(action.url, point);
 				return;
 			}
-			const link = citationById.get(assignment.key);
-			if (!link || linkAnnotationUri(link)) {
-				handlers.onCitationHover(null);
+			handlers.onLinkUrlHover?.(null);
+			if (action.kind === "citation") {
+				handlers.onCitationHover(action.link, point ?? undefined);
 				return;
 			}
-			handlers.onCitationHover(link, point ?? undefined);
+			handlers.onCitationHover(null);
 		},
 		[citationById, handlers],
 	);
