@@ -608,10 +608,11 @@ export function useAgentSend({
 		// Inline @/$ markers stay in the draft; the user bubble / ACP body is plain.
 		const text = stripInlineTokens(textRaw).trim();
 		const draftSessionKey = activeVisualDraftSessionKey();
+		const annotationRefs = planAnnotationRefs(textRaw);
 		const resolvedVisualDrafts =
 			options?.visualDrafts ??
 			visualDraftsInAnnotationOrder(
-				planAnnotationRefs(textRaw),
+				annotationRefs,
 				visualDraftsForSession(draftSessionKey),
 			);
 		const hasVisualDrafts = resolvedVisualDrafts.length > 0;
@@ -743,9 +744,15 @@ export function useAgentSend({
 				context: isAcpCommand
 					? null
 					: sidebarContextRequest({
-							text: textRaw,
 							contextPaths: resolvedContextPaths,
 							selections: resolvedSelections,
+							selectionAnnotations: new Map(
+								annotationRefs.flatMap((ref) =>
+									ref.kind === "selection"
+										? [[ref.selection.id, ref.n] as const]
+										: [],
+								),
+							),
 						}),
 				resumeTranscript,
 			});

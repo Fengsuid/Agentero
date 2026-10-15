@@ -30,8 +30,8 @@ it("sends the PDF quote, page, and translation to the shared resolver", () => {
 
 it("turns sidebar selections and mentions into anchors without plaza paths", () => {
 	const request = sidebarContextRequest({
-		text: "解释一下",
 		contextPaths: ["papers/attention", "agentero:plaza/today"],
+		selectionAnnotations: new Map([["sel-1", 1]]),
 		selections: [
 			{
 				id: "sel-1",
@@ -52,6 +52,7 @@ it("turns sidebar selections and mentions into anchors without plaza paths", () 
 			page: 4,
 			quote: "scaled dot-product",
 			comment: "看这里",
+			annotation: 1,
 		}),
 		{ kind: "mention", filePath: "papers/attention" },
 	]);

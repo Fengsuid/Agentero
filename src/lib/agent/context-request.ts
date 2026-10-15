@@ -3,7 +3,6 @@
  * The host writes the minimum evidence and decides whether this session may
  * expand it. These surfaces no longer paste paper paths or quotes into the prompt.
  */
-import { planAnnotationRefs } from "@/lib/agent/annotation-prompt";
 import { isPlazaMentionPath } from "@/lib/agent/plaza-mention";
 import type { SelectionContext } from "@/lib/agent/selection-store";
 import { pairedAskTranslation } from "@/lib/pdf/ask/prompt";
@@ -95,21 +94,18 @@ export function textAskContextRequest(
 }
 
 /**
- * Sidebar turn. Selections keep their annotation numbers. @ mentions and the
- * focused file are source anchors, not instructions to read the whole file.
- * Plaza mentions stay on the prompt path.
+ * Sidebar turn. The caller passes selection annotation numbers; this module
+ * does not plan them, so the request stays outside the annotation import cycle.
+ * @ mentions and the focused file are source anchors. Plaza mentions stay on
+ * the prompt path.
  */
 export function sidebarContextRequest(input: {
-	text: string;
 	contextPaths: string[];
 	selections: SelectionContext[];
+	selectionAnnotations?: ReadonlyMap<string, number>;
 }): ContextRequest | null {
-	const numbers = new Map<string, number>();
-	for (const ref of planAnnotationRefs(input.text)) {
-		if (ref.kind === "selection") numbers.set(ref.selection.id, ref.n);
-	}
 	const anchors: ContextAnchor[] = input.selections.map((selection) =>
-		selectionAnchor(selection, numbers.get(selection.id)),
+		selectionAnchor(selection, input.selectionAnnotations?.get(selection.id)),
 	);
 	for (const path of input.contextPaths) {
 		if (!path.trim() || isPlazaMentionPath(path)) continue;
