@@ -15,6 +15,7 @@ pub struct AnchorFacts {
     pub anchor: ContextAnchor,
     pub paper: Option<PaperBrief>,
     pub file_path: Option<String>,
+    pub directory_path: Option<String>,
     pub citation_uri: Option<String>,
 }
 
@@ -72,6 +73,7 @@ pub fn facts_from_anchors(anchors: &[ContextAnchor]) -> Vec<AnchorFacts> {
             } else {
                 nonempty(anchor.file_path.as_deref())
             },
+            directory_path: None,
             citation_uri: None,
             anchor: anchor.clone(),
         })
@@ -95,6 +97,16 @@ pub fn plan_from_facts(
                     path: paper.path.clone(),
                     paper_id: Some(paper.id.clone()),
                     title: Some(paper.title.clone()),
+                },
+            );
+        } else if let Some(dir) = &fact.directory_path {
+            push_source(
+                &mut allowed,
+                AllowedSource {
+                    kind: AllowedSourceKind::Directory,
+                    path: dir.clone(),
+                    paper_id: None,
+                    title: None,
                 },
             );
         } else if let Some(file) = &fact.file_path {
@@ -142,6 +154,7 @@ fn immediate_from(fact: &AnchorFacts) -> ImmediateEvidence {
         paper_id: fact.paper.as_ref().map(|paper| paper.id.clone()),
         paper_path: fact.paper.as_ref().map(|paper| paper.path.clone()),
         file_path: fact.file_path.clone(),
+        directory_path: fact.directory_path.clone(),
         title: fact.paper.as_ref().map(|paper| paper.title.clone()),
         page: fact.anchor.page,
         section: nonempty(fact.anchor.section.as_deref()),
@@ -202,6 +215,7 @@ impl AllowedSource {
         match self.kind {
             AllowedSourceKind::File => 0,
             AllowedSourceKind::Paper => 1,
+            AllowedSourceKind::Directory => 2,
         }
     }
 }
@@ -237,6 +251,7 @@ pub fn render_prompt_block(plan: &ContextPlan) -> String {
             let kind = match source.kind {
                 AllowedSourceKind::Paper => "paper",
                 AllowedSourceKind::File => "file",
+                AllowedSourceKind::Directory => "directory",
             };
             let title = source
                 .title
@@ -266,6 +281,9 @@ pub fn render_prompt_block(plan: &ContextPlan) -> String {
         }
         if let Some(path) = item.file_path.as_deref() {
             lines.push(format!("File: {path}"));
+        }
+        if let Some(path) = item.directory_path.as_deref() {
+            lines.push(format!("Directory: {path}"));
         }
         if let Some(title) = item.title.as_deref().filter(|text| !text.is_empty()) {
             lines.push(format!("Title: {title}"));
@@ -343,14 +361,16 @@ fn facts_for_anchor(vault: &Path, anchor: &ContextAnchor) -> Result<Option<Ancho
         Some(path) => paper_for_rel(vault, path)?,
         None => None,
     };
-    let file_path = match &paper {
-        Some(_) => None,
-        None => rel
-            .as_deref()
-            .filter(|path| !path.is_empty() && path.contains('.'))
-            .map(str::to_string),
+    let (file_path, directory_path) = match (&paper, rel.as_deref()) {
+        (Some(_), _) | (_, None) => (None, None),
+        (None, Some(path)) if vault.join(path).is_dir() => (None, Some(path.to_string())),
+        (None, Some(path)) => (Some(path.to_string()), None),
     };
-    if paper.is_none() && file_path.is_none() && nonempty(anchor.quote.as_deref()).is_none() {
+    if paper.is_none()
+        && file_path.is_none()
+        && directory_path.is_none()
+        && nonempty(anchor.quote.as_deref()).is_none()
+    {
         return Ok(None);
     }
     let citation_uri = citation_for(vault, paper.as_ref(), file_path.as_deref(), anchor);
@@ -358,6 +378,7 @@ fn facts_for_anchor(vault: &Path, anchor: &ContextAnchor) -> Result<Option<Ancho
         anchor: anchor.clone(),
         paper: paper.as_ref().map(PaperBrief::from_record),
         file_path,
+        directory_path,
         citation_uri,
     }))
 }
@@ -448,6 +469,7 @@ mod tests {
                 title: "Attention Is All You Need".into(),
             }),
             file_path: None,
+            directory_path: None,
             citation_uri: Some("papers/attention/paper.pdf#page=3".into()),
         }
     }
@@ -519,11 +541,49 @@ mod tests {
             },
             paper: None,
             file_path: None,
+            directory_path: None,
             citation_uri: None,
         };
         let plan = plan_from_facts(&request(), &[quote_only], ContextExpansion::Mcp);
         assert!(plan.allowed.is_empty());
         assert_eq!(plan.expansion, ContextExpansion::PromptOnly);
         assert!(render_prompt_block(&plan).contains("orphan quote"));
+    }
+
+    #[test]
+    fn directory_mention_is_an_allowed_source() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("notes")).unwrap();
+        std::fs::write(dir.path().join("notes/idea.md"), "a note").unwrap();
+        std::fs::write(dir.path().join("Makefile"), "all:\n").unwrap();
+        let request = ContextRequest {
+            surface: ContextSurface::Sidebar,
+            question: String::new(),
+            mode: ContextMode::ReadOnly,
+            anchors: vec![
+                ContextAnchor {
+                    kind: ContextAnchorKind::Mention,
+                    file_path: Some("notes".into()),
+                    ..ContextAnchor::default()
+                },
+                ContextAnchor {
+                    kind: ContextAnchorKind::Mention,
+                    file_path: Some("Makefile".into()),
+                    ..ContextAnchor::default()
+                },
+            ],
+        };
+        let plan = resolve_in_vault(dir.path(), &request, ContextExpansion::Mcp).unwrap();
+        assert!(plan.allowed.iter().any(|source| {
+            source.kind == AllowedSourceKind::Directory && source.path == "notes"
+        }));
+        assert!(plan
+            .allowed
+            .iter()
+            .any(|source| { source.kind == AllowedSourceKind::File && source.path == "Makefile" }));
+        let block = render_prompt_block(&plan);
+        assert!(block.contains("directory `notes`"));
+        assert!(block.contains("Directory: notes"));
+        assert!(block.contains("File: Makefile"));
     }
 }

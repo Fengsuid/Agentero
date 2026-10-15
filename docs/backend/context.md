@@ -18,6 +18,8 @@ Prompt 里只有稳定 paper ref、标题、页码或章节、引用原文，以
 
 远程会话，或者这一轮没有可授权的来源时，prompt 会写明无法继续展开，agent 不能假设自己能读 Vault。
 
+`@` 到普通目录时，目录本身是允许来源，prompt 里标成 directory。`context_search` 在其中的文本文件里找短卡片，数量有上限。对目录调用 `context_read` 只返回一层文件名；要读正文需点名目录里的文件。没有扩展名的普通文件仍按文件授权。
+
 ## 会话 MCP
 
 每个带授权来源的本地 ACP 会话会在 `session/new`、`session/resume`、`session/load` 上挂一个 stdio MCP，名字是 `agentero-context`。宿主用当前可执行文件加 `--agentero-context-mcp <grant>` 拉起它。Grant 写在 `{vault}/.agentero/context-sessions/{runtime-id}/grant.json`，里面是这一轮的允许列表。

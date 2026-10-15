@@ -77,12 +77,12 @@ pub struct ContextRequest {
     pub mode: ContextMode,
 }
 
-/// A paper folder or a single vault file this turn may read.
+/// A paper folder, a vault directory, or a single vault file this turn may read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AllowedSource {
     pub kind: AllowedSourceKind,
-    /// Vault-relative paper folder, or vault-relative file.
+    /// Vault-relative paper folder, directory, or file.
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paper_id: Option<String>,
@@ -95,6 +95,8 @@ pub struct AllowedSource {
 pub enum AllowedSourceKind {
     Paper,
     File,
+    /// An ordinary vault directory from an @ mention. Not a catalog paper.
+    Directory,
 }
 
 /// Character and count caps for tool results. Full text is never the default.
@@ -156,6 +158,8 @@ pub struct ImmediateEvidence {
     pub paper_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directory_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

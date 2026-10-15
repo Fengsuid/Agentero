@@ -64,6 +64,9 @@ impl ContextSession {
                         hits.push(hit);
                     }
                 }
+                AllowedSourceKind::Directory => {
+                    hits.extend(search_directory(self, &source.path, &tokens));
+                }
             }
         }
         hits.sort_by(|left, right| {
@@ -88,6 +91,7 @@ impl ContextSession {
         let evidence = match located {
             Located::Paper(paper) => self.read_paper(&paper, query, level)?,
             Located::File(path) => self.read_file(&path, query, level)?,
+            Located::Directory(path) => self.read_directory(&path, level)?,
         };
         let note = (level == ReadLevel::Full).then(|| {
             "Full text is capped by this turn's read budget and is not the default level."
@@ -184,6 +188,14 @@ impl ContextSession {
                         Ok(Located::Paper(Box::new(paper)))
                     }
                     AllowedSourceKind::File => Ok(Located::File(source.path.clone())),
+                    AllowedSourceKind::Directory => {
+                        let child = path != source.path;
+                        if child && self.vault.join(&path).is_file() {
+                            Ok(Located::File(path))
+                        } else {
+                            Ok(Located::Directory(source.path.clone()))
+                        }
+                    }
                 };
             }
             return Err(AppError::domain(
@@ -350,6 +362,45 @@ impl ContextSession {
         )])
     }
 
+    fn read_directory(&self, rel: &str, level: ReadLevel) -> Result<Vec<EvidenceRef>, AppError> {
+        if level != ReadLevel::Metadata {
+            return Err(AppError::domain(
+                "context_read",
+                "pass a file path inside this directory to read its text",
+            ));
+        }
+        let mut names = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(self.vault.join(rel)) {
+            for entry in entries.filter_map(|entry| entry.ok()) {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with('.') {
+                    continue;
+                }
+                names.push(name.into_owned());
+            }
+        }
+        names.sort();
+        names.truncate(40);
+        let body = format!("Directory: {rel}\n{}", names.join("\n"));
+        Ok(vec![self.evidence(
+            rel.to_string(),
+            None,
+            None,
+            EvidenceLocator {
+                kind: "directory".into(),
+                page: None,
+                section: None,
+                region_id: None,
+                line_from: None,
+                line_to: None,
+            },
+            cap_text(&body, self.grant.budget.chars_for(level)).0,
+            "directory".into(),
+            rel.to_string(),
+        )])
+    }
+
     fn citation_cards(&self, paper: &PaperRecord, limit: usize) -> Vec<EvidenceRef> {
         let path = self
             .vault
@@ -487,6 +538,7 @@ impl ContextSession {
 enum Located {
     Paper(Box<PaperRecord>),
     File(String),
+    Directory(String),
 }
 
 fn search_paper(
@@ -597,6 +649,70 @@ fn search_paper(
         }
     }
     hits
+}
+
+const DIRECTORY_SCAN_FILES: usize = 64;
+
+fn search_directory(
+    session: &ContextSession,
+    rel: &str,
+    tokens: &[String],
+) -> Vec<(i32, EvidenceRef)> {
+    let mut hits = Vec::new();
+    let mut scanned = 0usize;
+    let mut seen = std::collections::HashSet::new();
+    let root = session.vault.join(rel);
+    seen.insert(root.clone());
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        if scanned >= DIRECTORY_SCAN_FILES {
+            break;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            if scanned >= DIRECTORY_SCAN_FILES {
+                break;
+            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with('.') {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                if seen.insert(path.clone()) {
+                    stack.push(path);
+                }
+                continue;
+            }
+            if !is_note_file(&name) {
+                continue;
+            }
+            let Ok(file_rel) = path.strip_prefix(&session.vault) else {
+                continue;
+            };
+            let file_rel = file_rel.to_string_lossy().replace('\\', "/");
+            scanned += 1;
+            if let Some(hit) = search_file(session, &file_rel, tokens) {
+                hits.push(hit);
+            }
+        }
+    }
+    hits
+}
+
+fn is_note_file(name: &str) -> bool {
+    match name.rsplit_once('.') {
+        Some((_, ext)) => matches!(
+            ext.to_ascii_lowercase().as_str(),
+            "md" | "markdown" | "txt" | "tex" | "rst" | "org" | "csv"
+        ),
+        None => true,
+    }
 }
 
 fn search_file(
@@ -1251,6 +1367,65 @@ mod tests {
             .evidence
             .iter()
             .any(|item| item.citation_uri.contains("papers/attention")));
+    }
+
+    #[test]
+    fn directory_grant_searches_notes_and_lists_names() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("notes")).unwrap();
+        fs::write(
+            dir.path().join("notes/idea.md"),
+            "the token is directory-needle",
+        )
+        .unwrap();
+        let grant = ContextGrant {
+            schema_version: GRANT_SCHEMA_VERSION,
+            session_id: "s".into(),
+            vault_path: dir.path().display().to_string(),
+            fingerprint: "fp".into(),
+            allowed: vec![AllowedSource {
+                kind: AllowedSourceKind::Directory,
+                path: "notes".into(),
+                paper_id: None,
+                title: None,
+            }],
+            budget: ContextBudget::default(),
+            mode: ContextMode::ReadOnly,
+        };
+        let session = ContextSession::from_parts(
+            dir.path().to_path_buf(),
+            grant,
+            dir.path().join("usage.jsonl"),
+        );
+        let found = session.search("directory-needle", &[], Some(3)).unwrap();
+        let blob = serde_json::to_string(&found).unwrap();
+        assert!(blob.contains("directory-needle"));
+        assert!(blob.contains("notes/idea.md"));
+        let listed = session
+            .read(
+                &EvidenceQuery {
+                    file_path: Some("notes".into()),
+                    ..EvidenceQuery::default()
+                },
+                Some("metadata"),
+            )
+            .unwrap();
+        let names = serde_json::to_string(&listed).unwrap();
+        assert!(names.contains("idea.md"));
+        assert!(!names.contains("directory-needle"));
+        let note = session
+            .read(
+                &EvidenceQuery {
+                    file_path: Some("notes/idea.md".into()),
+                    quote: Some("directory-needle".into()),
+                    ..EvidenceQuery::default()
+                },
+                Some("excerpt"),
+            )
+            .unwrap();
+        assert!(serde_json::to_string(&note)
+            .unwrap()
+            .contains("directory-needle"));
     }
 
     #[test]
