@@ -109,7 +109,7 @@ export function ComposerAnnotations({
 	);
 }
 
-function clientRectMoved(prev: DOMRect, next: DOMRect): boolean {
+export function clientRectMoved(prev: DOMRect, next: DOMRect): boolean {
 	return (
 		prev.left !== next.left ||
 		prev.top !== next.top ||
