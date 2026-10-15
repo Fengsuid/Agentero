@@ -26,6 +26,7 @@ import {
 	ChatVisualAnnotations,
 	formatUserLineForCopy,
 } from "@/components/agent/chat-visual-annotations";
+import { ContextSourceLinks } from "@/components/agent/context-source-links";
 import {
 	transcriptLineKey,
 	useTranscriptVirtualizer,
@@ -712,6 +713,11 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
 							parts.map((part, index) => renderAgentPart(part, index, false))
 						)}
 					</MessageContent>
+					{!line.streaming && line.sources?.length ? (
+						<div className="px-1">
+							<ContextSourceLinks sources={line.sources} />
+						</div>
+					) : null}
 					{!line.streaming && hasAgentText ? (
 						<MessageActions className="-mt-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
 							<CopyAction getText={() => agentTextFromParts(parts)} />

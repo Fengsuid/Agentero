@@ -8,7 +8,6 @@ import {
 	decodeVisualTokenPayload,
 	stripInlineTokens,
 } from "@/lib/agent/composer-inline-tokens";
-import { selectionAnnotationBody } from "@/lib/agent/selection-prompt";
 import type { SelectionContext } from "@/lib/agent/selection-store";
 import type { PdfVisualDraft } from "@/lib/agent/visual-context-store";
 
@@ -124,10 +123,9 @@ export function annotationAppendix(
 	const preamble =
 		`${ANNOTATION_APPENDIX_LEAD} Address each numbered annotation separately. A user comment applies only to that annotation.` +
 		imageSentence;
-	const sections = refs.map((ref) => {
-		if (ref.kind === "selection") {
-			return `## Annotation ${ref.n}\n${selectionAnnotationBody(ref.selection)}`;
-		}
+	const sections = refs.flatMap((ref) => {
+		// Selection quotes are resolved by the host context plan, not pasted here.
+		if (ref.kind === "selection") return [];
 		const draft = draftsById.get(ref.id);
 		const comment = draft?.comment.trim() || "(no comment)";
 		const lines = [
@@ -138,7 +136,8 @@ export function annotationAppendix(
 			`User comment: ${comment}`,
 		];
 		if (!draft) lines.push("Crop image is not attached.");
-		return lines.join("\n");
+		return [lines.join("\n")];
 	});
+	if (sections.length === 0) return "";
 	return [preamble, ...sections].join("\n\n");
 }

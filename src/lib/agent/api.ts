@@ -10,6 +10,7 @@ import { callApi, callApiResult } from "@/lib/core/ipc";
 import { readJsonStorage, writeJsonStorage } from "@/lib/core/storage";
 import { loadSettings } from "@/lib/settings";
 import type { CatalogAcpStatus, CatalogEntry, ProbeResult } from "./api-types";
+import type { ContextRequest } from "./context-request";
 
 export type {
 	AcpSessionCapabilities,
@@ -592,6 +593,16 @@ export async function runOnce(request: {
 	 * (paper-reader and other non-composer workflows).
 	 */
 	hideFromChatHistory?: boolean;
+	/**
+	 * Vault anchors for this turn. The host resolver adds the minimum evidence
+	 * and, on a local session, the session-scoped context tools.
+	 */
+	context?: ContextRequest;
+	/**
+	 * Earlier turns to insert only if the host refuses to resume the session.
+	 * Omit when `prompt` already starts with that transcript.
+	 */
+	resumeTranscript?: string;
 }): Promise<RunOnceAccepted> {
 	const settings = loadSettings();
 	const language = request.responseLanguage ?? settings.aiResponseLanguage;
@@ -630,6 +641,8 @@ export async function runOnce(request: {
 				responseLanguage,
 				personalPrompt,
 				hideFromChatHistory: request.hideFromChatHistory ?? false,
+				context: request.context,
+				resumeTranscript: request.resumeTranscript,
 			}),
 		AGENT_CALL_OPTS,
 	);

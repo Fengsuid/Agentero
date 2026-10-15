@@ -1,0 +1,58 @@
+import { expect, it } from "vitest";
+import {
+	pdfAskContextRequest,
+	sidebarContextRequest,
+} from "@/lib/agent/context-request";
+import { createEmptyThread } from "@/lib/pdf/ask";
+import { rememberPairedAskTranslation } from "@/lib/pdf/ask/prompt";
+
+it("sends the PDF quote, page, and translation to the shared resolver", () => {
+	const thread = createEmptyThread({
+		paperPath: "papers/x",
+		anchor: {
+			page: 3,
+			rects: [{ x: 0, y: 0, w: 0.1, h: 0.1 }],
+			quote: "Transformer",
+			trigger: "selection",
+		},
+	});
+	rememberPairedAskTranslation(thread.id, "第一句。");
+	const request = pdfAskContextRequest(thread);
+	expect(request.surface).toBe("quick_chat");
+	expect(request.anchors[0]).toMatchObject({
+		kind: "selection",
+		paperPath: "papers/x",
+		page: 3,
+		quote: "Transformer",
+		translation: "第一句。",
+	});
+});
+
+it("turns sidebar selections and mentions into anchors without plaza paths", () => {
+	const request = sidebarContextRequest({
+		text: "解释一下",
+		contextPaths: ["papers/attention", "agentero:plaza/today"],
+		selections: [
+			{
+				id: "sel-1",
+				text: "scaled dot-product",
+				sourcePath: "papers/attention/paper.pdf",
+				origin: "pdf",
+				page: 4,
+				comment: "看这里",
+				pinned: true,
+			},
+		],
+	});
+	expect(request?.surface).toBe("sidebar");
+	expect(request?.anchors).toEqual([
+		expect.objectContaining({
+			kind: "selection",
+			filePath: "papers/attention/paper.pdf",
+			page: 4,
+			quote: "scaled dot-product",
+			comment: "看这里",
+		}),
+		{ kind: "mention", filePath: "papers/attention" },
+	]);
+});
