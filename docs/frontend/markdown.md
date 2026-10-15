@@ -52,6 +52,19 @@ Plate WYSIWYG；用于普通笔记与论文 `NOTES.md`。磁盘上始终是标�
 - **重块懒渲染**：Mermaid 预览、块级 KaTeX 公式与 `![[…]]` 嵌入进入视口才渲染/反序列化（导出模式立即渲染），长笔记首屏不为离屏图表/公式/嵌入买单；行内公式数量多且小，保持即时渲染。
 - **反链查询延后**：状态栏反链在 idle（`scheduleIdle`，超时 2s）里查询，不抢首屏。
 - **图片引用计数种子延后**：打开时不再同步遍历全树统计图片引用，改到 idle 执行；在它落地前自动保存跳过 asset GC diff，不会误删。
+- **滚动期探针门控**：`onScrollCapture` 只在存在 `[[` 双链 / slash 候选菜单草稿时才跑补全探针（DOM 读取 + 编辑器树遍历）；纯滚动（含滚动条拖拽）不再每事件付探针成本。
+- **自动保存单次序列化**：写盘前快照 `editor.children` 与 frontmatter 引用，写后按引用相等判断文档是否在写盘期间变动，只有真变了才做二次全文档序列化（此前每次保存固定序列化两遍）。
+- **编辑器 memo 边界**：`MarkdownEditor` 按 props memo；`onDirtyChange` 在 DocView 内 `useCallback` 固定；`patchTab` 对无变化 patch 返回原数组与原 tab 引用——`notesDirty` 重复跳变、PDF 编译状态等 tab patch 不再重渲染其它面板的编辑器（Plate 全量协调）。
+- **跳转优先于滚动记忆**：`navigationIntent`（`[[note#标题]]` / 块锚 / 划词来源跳转）生效期间，scroll-memory 的挂载恢复让位，不再把视图拉回旧偏移；`scroll-memory` 本身保持 passive（只写 ref，不触发渲染）。
+
+三面板（PDF + 笔记 + 对话）同开的整体调优见 [bug_fix/notes-pane-jank-multi-panel.md](../bug_fix/notes-pane-jank-multi-panel.md)。
+
+## 限制与后续
+
+- **`@platejs/toc` 每 scroll 事件重建 IntersectionObserver**：`@platejs/toc` 的 scroll 监听每事件 `setStatus(Date.now())`，observer effect 依赖它，于是每个 scroll 事件都 disconnect + 重建 IO（每个标题一次 `NodeApi.get` + `toDOMNode` + `observe`）并全量重渲染 TOC。这是拖滚动条 / TOC 平滑滚动期间掉帧的最大单项（约 2–5ms/事件，与滚动距离无关）。后续计划在 `toc-sidebar.tsx` 用自持长生命周期 IO 替换 `useTocSideBarState` / `useTocSideBar`（保留 `queryTocHeadings` 三层缓存），或对依赖打 patch。
+- **macOS 未启用块级 `content-visibility`**：见 §阅读与打开性能第 1 条与 #702；WebKit 逐元素 CV 可能更慢，需按块数阈值分层灰度并 A/B 实测后再开。
+- **Agent 写盘光标保护**：`applyExternalMarkdown` 整篇 `setValue` + `deselect()`，Agent 流式写笔记时可能打断正在输入的光标；后续计划 setValue 后恢复 selection（pathRef 吸收位移）。
+- **对话面板剩余 memo**：流式合帧与窄订阅已落地（见 [agent.md](agent.md)），composer / config bar 等与 lines 无关的子树仍随面板重渲染，待逐个补 memo。
 
 
 ## 内嵌图片
