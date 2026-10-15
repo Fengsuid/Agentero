@@ -6,7 +6,7 @@ import {
 	Loader2,
 	RefreshCw,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PaneHeader } from "@/components/shell/pane-header";
 import { Button } from "@/components/ui/button";
@@ -42,9 +42,13 @@ type ReferencesPanelProps = {
 	compact?: boolean;
 };
 
-function citationMatchesFilter(citation: Citation, needle: string): boolean {
+/**
+ * Lowercase filter haystack for one citation. Joins `citation.raw` (the full
+ * BibTeX/bbl source), so build it once per sidecar instead of per keystroke.
+ */
+function citationFilterHaystack(citation: Citation): string {
 	const m = citation.metadata;
-	const haystack = [
+	return [
 		citation.display,
 		citation.rawKey,
 		citation.raw,
@@ -58,7 +62,6 @@ function citationMatchesFilter(citation: Citation, needle: string): boolean {
 		.filter(Boolean)
 		.join(" ")
 		.toLowerCase();
-	return haystack.includes(needle);
 }
 
 /**
@@ -119,13 +122,20 @@ export function ReferencesPanel({
 
 	const citations = sidecar?.citations ?? [];
 	const needle = filter.trim().toLowerCase();
+	// Haystacks / ordinals only change with the sidecar; typing in the filter
+	// reuses them and just runs `includes` over the precomputed strings.
+	const haystacks = useMemo(
+		() => citations.map(citationFilterHaystack),
+		[citations],
+	);
 	// Ordinal comes from the unfiltered list, so carry it through the filter.
-	const rows = citations.map((citation, index) => ({
-		citation,
-		ordinal: index + 1,
-	}));
+	const rows = useMemo(
+		() =>
+			citations.map((citation, index) => ({ citation, ordinal: index + 1 })),
+		[citations],
+	);
 	const visible = needle
-		? rows.filter((row) => citationMatchesFilter(row.citation, needle))
+		? rows.filter((_, index) => haystacks[index].includes(needle))
 		: rows;
 
 	const listBody = !paperPath ? (
