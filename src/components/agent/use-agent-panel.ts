@@ -25,6 +25,7 @@ import {
 } from "@/lib/agent";
 import { agentChromeStore } from "@/lib/agent/agent-chrome-store";
 import {
+	agentSessionStore,
 	applyAgentSessionHandoffOnce,
 	isActiveTabRunning,
 	useActiveChatLines,
@@ -100,7 +101,6 @@ export function useAgentPanel({
 	// Shared store selectors (single source of truth for the transcript).
 	const lines = useActiveChatLines();
 	const setLines = useAgentSessionStore((s) => s.setLines);
-	const sessionHistory = useAgentSessionStore((s) => s.sessions);
 	const setSessionHistory = useAgentSessionStore((s) => s.setSessions);
 	const activeTabId = useAgentSessionStore((s) => s.activeTabId);
 	const hydratingSessionId = useAgentSessionStore((s) => s.hydratingSessionId);
@@ -160,9 +160,18 @@ export function useAgentPanel({
 	const currentFilePath =
 		includeSelectedFile && selectedVaultPath ? selectedVaultPath : null;
 
-	useEffect(() => {
-		sessionHistoryRef.current = sessionHistory;
-	}, [sessionHistory, sessionHistoryRef]);
+	/**
+	 * Mirror the sessions array into the ref for synchronous guards without
+	 * re-rendering the panel: the array identity changes on every streamed
+	 * chunk, so a selector subscription re-rendered the whole panel ~25×/s.
+	 */
+	useEffect(
+		() =>
+			agentSessionStore.subscribe(() => {
+				sessionHistoryRef.current = agentSessionStore.getState().sessions;
+			}),
+		[sessionHistoryRef],
+	);
 
 	/** Last-seen vault path; drives the vault-switch reset effect below. */
 	const previousVaultPathRef = useRef(vaultPath);
@@ -255,8 +264,10 @@ export function useAgentPanel({
 
 	const activeTabIsRunning = useAgentSessionStore(isActiveTabRunning);
 	const activeUsage = usageBySession[activeTabId] ?? usage;
-	const hasRunningSessions = sessionHistory.some(
-		(session) => session.status === "running",
+	// Primitive selector: the sessions array identity changes per streamed
+	// chunk, so subscribe to the boolean the UI actually needs.
+	const hasRunningSessions = useAgentSessionStore((s) =>
+		s.sessions.some((session) => session.status === "running"),
 	);
 
 	const runtime = useAgentSessionRuntime({
@@ -583,7 +594,6 @@ export function useAgentPanel({
 		messageQueue,
 		removeQueuedMessage,
 		// History
-		sessionHistory,
 		historyOpen,
 		setHistoryOpen,
 		newConversation,

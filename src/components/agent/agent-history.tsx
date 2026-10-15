@@ -23,6 +23,7 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import { useImeGuard } from "@/hooks/use-ime-guard";
+import { useAgentSessionStore } from "@/lib/agent/agent-session-store";
 import type { ChatLine, ChatSessionHistoryItem } from "@/lib/agent/chat-state";
 import { displayHistoryTitle } from "@/lib/agent/prompt-display";
 import { cn } from "@/lib/core/utils";
@@ -198,11 +199,42 @@ export function HistorySessionList({
 	);
 }
 
+/**
+ * Subscribes on its own so streamed tokens only re-render this list, not the
+ * whole AgentPanel. Mounted inside the popover, so it exists only while open.
+ */
+function SidebarHistorySessions({
+	activeTabId,
+	submitting,
+	onOpen,
+}: {
+	activeTabId: string;
+	submitting: boolean;
+	onOpen: (item: ChatSessionHistoryItem) => void;
+}) {
+	const { t } = useTranslation("agent");
+	const sessionHistory = useAgentSessionStore((s) => s.sessions);
+	if (sessionHistory.length === 0) {
+		return (
+			<div className="px-3 py-4 text-muted-foreground text-sm leading-none">
+				{t("history.empty")}
+			</div>
+		);
+	}
+	return (
+		<HistorySessionList
+			sessionHistory={sessionHistory}
+			activeTabId={activeTabId}
+			submitting={submitting}
+			onOpen={onOpen}
+		/>
+	);
+}
+
 /** Sidebar-mode header: new chat + history popover (+ optional actions). */
 export function SidebarHistoryTrailing({
 	historyOpen,
 	onHistoryOpenChange,
-	sessionHistory,
 	activeTabId,
 	submitting,
 	headerActions,
@@ -211,7 +243,6 @@ export function SidebarHistoryTrailing({
 }: {
 	historyOpen: boolean;
 	onHistoryOpenChange: (open: boolean) => void;
-	sessionHistory: ChatSessionHistoryItem[];
 	activeTabId: string;
 	submitting: boolean;
 	headerActions?: ReactNode;
@@ -256,18 +287,11 @@ export function SidebarHistoryTrailing({
 							{t("history.description")}
 						</PopoverDescription>
 					</PopoverHeader>
-					{sessionHistory.length === 0 ? (
-						<div className="px-3 py-4 text-muted-foreground text-sm leading-none">
-							{t("history.empty")}
-						</div>
-					) : (
-						<HistorySessionList
-							sessionHistory={sessionHistory}
-							activeTabId={activeTabId}
-							submitting={submitting}
-							onOpen={onOpenSession}
-						/>
-					)}
+					<SidebarHistorySessions
+						activeTabId={activeTabId}
+						submitting={submitting}
+						onOpen={onOpenSession}
+					/>
 				</PopoverContent>
 			</Popover>
 			{headerActions}

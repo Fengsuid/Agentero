@@ -200,7 +200,6 @@ export const AgentPanel = memo(function AgentPanel({
 		submitComposer,
 		messageQueue,
 		removeQueuedMessage,
-		sessionHistory,
 		historyOpen,
 		setHistoryOpen,
 		newConversation,
@@ -307,7 +306,6 @@ export const AgentPanel = memo(function AgentPanel({
 						<SidebarHistoryTrailing
 							historyOpen={historyOpen}
 							onHistoryOpenChange={setHistoryOpen}
-							sessionHistory={sessionHistory}
 							activeTabId={activeTabId}
 							submitting={submitting}
 							headerActions={headerActions}
