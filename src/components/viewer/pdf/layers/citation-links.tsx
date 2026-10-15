@@ -22,6 +22,9 @@ import {
 import { memo } from "react";
 import type { ScreenPoint } from "@/components/viewer/pdf/types";
 import { normalizeArxivId } from "@/lib/paper/arxiv";
+import { linkTargetUrl } from "@/lib/pdf/link-target";
+
+export { linkTargetUrl };
 
 export function isLinkObject(
 	object: PdfAnnotationObject,
@@ -279,25 +282,4 @@ export function getLinkDestination(
 		return { pageIndex: destination.pageIndex, pdfX: null, pdfY: view[0] };
 	}
 	return { pageIndex: destination.pageIndex, pdfX: null, pdfY: 0 };
-}
-
-/**
- * External address carried by a link annotation, if any.
- * URI actions and Launch file paths are shown in the hover tip; GoTo
- * destinations stay on the citation / crossref cards.
- */
-export function linkTargetUrl(
-	target: PdfLinkTarget | undefined,
-): string | null {
-	const action = target?.type === "action" ? target.action : null;
-	if (!action) return null;
-	if (action.type === PdfActionType.URI) {
-		const uri = action.uri.trim();
-		return uri || null;
-	}
-	if (action.type === PdfActionType.LaunchAppOrOpenFile) {
-		const path = action.path.trim();
-		return path || null;
-	}
-	return null;
 }
