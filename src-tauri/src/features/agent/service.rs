@@ -249,6 +249,8 @@ pub async fn accept_run_once(
             remote: remote_for_spawn,
             resume_session_id: request.session_id.clone(),
             warm_pool: Some(warm_pool),
+            context: request.context,
+            resume_transcript: request.resume_transcript,
         })
         .await;
         if run_result.is_ok() {

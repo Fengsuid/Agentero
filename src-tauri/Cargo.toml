@@ -78,6 +78,7 @@ rmcp = { version = "3.1", optional = true, default-features = false, features = 
   "server",
   "macros",
   "schemars",
+  "transport-io",
   "transport-streamable-http-server",
 ] }
 schemars = { version = "1", optional = true }

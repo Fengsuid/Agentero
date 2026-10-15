@@ -2360,6 +2360,75 @@ export type ConnectorStatus = {
 
 export type ConnectorStatusEvent = ConnectorStatus;
 
+/**  One piece of user-supplied location: a selection, the open paper, or an @ mention. */
+export type ContextAnchor = ContextAnchor_Serialize | ContextAnchor_Deserialize;
+
+/**  How an anchor entered the turn. */
+export type ContextAnchorKind = "selection" | "paper" | "mention";
+
+/**  One piece of user-supplied location: a selection, the open paper, or an @ mention. */
+export type ContextAnchor_Deserialize = {
+	kind: ContextAnchorKind,
+	paperPath?: string | null,
+	filePath?: string | null,
+	/**  1-based PDF page. */
+	page?: number | null,
+	section?: string | null,
+	quote?: string | null,
+	comment?: string | null,
+	lineFrom?: number | null,
+	lineTo?: number | null,
+	before?: string | null,
+	after?: string | null,
+	translation?: string | null,
+	/**  Composer annotation number, when the quote sits inline as `[Annotation N]`. */
+	annotation?: number | null,
+};
+
+/**  One piece of user-supplied location: a selection, the open paper, or an @ mention. */
+export type ContextAnchor_Serialize = {
+	kind: ContextAnchorKind,
+	paperPath?: string | null,
+	filePath?: string | null,
+	/**  1-based PDF page. */
+	page?: number | null,
+	section?: string | null,
+	quote?: string | null,
+	comment?: string | null,
+	lineFrom?: number | null,
+	lineTo?: number | null,
+	before?: string | null,
+	after?: string | null,
+	translation?: string | null,
+	/**  Composer annotation number, when the quote sits inline as `[Annotation N]`. */
+	annotation?: number | null,
+};
+
+/**  First phase is read-only. Write tools are not part of this grant. */
+export type ContextMode = "read_only";
+
+/**  What the host knows before it resolves a turn. */
+export type ContextRequest = ContextRequest_Serialize | ContextRequest_Deserialize;
+
+/**  What the host knows before it resolves a turn. */
+export type ContextRequest_Deserialize = {
+	surface: ContextSurface,
+	question?: string,
+	anchors?: ContextAnchor_Deserialize[],
+	mode?: ContextMode,
+};
+
+/**  What the host knows before it resolves a turn. */
+export type ContextRequest_Serialize = {
+	surface: ContextSurface,
+	question: string,
+	anchors: ContextAnchor_Serialize[],
+	mode: ContextMode,
+};
+
+/**  Where the turn started. Quick Chat and the sidebar share one resolver. */
+export type ContextSurface = "quick_chat" | "sidebar";
+
 export type CoolPapersImportArgs = {
 	vaultPath: string,
 	/**  Vault-relative destination, e.g. `papers` or `papers/nlp`. */
@@ -4556,6 +4625,19 @@ export type RunOnceRequest_Deserialize = {
 	 *  (paper-reader and other non-composer workflows).
 	 */
 	hideFromChatHistory?: boolean,
+	/**
+	 *  Selection, open paper, and @ mentions for this turn.
+	 *  The host resolver writes the minimum evidence into the prompt and, for a
+	 *  local session, attaches the session-scoped `agentero-context` MCP.
+	 *  Omit when the turn has no vault anchor.
+	 */
+	context?: ContextRequest_Deserialize | null,
+	/**
+	 *  Earlier on-screen turns. The host inserts them only when the context
+	 *  fingerprint refuses to resume `session_id`. Omit when the prompt already
+	 *  contains that transcript.
+	 */
+	resumeTranscript?: string | null,
 };
 
 export type RunOnceRequest_Serialize = {
@@ -4610,6 +4692,19 @@ export type RunOnceRequest_Serialize = {
 	 *  (paper-reader and other non-composer workflows).
 	 */
 	hideFromChatHistory: boolean,
+	/**
+	 *  Selection, open paper, and @ mentions for this turn.
+	 *  The host resolver writes the minimum evidence into the prompt and, for a
+	 *  local session, attaches the session-scoped `agentero-context` MCP.
+	 *  Omit when the turn has no vault anchor.
+	 */
+	context?: ContextRequest_Serialize | null,
+	/**
+	 *  Earlier on-screen turns. The host inserts them only when the context
+	 *  fingerprint refuses to resume `session_id`. Omit when the prompt already
+	 *  contains that transcript.
+	 */
+	resumeTranscript?: string | null,
 };
 
 export type ScratchClearResult = {
