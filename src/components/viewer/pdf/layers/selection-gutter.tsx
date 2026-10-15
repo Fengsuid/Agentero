@@ -5,7 +5,7 @@ import {
 	MessageSquareText,
 	ScanSearch,
 } from "lucide-react";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/core/utils";
 import type { SelectionPin } from "@/lib/pdf/selection";
@@ -130,10 +130,14 @@ export const SelectionGutter = memo(function SelectionGutter({
 	onEnter,
 }: SelectionGutterProps) {
 	const { t } = useTranslation("viewer");
+	// Layout depends only on the pin set (600/800 are constants); hover-driven
+	// re-renders (activeId flips) must not redo the sort + collision resolution.
+	const laid = useMemo(() => layoutPins(items, 600, 800), [items]);
+	const byKey = useMemo(
+		() => new Map(items.map((it) => [`${it.kind}:${it.id}`, it])),
+		[items],
+	);
 	if (!items.length) return null;
-
-	const laid = layoutPins(items, 600, 800);
-	const byKey = new Map(items.map((it) => [`${it.kind}:${it.id}`, it]));
 
 	return (
 		<div
