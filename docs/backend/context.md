@@ -32,7 +32,7 @@ Prompt 里只有稳定 paper ref、标题、页码或章节、引用原文，以
 |---|---|
 | `context_search` | 少量证据卡片，摘录有字数上限，不返回全文 |
 | `context_read` | 默认 `metadata`（标题、作者、摘要）。然后才是 `excerpt`、`section`、`page`、`region`。`full` 必须点名，并且仍受预算限制。文件的 `excerpt` 先在文件里定位引文，再按预算截取返回 |
-| `paper_relations` | 引用、被引、库内相关论文的瘦卡片。引用 sidecar 和 citing-scan 缓存。grant 外的论文只出现在卡片上，`context_read` 会拒绝 |
+| `paper_relations` | 引用、被引、库内相关论文的瘦卡片。引用 sidecar 和 citing-scan 缓存。被引卡片只有在 DOI 或 arXiv 对上库内论文时才带那篇的 `paperPath`，不会借用当前论文的路径。grant 外的论文只出现在卡片上，`context_read` 会拒绝 |
 
 工具结果带 `citationUri`。实际用过的 URI 追加到同目录的 `usage.jsonl`，回合结束时放进 `agent:completed` 的 `sources`。侧边栏和 Quick Chat 把这些来源画成可点击的定位。
 

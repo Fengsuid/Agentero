@@ -442,11 +442,26 @@ impl ContextSession {
                         .map(|doi| format!(" doi:{doi}"))
                         .unwrap_or_default()
                 );
-                let citation_uri =
-                    relation_uri(None, card.doi.as_deref(), card.arxiv_id.as_deref());
+                let local = citing_local_paper(&self.vault, &card);
+                let paper_path = local.as_ref().map(|found| found.path.clone());
+                let work_id = local
+                    .as_ref()
+                    .map(|found| found.id.clone())
+                    .or_else(|| card.doi.clone())
+                    .or_else(|| card.arxiv_id.clone())
+                    .unwrap_or_else(|| title.clone());
+                let revision = local
+                    .as_ref()
+                    .map(|found| found.updated_at.clone())
+                    .unwrap_or_else(|| "citing".into());
+                let citation_uri = relation_uri(
+                    paper_path.as_deref(),
+                    card.doi.as_deref(),
+                    card.arxiv_id.as_deref(),
+                );
                 self.evidence(
-                    paper.id.clone(),
-                    Some(paper.path.clone()),
+                    work_id,
+                    paper_path,
                     None,
                     EvidenceLocator {
                         kind: "cited_by".into(),
@@ -457,7 +472,7 @@ impl ContextSession {
                         line_to: None,
                     },
                     cap_text(&excerpt, self.grant.budget.card_chars as usize).0,
-                    paper.updated_at.clone(),
+                    revision,
                     citation_uri,
                 )
             })
@@ -751,6 +766,26 @@ fn search_file(
             rel.to_string(),
         ),
     ))
+}
+
+fn citing_local_paper(vault: &Path, card: &citing::CachedCitingCard) -> Option<PaperRecord> {
+    let lookup = |column: &str, value: &str| {
+        let value = value.trim();
+        if value.is_empty() {
+            return None;
+        }
+        papers::find_by_identifier(vault, column, value)
+            .ok()
+            .flatten()
+    };
+    card.doi
+        .as_deref()
+        .and_then(|doi| lookup("doi", doi))
+        .or_else(|| {
+            card.arxiv_id
+                .as_deref()
+                .and_then(|id| lookup("arxiv_id", id))
+        })
 }
 
 fn citation_evidence(grant: &ContextGrant, citation: Citation) -> EvidenceRef {
@@ -1570,5 +1605,39 @@ mod tests {
             .find(|item| item.excerpt.contains("No Locator"))
             .unwrap();
         assert!(bare.citation_uri.is_empty());
+        let follow = cards
+            .evidence
+            .iter()
+            .find(|item| item.excerpt.contains("A Follow-up"))
+            .unwrap();
+        assert!(follow.paper_path.is_none());
+        assert_ne!(follow.work_id, "attention");
+        let unlocated = cards
+            .evidence
+            .iter()
+            .find(|item| item.excerpt.contains("Unlocated citer"))
+            .unwrap();
+        assert!(unlocated.paper_path.is_none());
+        assert_ne!(unlocated.work_id, "attention");
+    }
+
+    #[test]
+    fn cited_by_uses_a_catalog_match_instead_of_the_seed() {
+        let (dir, session, _) = vault_with_paper();
+        let mut follow =
+            PaperRecord::local_pdf("follow".into(), "A Follow-up".into()).at_path("papers/follow");
+        follow.doi = Some("10.9/follow".into());
+        papers::upsert_paper(dir.path(), &follow).unwrap();
+        let cards = session
+            .relations("attention", Some("cited_by"), Some(5))
+            .unwrap();
+        let matched = cards
+            .evidence
+            .iter()
+            .find(|item| item.excerpt.contains("A Follow-up"))
+            .unwrap();
+        assert_eq!(matched.paper_path.as_deref(), Some("papers/follow"));
+        assert_eq!(matched.work_id, "follow");
+        assert_ne!(matched.paper_path.as_deref(), Some("papers/attention"));
     }
 }
