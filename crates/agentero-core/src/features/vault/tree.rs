@@ -93,7 +93,66 @@ const EAGER_ROOT_NAMES: &[&str] = &["papers", "notes", ".agents"];
 /// Any of these marks a directory as a paper unit whose `source/` is lazy.
 const PAPER_MARKER_FILES: &[&str] = &["NOTES.md", "PAPER.md"];
 
+/// Paper-internal directories (mirrors `src/lib/paper/paths.ts`). A folder
+/// holding one of them is a paper unit, so they are never scanned for nested
+/// papers.
+const PAPER_MARKER_DIRS: &[&str] = &["source", "assets", "marks"];
+
 const LAZY_PAPER_DIR: &str = "source";
+
+/// App-owned rebuildable sidecars written inside a paper's `source/` bucket
+/// (reference sidecar + PDF layout sidecars, see `docs/backend/api.md`). They
+/// are never user content, so the tree blinds itself to them: a paper's
+/// internals stay clean even for folders the tree does not classify as paper
+/// units — papers kept outside `papers/`, copied in, or left behind by a
+/// re-organization (#747).
+const PAPER_SOURCE_ARTIFACT_NAMES: &[&str] = &[
+    "agentero-cite.json",
+    "agentero-figures.json",
+    "layout.json",
+    "layout-index.json",
+    "layout-translate.json",
+];
+
+fn is_paper_source_artifact(name: &str) -> bool {
+    PAPER_SOURCE_ARTIFACT_NAMES.contains(&name)
+}
+
+/// Last segment of a vault-relative path (`""` for the vault root).
+fn last_rel_segment(rel: &str) -> &str {
+    rel.trim_matches('/').rsplit('/').next().unwrap_or("")
+}
+
+/// True when a vault-relative path sits at or below `papers/`.
+fn is_under_papers_rel(rel: &str) -> bool {
+    let r = rel.trim_matches('/');
+    r == "papers" || r.starts_with("papers/")
+}
+
+/// One-level probe: `dir` holds nothing but the app's own sidecars (ignored
+/// noise such as `.DS_Store` does not count as content). Early-exits on the
+/// first real entry, so arXiv e-print trees stay cheap.
+fn is_app_sidecar_only_dir(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    let mut saw_sidecar = false;
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
+            return false;
+        };
+        if is_paper_source_artifact(name) {
+            saw_sidecar = true;
+            continue;
+        }
+        if should_ignore(name) {
+            continue;
+        }
+        return false;
+    }
+    saw_sidecar
+}
 
 #[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -297,6 +356,11 @@ fn list_dir(
         if rel.is_empty() && is_sync_store_artifact(&name) {
             continue;
         }
+        // The app's own sidecars inside a paper's `source/` bucket are never
+        // user content (references + PDF layout sidecars).
+        if last_rel_segment(rel) == LAZY_PAPER_DIR && is_paper_source_artifact(&name) {
+            continue;
+        }
         let file_type = match entry.file_type() {
             Ok(t) => t,
             Err(_) => continue,
@@ -334,8 +398,23 @@ fn list_dir(
     }
 
     let mut nodes: Vec<VaultTreeNode> = Vec::with_capacity(dirs.len() + files.len());
+    // A folder under `papers/` carrying a paper marker (NOTES.md / PAPER.md, or
+    // a `source` / `assets` / `marks` child) is a paper unit: its `source/`
+    // bucket keeps its current handling (lazy shell for papers, hidden by the
+    // renderer for paper rows).
+    let is_paper_unit = is_under_papers_rel(rel)
+        && (paper_marker
+            || dirs
+                .iter()
+                .any(|(name, _, _)| PAPER_MARKER_DIRS.contains(&name.as_str())));
     for (name, child_path, child_rel) in dirs {
         let path_str = child_path.to_string_lossy().into_owned();
+        // Outside a paper unit the `source/` bucket exists only to hold the
+        // app's rebuildable sidecars — skip it instead of surfacing an empty
+        // folder (#747).
+        if name == LAZY_PAPER_DIR && !is_paper_unit && is_app_sidecar_only_dir(&child_path) {
+            continue;
+        }
         let node = match mode {
             Mode::OneLevel => pending_shell(name, path_str),
             Mode::Eager => {
@@ -611,6 +690,66 @@ mod tests {
                 "{hidden} should be hidden but found in tree: {names:?}"
             );
         }
+    }
+
+    /// The app's own sidecars never surface, and a `source/` bucket that holds
+    /// nothing but them is skipped entirely outside paper units (#747).
+    #[test]
+    fn app_sidecars_are_hidden_and_sidecar_only_source_dirs_are_skipped() {
+        let root = &temp_root("app-sidecars");
+        // A paper folder kept outside `papers/` (moved in / copied by the
+        // user): the refs + layout sidecars are the only content.
+        write(&root.join("loose-paper/source/agentero-cite.json"), "{}");
+        write(&root.join("loose-paper/source/layout.json"), "{}");
+        write(&root.join("loose-paper/source/layout-index.json"), "{}");
+        // Same, but with real TeX next to the sidecars: the bucket stays and
+        // only the sidecars are filtered out of its listing.
+        write(&root.join("with-tex/source/main.tex"), "x");
+        write(&root.join("with-tex/source/agentero-cite.json"), "{}");
+        write(&root.join("with-tex/source/layout.json"), "{}");
+        // A paper unit under papers/ without NOTES.md: `source/` is its only
+        // marker, so it must survive for the renderer's paper detection.
+        write(&root.join("papers/p1/p1.pdf"), "%PDF-1.4");
+        write(&root.join("papers/p1/source/agentero-cite.json"), "{}");
+
+        let tree = build_tree(root, &CapsCache::new());
+
+        let loose = find(&tree, "loose-paper").unwrap();
+        let loose_children: Vec<&str> = loose
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
+        assert!(
+            !loose_children.contains(&"source"),
+            "sidecar-only source/ should be skipped: {loose_children:?}"
+        );
+
+        let with_tex = find(&tree, "with-tex").unwrap();
+        let source = find(with_tex.children.as_ref().unwrap(), "source").unwrap();
+        let source_children = list_children(root, &root.join("with-tex/source"), &CapsCache::new())
+            .expect("list source");
+        let source_names: Vec<&str> = source_children.iter().map(|n| n.name.as_str()).collect();
+        assert!(
+            source_names.contains(&"main.tex"),
+            "real content stays visible: {source_names:?}"
+        );
+        for hidden in ["agentero-cite.json", "layout.json", "layout-index.json"] {
+            assert!(
+                !source_names.contains(&hidden),
+                "{hidden} should be hidden but found: {source_names:?}"
+            );
+        }
+        assert!(source.children.as_ref().is_none_or(|c| c.is_empty()));
+
+        let papers = find(&tree, "papers").unwrap();
+        let p1 = find(papers.children.as_ref().unwrap(), "p1").unwrap();
+        assert!(
+            find(p1.children.as_ref().unwrap(), "source").is_some(),
+            "a paper unit keeps its source/ marker"
+        );
     }
 
     #[test]

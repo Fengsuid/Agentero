@@ -19,6 +19,7 @@
 - 远程：`remote_list` 前端递归。
 - **全量递归**：`papers/`、`notes/`、`.agents/`；论文内 `source/` **懒加载**（`childrenPending` → `vault_tree_children`）。
 - 论文默认仍是叶子。若 `{paper}/attachments/` 内有文件，行上出现 chevron；展开后只列出该目录的子项（不显示 `attachments` 桶本身，也不显示 `source/` / `marks/` / `NOTES.md` 等内部文件）。
+- **应用自产 sidecar 不入树**：`{paper}/source/` 下的 `agentero-cite.json`、`agentero-figures.json` 与 `layout.json` / `layout-index.json` / `layout-translate.json` 都是可重建的应用资产，树永不列出。因此即便某文件夹没有被识别成论文单元（论文被移出 `papers/`、从外部拷贝进来、组织夹里残留等），只要其 `source/` 只装这些文件，整个 `source/` 目录也不会出现（#747）。
 - 其它根目录（包括旧 Vault 中可能存在的 `plans/`）只 list 一层，展开再 list。
 - **缺失目录**：本地 `read_dir` 失败返回空列表；远程 list 的 `NoSuchFile` 同样按空处理（`isPathMissingError`），避免删除后刷新把整棵树清空。删除成功后会先 `removeTreeNode` 乐观剪枝，再 `refreshTree`。
 - 忽略：`.git`、`.venv`、`node_modules` 等（`TREE_IGNORE_NAMES`）。
