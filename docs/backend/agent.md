@@ -40,6 +40,11 @@ Agentero 作为 **ACP Client**，stdio JSON-RPC 连接用户本机或远端 Agen
   环境变量（`SHELL -lic 'env -0'`）以及 `AgentDescriptor.env`。这样 macOS/Linux 上从
   GUI 启动 Agentero 也能读到 `.zshrc` / `.bashrc` 里 `export` 的 `OPENAI_API_KEY`、
   `OPENAI_BASE_URL` 等变量；`AgentDescriptor.env` 优先级最高，可覆盖 shell 值（#478）。
+  合并后统一排除空名称、名称含 `=` 或 NUL 的条目，避免 Windows 的 `=C:` / `=D:`
+  盘符工作目录伪变量被当作显式子进程 env 覆盖而导致启动失败。正常变量值中的 `=`、
+  空值和既有 PATH 合并顺序保持不变；不修改宿主全局环境。设置探测、run / warm /
+  history 及共享该环境的诊断命令均复用这一过滤，见
+  [Windows ACP 环境变量名导致启动失败](../bug_fix/windows-acp-hidden-environment.md)。
 - 统一接口：OpenCode、Hermes、Claude ACP、Codex ACP、Antigravity ACP、Qoder、Grok、Pi、Dsh（DeepSeek Harness）、Kimi Code、ZCode、MiniMax Code、MiMo Code、自定义 `command`/`args`/`env`。自定义项不探测安装器，保存后按同一 stdio 路径拉起；前端把参数字符串按空白拆开。设置表单用 `agent.form.hint` 说明这一约定。
 - Dsh：umbrella CLI `@deepseek-ai/dsh`（npm，需 0.1.2+）内置 ACP profile——
   `dsh --profile acp` 以 ACP stdio 服务，首次启动从内置模板自动初始化 profile
