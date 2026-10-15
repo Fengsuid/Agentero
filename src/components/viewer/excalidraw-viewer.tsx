@@ -12,7 +12,7 @@ import type {
 	ExcalidrawProps,
 } from "@excalidraw/excalidraw/types";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 interface ExcalidrawViewerProps {
@@ -70,9 +70,15 @@ export function ExcalidrawViewer({
 	const { resolvedTheme } = useTheme();
 	const theme = resolvedTheme === "dark" ? "dark" : "light";
 	const lastSavedRef = useRef(seed);
-	const pendingJsonRef = useRef<string | null>(null);
+	// PERF: onChange fires per pointer-event frame; stash the latest
+	// (elements, appState, files) tuple — a reference, zero-copy — and let
+	// the debounced flush do the (potentially MB-scale with embedded image
+	// dataURLs) serializeAsJSON pass exactly once.
+	const pendingSceneRef = useRef<Parameters<
+		NonNullable<ExcalidrawProps["onChange"]>
+	> | null>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const [dirty, setDirty] = useState(false);
+	const dirtyRef = useRef(false);
 
 	// Keep the dirty callback stable across parent re-renders (doc-view passes
 	// an inline arrow for `onDirtyChange`).
@@ -103,28 +109,28 @@ export function ExcalidrawViewer({
 	}, [seed]);
 
 	const flush = useCallback(async () => {
-		const json = pendingJsonRef.current;
-		if (json == null) return;
-		pendingJsonRef.current = null;
-		const ok = await onPersist(path, json, lastSavedRef.current);
+		const scene = pendingSceneRef.current;
+		if (scene == null) return;
+		pendingSceneRef.current = null;
+		const [elements, appState, files] = scene;
+		// `files` carries the embedded image binaries (dataURLs); serializing
+		// without them would persist elements without their images.
+		const payload = serializeAsJSON(elements, appState, files, "local");
+		const ok = await onPersist(path, payload, lastSavedRef.current);
 		if (ok) {
-			lastSavedRef.current = json;
-			setDirty(false);
+			lastSavedRef.current = payload;
+			dirtyRef.current = false;
 			onDirtyChangeRef.current(false);
 		}
 	}, [onPersist, path]);
 
-	const schedulePersist = useCallback(
-		(json: string) => {
-			pendingJsonRef.current = json;
-			if (debounceRef.current) clearTimeout(debounceRef.current);
-			debounceRef.current = setTimeout(() => {
-				debounceRef.current = null;
-				void flush();
-			}, AUTOSAVE_DELAY_MS);
-		},
-		[flush],
-	);
+	const schedulePersist = useCallback(() => {
+		if (debounceRef.current) clearTimeout(debounceRef.current);
+		debounceRef.current = setTimeout(() => {
+			debounceRef.current = null;
+			void flush();
+		}, AUTOSAVE_DELAY_MS);
+	}, [flush]);
 
 	useEffect(() => {
 		return () => {
@@ -132,7 +138,7 @@ export function ExcalidrawViewer({
 				clearTimeout(debounceRef.current);
 				debounceRef.current = null;
 			}
-			if (pendingJsonRef.current) {
+			if (pendingSceneRef.current) {
 				void flush();
 			}
 		};
@@ -154,23 +160,21 @@ export function ExcalidrawViewer({
 			clearTimeout(debounceRef.current);
 			debounceRef.current = null;
 		}
-		pendingJsonRef.current = null;
-		setDirty(false);
+		pendingSceneRef.current = null;
+		dirtyRef.current = false;
 		onDirtyChangeRef.current(false);
 	}, [reloadKey]);
 
 	const handleChange: NonNullable<ExcalidrawProps["onChange"]> = useCallback(
 		(elements, appState, files) => {
-			if (!dirty) {
-				setDirty(true);
+			pendingSceneRef.current = [elements, appState, files];
+			if (!dirtyRef.current) {
+				dirtyRef.current = true;
 				onDirtyChangeRef.current(true);
 			}
-			// `files` carries the embedded image binaries (dataURLs); passing
-			// an empty map here would persist elements without their images.
-			const payload = serializeAsJSON(elements, appState, files, "local");
-			schedulePersist(payload);
+			schedulePersist();
 		},
-		[dirty, schedulePersist],
+		[schedulePersist],
 	);
 
 	// An empty or unreadable file still opens a blank canvas — the next
