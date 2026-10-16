@@ -1,10 +1,9 @@
 name: iOS TestFlight
 
 on:
+  # iOS publishing is frozen (2026-10): build on demand only. Re-add
+  # `push.tags: ["v*"]` here to publish TestFlight builds with desktop tags.
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: read

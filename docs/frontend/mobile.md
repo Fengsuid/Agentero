@@ -1,6 +1,6 @@
 # 移动端前端与 iOS 远程连接
 
-> 状态：**M1 已实现，M2 已提交 TestFlight（内测中）**。当前移动端已包含二维码/配对链接连接、连接状态恢复、论文库搜索、PDF 分块缓存、NOTES 编辑、桌面 Agent 流式输出与权限应答、ACP Agent 切换、历史会话恢复和移动端侧栏；多主机/LAN 回退仍在后续范围。面向用户的操作说明见 [移动端](../usage/mobile.md)。
+> 状态：**M1 已实现，M2 已提交 TestFlight（内测）**；iOS 发布已冻结（2026-10-16）：不再随 tag 自动构建上传，需要时手动触发 `ios-testflight.yml`。当前移动端已包含二维码/配对链接连接、连接状态恢复、论文库搜索、PDF 分块缓存、NOTES 编辑、桌面 Agent 流式输出与权限应答、ACP Agent 切换、历史会话恢复和移动端侧栏；多主机/LAN 回退仍在后续范围。面向用户的操作说明见 [移动端](../usage/mobile.md)。
 > 决策：iOS **不做本地 Vault**，App 是桌面端的纯远程客户端 —— 扫码配对后经 **relay + 端到端加密** 连接电脑上的 Agentero，读写电脑上的库，并驱动电脑上的 BYOA Agent。
 > Android：已初始化 Tauri Android 目标（`src-tauri/gen/android`，包名 `com.poco_ai.agentero`）。定位与 iOS 相同——纯远程客户端，`src/main.tsx` 经 `isMobileApp()`（`src/lib/core/tauri.ts`，iOS/Android UA 检测）加载同一移动壳；liteparse、菜单事件等桌面能力用 `cfg(not(any(target_os = "ios", target_os = "android")))` 一并排除。本地调试：`pnpm tauri android dev` / `pnpm tauri android build --apk`（需 ANDROID_HOME + NDK）。发布：`.github/workflows/release.yml` 的 `android` job（与 `installers`/`cli` 并行，同一 draft release）在 tag 推送时构建签名 APK `Agentero_<版本>_aarch64.apk`；需 `ANDROID_KEYSTORE*` secrets，缺失则跳过该 job 而不阻塞桌面发布。
 
