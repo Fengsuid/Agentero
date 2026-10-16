@@ -38,6 +38,9 @@ pub struct EngineCredentials {
     pub language: Option<String>,
     /// MinerU force-OCR: OCR every page regardless of the PDF text layer.
     pub is_ocr: bool,
+    /// MinerU: treat `base_url` as a self-hosted deployment (dialect detected
+    /// from its health endpoint) instead of the official cloud API.
+    pub self_hosted: bool,
 }
 
 pub struct BodyParseCtx<'a> {

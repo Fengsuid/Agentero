@@ -3399,6 +3399,11 @@ export type LayoutProviderConfig = {
 	language?: string,
 	/**  MinerU force-OCR: run OCR on every page regardless of the PDF text layer. */
 	isOcr?: boolean,
+	/**
+	 *  Treat `base_url` as a self-hosted MinerU server (version-detected)
+	 *  instead of the official cloud API (which also covers relays).
+	 */
+	selfHosted?: boolean,
 };
 
 export type LayoutRemoteAnalyzePdfArgs = {

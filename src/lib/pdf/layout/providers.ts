@@ -19,6 +19,8 @@ export type LayoutProviderDescriptor = {
 	supportsLanguage?: boolean;
 	/** Force-OCR toggle is available (MinerU only). */
 	supportsOcr?: boolean;
+	/** Self-hosted MinerU options: parse tier and 3.x legacy parameters. */
+	supportsSelfHosted?: boolean;
 	/** `source.mode` written to the layout sidecar for this provider's runs. */
 	sidecarMode: LayoutSidecarMode;
 };
@@ -41,6 +43,8 @@ export type ProviderCardDescriptor = {
 	supportsLanguage?: boolean;
 	/** Force-OCR toggle is available (MinerU only). */
 	supportsOcr?: boolean;
+	/** Self-hosted MinerU options: parse tier and 3.x legacy parameters. */
+	supportsSelfHosted?: boolean;
 };
 
 export const LAYOUT_PROVIDERS: Record<LayoutBackend, LayoutProviderDescriptor> =
@@ -66,6 +70,7 @@ export const LAYOUT_PROVIDERS: Record<LayoutBackend, LayoutProviderDescriptor> =
 			supportsBaseUrl: true,
 			supportsLanguage: true,
 			supportsOcr: true,
+			supportsSelfHosted: true,
 			sidecarMode: "mineru-layout",
 		},
 	};
@@ -108,6 +113,7 @@ export const PARSER_PROVIDERS: Record<
 		supportsBaseUrl: true,
 		supportsLanguage: true,
 		supportsOcr: true,
+		supportsSelfHosted: true,
 	},
 	openaiCompatible: {
 		id: "openaiCompatible",
@@ -143,6 +149,7 @@ export function layoutProviderCard(
 		supportsBaseUrl: descriptor.supportsBaseUrl,
 		supportsLanguage: descriptor.supportsLanguage,
 		supportsOcr: descriptor.supportsOcr,
+		supportsSelfHosted: descriptor.supportsSelfHosted,
 	};
 }
 
@@ -170,6 +177,8 @@ export function mergeProviderCards(
 						supportsLanguage:
 							previous.supportsLanguage || card.supportsLanguage,
 						supportsOcr: previous.supportsOcr || card.supportsOcr,
+						supportsSelfHosted:
+							previous.supportsSelfHosted || card.supportsSelfHosted,
 					}
 				: card,
 		);

@@ -54,6 +54,8 @@ export type LayoutProviderConfig = {
 	language: string;
 	/** MinerU force-OCR: OCR every page regardless of the PDF text layer. */
 	isOcr: boolean;
+	/** Treat `baseUrl` as a self-hosted MinerU server instead of the cloud API. */
+	selfHosted: boolean;
 };
 
 /**

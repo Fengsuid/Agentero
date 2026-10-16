@@ -577,6 +577,11 @@
 			"baseUrl": {
 				"label": "Base URL"
 			},
+			"selfHostedHelp": "官方云 API 地址，或中转站地址。",
+			"selfHosted": {
+				"label": "自建 API",
+				"help": "仅在使用自建服务时打开。"
+			},
 			"model": {
 				"label": "模型"
 			},
@@ -586,7 +591,7 @@
 			},
 			"language": {
 				"label": "语言",
-				"help": "指定文档语言",
+				"help": "OCR 语言包；自建 4.0 不生效。",
 				"options": {
 					"ch": "中英文",
 					"en": "纯英文"
@@ -594,7 +599,7 @@
 			},
 			"forceOcr": {
 				"label": "强制 OCR",
-				"help": "是否启动 OCR 功能"
+				"help": "对所有页面强制 OCR，不按文本层自动判断。"
 			},
 			"probeIdle": "尚未检测",
 			"probeOk": "可用",

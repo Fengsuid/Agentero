@@ -43,6 +43,7 @@ fn inject_provider_credentials(
         base_url: store.layout_base_url(provider),
         language: store.layout_language(provider),
         is_ocr: store.layout_is_ocr(provider),
+        self_hosted: store.layout_self_hosted(provider),
     }
 }
 
