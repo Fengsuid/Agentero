@@ -10,6 +10,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { MathText } from "@/components/ui/math-text";
 import {
 	Tooltip,
 	TooltipContent,
@@ -160,9 +161,16 @@ export function RecycleBinView({
 											)}
 										/>
 										<div className="min-w-0 flex-1">
-											<div className="truncate text-sm" title={item.rel}>
-												{item.name}
-											</div>
+											{item.title ? (
+												<MathText
+													text={item.title}
+													className="block truncate text-sm"
+												/>
+											) : (
+												<div className="truncate text-sm" title={item.name}>
+													{item.name}
+												</div>
+											)}
 											<div className="truncate text-caption text-muted-foreground">
 												{item.rel} · {formatWhen(item.deletedAt)}
 											</div>
@@ -223,7 +231,7 @@ export function RecycleBinView({
 						<DialogDescription>
 							{purgeTarget
 								? t("recycleBin.deleteForeverConfirm", {
-										name: purgeTarget.name,
+										name: purgeTarget.title ?? purgeTarget.name,
 									})
 								: null}
 						</DialogDescription>

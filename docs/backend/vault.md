@@ -60,7 +60,7 @@
 | Command | 说明 |
 |---|---|
 | `path_trash` | 移入 `.agentero/.trash/`（含 catalog 快照） |
-| `path_list_trash` | 列表 |
+| `path_list_trash` | 列表（论文项带快照标题 `title`，UI 显示标题而非目录名 ID） |
 | `path_restore_item` | 恢复 |
 | `path_purge_item` / `path_purge_trash` | 永久删除 / 清空 |
 

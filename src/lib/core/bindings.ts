@@ -5136,6 +5136,11 @@ export type TrashEntry = {
 	rel: string,
 	/**  Basename for display. */
 	name: string,
+	/**
+	 *  Paper title when the item snapshots exactly one catalog row (a paper
+	 *  directory); `None` for plain files or folders holding several papers.
+	 */
+	title: string | null,
 	deletedAt: string,
 	isDir: boolean,
 };

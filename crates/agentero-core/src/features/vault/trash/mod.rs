@@ -60,8 +60,21 @@ pub struct TrashEntry {
     pub rel: String,
     /// Basename for display.
     pub name: String,
+    /// Paper title when the item snapshots exactly one catalog row (a paper
+    /// directory); `None` for plain files or folders holding several papers.
+    pub title: Option<String>,
     pub deleted_at: String,
     pub is_dir: bool,
+}
+
+/// Display title for a trashed item: the catalog title when the snapshot holds
+/// a single paper row, otherwise `None` (caller falls back to the basename).
+pub fn snapshot_title(rows: &[PaperRecord]) -> Option<String> {
+    if rows.len() != 1 {
+        return None;
+    }
+    let title = rows[0].title.trim();
+    (!title.is_empty()).then(|| title.to_string())
 }
 
 fn is_under_papers(rel: &str) -> bool {
@@ -242,6 +255,7 @@ pub fn list_trash(vault_root: &Path) -> Result<Vec<TrashEntry>, AppError> {
                 stored: item.stored.clone(),
                 rel: item.rel.clone(),
                 name,
+                title: snapshot_title(&item.catalog_rows),
                 deleted_at: manifest.created_at.clone(),
                 is_dir,
             });
@@ -392,6 +406,35 @@ mod tests {
         assert_eq!(restored, 1);
         assert!(paper_dir.join("NOTES.md").exists());
         assert!(papers::get_by_path(&dir, "papers/x").unwrap().is_some());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_reports_paper_title() {
+        let dir = env::temp_dir().join(format!("agentero-trash-title-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let paper_dir = dir.join("papers").join("2501.00001");
+        fs::create_dir_all(&paper_dir).unwrap();
+        fs::write(paper_dir.join("NOTES.md"), "# hi\n").unwrap();
+        papers::upsert_paper(&dir, &sample_record("papers/2501.00001", "2501.00001")).unwrap();
+        let notes = dir.join("notes");
+        fs::create_dir_all(&notes).unwrap();
+        fs::write(notes.join("a.md"), "a\n").unwrap();
+
+        let res = trash_paths(
+            &dir,
+            &["papers/2501.00001".to_string(), "notes/a.md".to_string()],
+        )
+        .unwrap();
+        assert_eq!(res.count, 2);
+
+        let items = list_trash(&dir).unwrap();
+        let paper = items.iter().find(|e| e.rel == "papers/2501.00001").unwrap();
+        // Paper entries surface the snapshotted catalog title for display.
+        assert_eq!(paper.title.as_deref(), Some("T"));
+        let note = items.iter().find(|e| e.rel == "notes/a.md").unwrap();
+        assert!(note.title.is_none());
 
         let _ = fs::remove_dir_all(&dir);
     }

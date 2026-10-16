@@ -10,7 +10,7 @@
 
 | 节点 | 路径常量 | 行为 |
 |---|---|---|
-| Recycle Bin | `agentero:trash` | 打开回收站视图；右键清空 |
+| Recycle Bin | `agentero:trash` | 打开回收站视图（论文项主行显示快照标题，经 `MathText`；普通文件显示文件名；副行原路径 + 删除时间）；右键清空 |
 | 广场 | `agentero:plaza` | 单击只切换展开/收起（纯虚拟文件夹，无广场首页）；`Globe` 图标。子来源含 Cool Papers、ModelScope 论文、Skill 推荐与 **订阅**；右键父节点列出全部来源逐条勾选显隐（`plazaHiddenSources`） |
 
 ## 建树

@@ -9,7 +9,7 @@ use crate::core::error::AppError;
 use crate::core::fs::{normalize_rel_separators, VaultFs, WriteOpts};
 use crate::features::paper::catalog::papers::{self, PaperRecord};
 use crate::features::vault::trash::remote_ops::RemoteTrashOps;
-use crate::features::vault::trash::{TrashEntry, TrashResult};
+use crate::features::vault::trash::{snapshot_title, TrashEntry, TrashResult};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -208,6 +208,7 @@ pub async fn list_trash(session: &RemoteSession) -> Result<Vec<TrashEntry>, AppE
                 stored: item.stored.clone(),
                 rel: item.rel.clone(),
                 name,
+                title: snapshot_title(&item.catalog_rows),
                 deleted_at: manifest.created_at.clone(),
                 is_dir,
             });
