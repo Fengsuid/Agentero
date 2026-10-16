@@ -39,6 +39,7 @@ type Draft = {
 	abstract: string;
 	pdfUrl: string;
 	htmlUrl: string;
+	codeRepo: string;
 };
 
 function draftFromPaper(paper: PaperMetadata): Draft {
@@ -56,6 +57,7 @@ function draftFromPaper(paper: PaperMetadata): Draft {
 		abstract: paper.abstract ?? "",
 		pdfUrl: paper.pdf_url ?? "",
 		htmlUrl: paper.html_url ?? "",
+		codeRepo: paper.code_repo ?? "",
 	};
 }
 
@@ -82,6 +84,7 @@ function diffDraft(initial: Draft, current: Draft): PaperMetaPatch {
 	if (current.abstract !== initial.abstract) patch.abstract = current.abstract;
 	if (current.pdfUrl !== initial.pdfUrl) patch.pdfUrl = current.pdfUrl;
 	if (current.htmlUrl !== initial.htmlUrl) patch.htmlUrl = current.htmlUrl;
+	if (current.codeRepo !== initial.codeRepo) patch.codeRepo = current.codeRepo;
 	return patch;
 }
 
@@ -320,6 +323,11 @@ export function EditPaperMetaDialog({
 							{field("htmlUrl", t("paperInfo.editMeta.fieldHtmlUrl"), {
 								className: "font-mono text-xs",
 								inputMode: "url",
+							})}
+							{field("codeRepo", t("paperInfo.editMeta.fieldCodeRepo"), {
+								className: "font-mono text-xs",
+								inputMode: "url",
+								placeholder: "https://github.com/owner/repo",
 							})}
 						</CollapsibleContent>
 					</Collapsible>

@@ -2,7 +2,7 @@
 
 ## 布局
 
-- **左栏**：文件树 + Paper Info（选中论文时显示，或在 Library 中悬停某行时预览该论文；切换到非论文文档时自动隐藏；无卡片容器、常驻 collapsible，点标题行即可折叠，高度 200ms 过渡；上边缘可拖拽调整高度，`preserve-pixel-size`；内容区可滚动但不显示滚动条；文件树多选时复用固定高度标题栏显示批量操作，不压缩或遮挡树；arXiv 论文在资源按钮下显示 arXiv PDF、魔搭论文解读与 alphaXiv 外链，不再显示摘要按钮；窄宽度下资源按钮退化为仅图标；元信息修改入口位于 Info 底部）。Cool Papers / Kimi 解析入口在论文 `NOTES.md` 的 Markdown 工具栏，不在 Paper Info。左右栏共用 `bg-sidebar` 材质，与中间内容区分层。
+- **左栏**：文件树 + Paper Info（选中论文时显示，或在 Library 中悬停某行时预览该论文；切换到非论文文档时自动隐藏；无卡片容器、常驻 collapsible，点标题行即可折叠，高度 200ms 过渡；上边缘可拖拽调整高度，`preserve-pixel-size`；内容区可滚动但不显示滚动条；文件树多选时复用固定高度标题栏显示批量操作，不压缩或遮挡树；arXiv 论文在资源按钮下显示 arXiv PDF、魔搭论文解读与 alphaXiv 外链，填写 `code_repo` 时在同行末尾额外显示 GitHub 链接，不再显示摘要按钮；窄宽度下资源按钮退化为仅图标；元信息修改入口位于 Info 底部）。Cool Papers / Kimi 解析入口在论文 `NOTES.md` 的 Markdown 工具栏，不在 Paper Info。左右栏共用 `bg-sidebar` 材质，与中间内容区分层。
 - **中间**：无 Vault 欢迎页；有 Vault 时为全局 Dockview（见 [workspace.md](workspace.md)）。Dock 页签条略软于实色 muted，活动页签用 `background` 抬起；页签按下有轻 opacity 反馈。
 - **右栏**（可选）：Agent / 批注（`bg-sidebar`，与左栏同色）。
   - 参考文献与版面解析已移入 PDF 阅读器左侧浮层面板（见 [pdf.md](pdf.md)），不再占用右栏。

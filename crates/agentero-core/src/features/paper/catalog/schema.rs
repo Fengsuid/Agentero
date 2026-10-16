@@ -11,6 +11,7 @@
 //! - v8: multi-row discovery runs (`discovery_runs`) keyed by
 //!   source/model/categories/top_n, superseding the single-row
 //!   `arxiv_rec_state` (kept for old DBs; no longer written)
+//! - v9: manually maintained `code_repo` link (no auto resolution yet)
 
 use crate::error::AppError;
 use crate::sqlite::MigrationStep;
@@ -21,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Current catalog schema version written to `schema_meta`.
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 const DDL_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -148,6 +149,11 @@ CREATE TABLE IF NOT EXISTS discovery_runs (
 CREATE INDEX IF NOT EXISTS idx_discovery_runs_computed_at ON discovery_runs(computed_at DESC);
 "#;
 
+/// Schema v9: manually maintained code-repository link.
+const MIGRATE_V8_TO_V9: &str = r#"
+ALTER TABLE papers ADD COLUMN code_repo TEXT;
+"#;
+
 /// Absolute path to `{vault}/.agentero/catalog.sqlite`.
 pub fn catalog_db_path(vault_root: &Path) -> std::path::PathBuf {
     vault_root.join(".agentero").join("catalog.sqlite")
@@ -254,7 +260,7 @@ pub fn with_catalog<T>(
 
 /// Migration ladder, applied by [`crate::sqlite::run_migrations`] (per-step
 /// version re-read, stamping, `newer than app` guard).
-const MIGRATION_STEPS: [MigrationStep; 8] = [
+const MIGRATION_STEPS: [MigrationStep; 9] = [
     MigrationStep::batch(1, DDL_V1),
     // SQLite ADD COLUMN is not fully batch-safe across existing cols; the
     // v2–v4 entries run one-by-one and ignore duplicate-column errors.
@@ -265,6 +271,7 @@ const MIGRATION_STEPS: [MigrationStep; 8] = [
     MigrationStep::script(6, MIGRATE_V5_TO_V6),
     MigrationStep::custom(7, migrate_v7),
     MigrationStep::script(8, MIGRATE_V7_TO_V8),
+    MigrationStep::script_tolerant(9, MIGRATE_V8_TO_V9),
 ];
 
 fn migrate(conn: &Connection) -> Result<(), AppError> {
@@ -359,6 +366,16 @@ mod tests {
             .unwrap();
         assert_eq!(has_zotero, 2);
 
+        // v9 manual code-repo column exists
+        let has_code_repo: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('papers') WHERE name = 'code_repo'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_code_repo, 1);
+
         // v6 recommendation caches + v8 multi-row discovery runs exist
         let has_rec_tables: i64 = conn
             .query_row(
@@ -388,9 +405,9 @@ mod tests {
 
     /// v1 databases predate the whole migration ladder: build one by hand
     /// (v1 DDL + version stamp + legacy-shaped row) and walk it through every
-    /// step — v2…v8 must all land.
+    /// step — v2…v9 must all land.
     #[test]
-    fn migrates_v1_to_v8_through_full_ladder() {
+    fn migrates_v1_to_v9_through_full_ladder() {
         let dir = env::temp_dir().join(format!(
             "agentero-catalog-v1-{}-{}",
             std::process::id(),
@@ -419,7 +436,7 @@ mod tests {
             .unwrap();
         }
 
-        let conn = ensure_catalog(&dir).expect("migrate v1 to v8");
+        let conn = ensure_catalog(&dir).expect("migrate v1 to v9");
         assert_eq!(schema_version(&conn).unwrap(), SCHEMA_VERSION);
 
         // v2 Translator columns exist (spot-check a few of the 16).
@@ -432,16 +449,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_v2, 4);
-        // v3 read flag + v4 Zotero linkage.
-        let has_v3_v4: i64 = conn
+        // v3 read flag + v4 Zotero linkage + v9 manual code-repo link.
+        let has_v3_v4_v9: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('papers')
-                 WHERE name IN ('is_read', 'zotero_item_id', 'zotero_last_synced')",
+                 WHERE name IN ('is_read', 'zotero_item_id', 'zotero_last_synced', 'code_repo')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(has_v3_v4, 3);
+        assert_eq!(has_v3_v4_v9, 4);
         // v5 page-count cache + v6 recommendation caches + v8 discovery runs.
         let tables: i64 = conn
             .query_row(

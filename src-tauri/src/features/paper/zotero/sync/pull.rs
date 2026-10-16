@@ -237,6 +237,7 @@ mod tests {
             pdf_url: None,
             html_url: None,
             source_url: None,
+            code_repo: None,
             body_source: None,
             body_quality: None,
             bibtex_key: None,

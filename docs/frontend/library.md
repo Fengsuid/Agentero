@@ -51,7 +51,7 @@
 - Library 表格行右键"编辑元数据"；
 - 文件树论文行右键"编辑元数据"。
 
-核心字段（标题/作者/日期/DOI/arXiv/期刊）直接展示，卷期页、出版社、摘要、URL 折叠在"更多字段"。作者每行一位；日期接受 `YYYY` / `YYYY-MM` / `YYYY-MM-DD`（也容忍 `2017-06-12T00:00:00Z`、`Spring 2017` 这类松散串，由 Host 规范化），年份由日期派生；仅提交变更字段（patch）→ `paper_update_meta` → 返回行原地同步 Library 表与所有打开 tab（`paperMetaChange`）。远程 Vault 暂不支持，入口隐藏。后端语义见 [../backend/catalog.md](../backend/catalog.md)。
+核心字段（标题/作者/日期/DOI/arXiv/期刊）直接展示，卷期页、出版社、摘要、URL、代码仓库（`code_repo`，手动填写，无自动解析）折叠在"更多字段"。作者每行一位；日期接受 `YYYY` / `YYYY-MM` / `YYYY-MM-DD`（也容忍 `2017-06-12T00:00:00Z`、`Spring 2017` 这类松散串，由 Host 规范化），年份由日期派生；仅提交变更字段（patch）→ `paper_update_meta` → 返回行原地同步 Library 表与所有打开 tab（`paperMetaChange`）。远程 Vault 暂不支持，入口隐藏。后端语义见 [../backend/catalog.md](../backend/catalog.md)。
 
 DOI 旁有 **刷新** 按钮：按当前 DOI（或 arXiv ID）拉取权威元数据（`paper_resolve_identifier` → Translator/Crossref/arXiv Atom，再用 S2 `publicationVenue` 补期刊/会议名），只填充表单供确认，保存仍走 patch。venue 源优先级见 [../backend/academic-search-apis.md](../backend/academic-search-apis.md) §2.5。
 

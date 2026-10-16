@@ -3955,6 +3955,7 @@ export type PaperMetaPatch = {
 	abstract: string | null,
 	pdfUrl: string | null,
 	htmlUrl: string | null,
+	codeRepo: string | null,
 };
 
 export type PaperMoveArgs = {
@@ -4093,6 +4094,8 @@ export type PaperRecord_Deserialize = {
 	pdf_url: string | null,
 	html_url: string | null,
 	source_url: string | null,
+	/**  Manually maintained code-repository link (no auto resolution yet). */
+	code_repo: string | null,
 	body_source: string | null,
 	body_quality: string | null,
 	bibtex_key: string | null,
@@ -4150,6 +4153,8 @@ export type PaperRecord_Serialize = {
 	pdf_url?: string | null,
 	html_url?: string | null,
 	source_url?: string | null,
+	/**  Manually maintained code-repository link (no auto resolution yet). */
+	code_repo?: string | null,
 	body_source?: string | null,
 	body_quality?: string | null,
 	bibtex_key?: string | null,
