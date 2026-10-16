@@ -35,7 +35,7 @@ use crate::integration::mcp::tunnel::McpTunnelController;
 use crate::integration::mcp::McpController;
 #[cfg(not(target_os = "ios"))]
 use crate::integration::remote::RemoteRegistry;
-#[cfg(not(target_os = "ios"))]
+// Used on every platform: the exit handler shuts down the agent warm pool.
 use std::sync::Arc;
 #[cfg(not(target_os = "ios"))]
 use tauri::Emitter;
