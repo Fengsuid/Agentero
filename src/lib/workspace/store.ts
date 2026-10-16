@@ -18,7 +18,7 @@ import {
 	reseedMarkdownTab,
 	reseedNotesTab,
 } from "@/lib/workspace/tabs";
-import type { CenterViewMode } from "@/lib/workspace/viewer";
+import { type CenterViewMode, viewerModeSpec } from "@/lib/workspace/viewer";
 
 /** Closed panel remembered for ⇧⌘T (reopen), newest last. */
 export type ClosedTab = {
@@ -65,12 +65,15 @@ export function initWorkspaceStore(): void {
 	if (!persisted?.tabs.length) return;
 	workspaceStore.setState({
 		tabs: persisted.tabs.map((pt) => {
-			if (pt.mode === "translation") {
+			// Registry-declared restore override (translation panes are clones of
+			// a source paper pane: loaded paper-kind tabs, never hydrated from disk).
+			const restore = viewerModeSpec(pt.mode).restore;
+			if (restore) {
 				return {
-					...createPlaceholderTab(pt.path, "translation", pt.id),
-					kind: "paper",
-					title: pt.title || "Translation",
-					loaded: true,
+					...createPlaceholderTab(pt.path, pt.mode, pt.id),
+					kind: restore.kind,
+					title: pt.title || restore.fallbackTitle,
+					loaded: restore.loaded,
 				};
 			}
 			const tab = createPlaceholderTab(pt.path, pt.mode, pt.id);

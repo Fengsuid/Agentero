@@ -158,6 +158,7 @@ import {
 	isTexPath,
 	preferredModeForPath,
 	texPdfPath,
+	viewerModeSpec,
 } from "./viewer";
 
 /**
@@ -1515,7 +1516,7 @@ export async function applyDiskChange(
 	const pdfOwners = openTabs.filter(
 		(t) =>
 			normalizeTabPath(t.path) === norm &&
-			(t.mode === "pdf" || t.mode === "translation"),
+			viewerModeSpec(t.mode).resource === "pdf",
 	);
 	if (
 		!notesOwners.length &&

@@ -7,6 +7,7 @@ import {
 	tabIdForPath,
 } from "@/lib/workspace/tabs/model";
 import type { DocTab, OpenPlacement } from "@/lib/workspace/tabs/types";
+import { viewerModeSpec } from "@/lib/workspace/viewer";
 
 export function tabNotesEligible(tab: DocTab | null): boolean {
 	if (!tab) return false;
@@ -272,7 +273,8 @@ export function refreshTextTab(
  * Refresh an open PDF / translation pane from disk. A fresh `pdfBytes`
  * identity is the viewer's reload signal (EmbedPDF re-inits on the new
  * buffer); panes the TeX compile flow owns (`texCompiling`) are skipped —
- * openTexPdf fills those itself when the run lands.
+ * openTexPdf fills those itself when the run lands. Source and translation
+ * panes share the registry's pdf-bytes resource.
  */
 export function refreshPdfTab(
 	prev: DocTab[],
@@ -283,7 +285,7 @@ export function refreshPdfTab(
 	return prev.map((t) => {
 		if (
 			normalizeTabPath(t.path) === key &&
-			(t.mode === "pdf" || t.mode === "translation") &&
+			viewerModeSpec(t.mode).resource === "pdf" &&
 			!t.texCompiling
 		) {
 			return { ...t, pdfBytes: bytes, loaded: true };
