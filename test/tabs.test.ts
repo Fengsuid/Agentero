@@ -29,9 +29,8 @@ import {
 	remapTabsUnderPath,
 	removeTab,
 	removeTabsUnderPath,
-	reseedMarkdownTab,
-	reseedNotesTab,
 	savePersistedTabs,
+	seedTabs,
 	syncTabSeedsForPath,
 	type TabResources,
 	tabHasNotesSplit,
@@ -284,20 +283,20 @@ describe("remapTabsUnderPath", () => {
 		);
 	});
 });
-describe("reseed helpers", () => {
-	it("reseedNotesTab bumps notesKey and clears notesDirty", () => {
+describe("seedTabs", () => {
+	it("notes reseed bumps notesKey and clears notesDirty", () => {
 		const start = [
 			makeTab("/vault/papers/x", { notesKey: 2, notesDirty: true }),
 		];
-		const next = reseedNotesTab(start, "/vault/papers/x", "hello");
+		const next = seedTabs(start, "/vault/papers/x", "hello", "notes");
 		expect(next[0]?.notesSeed).toBe("hello");
 		expect(next[0]?.notesKey).toBe(3);
 		expect(next[0]?.notesDirty).toBe(false);
 	});
 
-	it("reseedMarkdownTab bumps seedKey and clears markdownDirty", () => {
+	it("markdown reseed bumps seedKey and clears markdownDirty", () => {
 		const start = [makeTab("/vault/a.md", { seedKey: 5, markdownDirty: true })];
-		const next = reseedMarkdownTab(start, "/vault/a.md", "world");
+		const next = seedTabs(start, "/vault/a.md", "world", "markdown");
 		expect(next[0]?.markdownSeed).toBe("world");
 		expect(next[0]?.seedKey).toBe(6);
 		expect(next[0]?.markdownDirty).toBe(false);

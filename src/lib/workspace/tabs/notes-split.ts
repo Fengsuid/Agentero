@@ -148,124 +148,97 @@ export function readingPairCloseIds(tabs: DocTab[], id: string): string[] {
 	return [companion.id, id];
 }
 
-/** Reseed an open paper tab's NOTES editor (bumps notesKey to reload in place). */
-export function reseedNotesTab(
-	prev: DocTab[],
-	paperDir: string,
-	content: string,
-): DocTab[] {
-	const id = tabIdForPath(paperDir);
-	const notesId = tabIdForPath(notesPathForPaper(paperDir));
-	return prev.map((t) => {
-		if (t.id === id || t.id === notesId) {
-			return {
-				...t,
-				notesSeed: content,
-				notesDirty: false,
-				notesKey: t.notesKey + 1,
-			};
-		}
-		return t;
-	});
-}
+/**
+ * Text-like editor kinds whose tab carries a disk-content seed. Each kind maps
+ * to the `{seed, dirty, key}` fields on DocTab plus how own saves differ from
+ * external writes, so one generic patch covers the whole reseed/refresh series.
+ */
+type SeedKind = "notes" | "markdown" | "excalidraw" | "text";
 
-/** Reseed an open plain-Markdown tab (bumps seedKey to reload in place). */
-export function reseedMarkdownTab(
-	prev: DocTab[],
-	absPath: string,
-	content: string,
-): DocTab[] {
-	const key = normalizeTabPath(absPath);
-	return prev.map((t) => {
-		if (normalizeTabPath(t.path) === key) {
-			return {
-				...t,
-				markdownSeed: content,
-				markdownDirty: false,
-				seedKey: t.seedKey + 1,
-			};
-		}
-		return t;
-	});
-}
+type SeedSpec = {
+	/** Whether this tab's editor renders the path. Notes tabs pair with the
+	 * paper dir: either the NOTES.md tab id or the paper body tab id. */
+	owns: (tab: DocTab, norm: string, absPath: string) => boolean;
+	/** Tab fields holding the in-memory seed / unsaved-edits flag / reload key. */
+	seed: "notesSeed" | "markdownSeed" | "excalidrawSeed" | "textSeed";
+	dirty: "notesDirty" | "markdownDirty" | "excalidrawDirty" | "textDirty";
+	key: "notesKey" | "seedKey" | "excalidrawKey" | "textKey";
+	/** Own saves bump the reload key too (editors swap content in place). */
+	bumpOnReseed: boolean;
+	/** Own save with the seed already current keeps the tab identity so
+	 * memoized viewers bail out (PERF, text editor hot path). */
+	keepIdentityOnReseed: boolean;
+};
 
-/** Reseed an open Excalidraw tab after our own save (no remount). */
-export function reseedExcalidrawTab(
-	prev: DocTab[],
-	absPath: string,
-	content: string,
-): DocTab[] {
-	const key = normalizeTabPath(absPath);
-	return prev.map((t) => {
-		if (normalizeTabPath(t.path) === key && t.mode === "excalidraw") {
-			return {
-				...t,
-				excalidrawSeed: content,
-				excalidrawDirty: false,
-			};
-		}
-		return t;
-	});
-}
-
-/** Refresh an open Excalidraw tab from disk (bumps key to force remount). */
-export function refreshExcalidrawTab(
-	prev: DocTab[],
-	absPath: string,
-	content: string,
-): DocTab[] {
-	const key = normalizeTabPath(absPath);
-	return prev.map((t) => {
-		if (normalizeTabPath(t.path) === key && t.mode === "excalidraw") {
-			return {
-				...t,
-				excalidrawSeed: content,
-				excalidrawDirty: false,
-				excalidrawKey: t.excalidrawKey + 1,
-			};
-		}
-		return t;
-	});
-}
-
-/** Reseed an open plain-text tab after our own save (no reload needed). */
-export function reseedTextTab(
-	prev: DocTab[],
-	absPath: string,
-	content: string,
-): DocTab[] {
-	const key = normalizeTabPath(absPath);
-	return prev.map((t) => {
-		if (normalizeTabPath(t.path) === key && t.mode === "text") {
-			// PERF: keep the tab identity when nothing changes (the common
-			// case right after our own save) so memoized viewers bail out.
-			if (t.textSeed === content && !t.textDirty) return t;
-			return { ...t, textSeed: content, textDirty: false };
-		}
-		return t;
-	});
-}
+const SEED_SPECS: Record<SeedKind, SeedSpec> = {
+	notes: {
+		owns: (tab, _norm, absPath) =>
+			tab.id === tabIdForPath(absPath) ||
+			tab.id === tabIdForPath(notesPathForPaper(absPath)),
+		seed: "notesSeed",
+		dirty: "notesDirty",
+		key: "notesKey",
+		bumpOnReseed: true,
+		keepIdentityOnReseed: false,
+	},
+	markdown: {
+		owns: (tab, norm) => normalizeTabPath(tab.path) === norm,
+		seed: "markdownSeed",
+		dirty: "markdownDirty",
+		key: "seedKey",
+		bumpOnReseed: true,
+		keepIdentityOnReseed: false,
+	},
+	excalidraw: {
+		owns: (tab, norm) =>
+			normalizeTabPath(tab.path) === norm && tab.mode === "excalidraw",
+		seed: "excalidrawSeed",
+		dirty: "excalidrawDirty",
+		key: "excalidrawKey",
+		bumpOnReseed: false,
+		keepIdentityOnReseed: false,
+	},
+	text: {
+		owns: (tab, norm) =>
+			normalizeTabPath(tab.path) === norm && tab.mode === "text",
+		seed: "textSeed",
+		dirty: "textDirty",
+		key: "textKey",
+		bumpOnReseed: false,
+		keepIdentityOnReseed: true,
+	},
+};
 
 /**
- * Refresh an open plain-text tab from disk (bumps key; the editor swaps the
- * document in place — no remount, scroll and view state survive).
+ * Seed every tab of `kind` owning the path. `external` = the content came
+ * from disk (own save must not remount an editor holding live state; an
+ * external write must reload in place), so it forces the reload-key bump.
  */
-export function refreshTextTab(
+export function seedTabs(
 	prev: DocTab[],
 	absPath: string,
 	content: string,
+	kind: SeedKind,
+	external = false,
 ): DocTab[] {
-	const key = normalizeTabPath(absPath);
-	return prev.map((t) => {
-		if (normalizeTabPath(t.path) === key && t.mode === "text") {
-			return {
-				...t,
-				textSeed: content,
-				textDirty: false,
-				textKey: t.textKey + 1,
-			};
+	const spec = SEED_SPECS[kind];
+	const norm = normalizeTabPath(absPath);
+	const bump = external || spec.bumpOnReseed;
+	return prev.map((tab) => {
+		if (!spec.owns(tab, norm, absPath)) return tab;
+		if (
+			!bump &&
+			spec.keepIdentityOnReseed &&
+			tab[spec.seed] === content &&
+			!tab[spec.dirty]
+		) {
+			return tab;
 		}
-		return t;
+		const next = { ...tab };
+		next[spec.seed] = content;
+		next[spec.dirty] = false;
+		if (bump) next[spec.key] = tab[spec.key] + 1;
+		return next;
 	});
 }
 

@@ -101,11 +101,6 @@ import {
 	getActiveTabId,
 	getTabs,
 	pushClosedTabs,
-	refreshTabExcalidraw,
-	refreshTabMarkdown,
-	refreshTabNotes,
-	refreshTabPdf,
-	refreshTabText,
 	setActiveTabId,
 	setTabs,
 	takeClosedTab,
@@ -133,12 +128,12 @@ import {
 	patchFromTabResources,
 	patchTab,
 	readingPairCloseIds,
+	refreshPdfTab,
 	removeTab,
 	removeTabsUnderPath,
-	reseedExcalidrawTab,
-	reseedTextTab,
 	revokeTabMediaSources,
 	SPLIT_PANE_ID_MARKER,
+	seedTabs,
 	splitPaneIdForPath,
 	syncTabSeedsForPath,
 	tabHasNotesSplit,
@@ -1457,36 +1452,107 @@ export function dirtyVaultPaths(root: string): string[] {
  * editor autosave so an external/Agent write is never clobbered by stale
  * in-memory text. */
 const reseedGuard = new Set<string>();
-/** Serialize Markdown saves per absolute path so overlapping editor lifecycles
- * cannot race their disk snapshot checks and writes. */
-const markdownPersistQueues = new Map<string, Promise<boolean>>();
-/** Serialize Excalidraw saves per absolute path. */
-const excalidrawPersistQueues = new Map<string, Promise<boolean>>();
 
-/** Serialize plain-text editor saves per absolute path. */
-const textPersistQueues = new Map<string, Promise<boolean>>();
+/** The editors that autosave through the shared persist pipeline. */
+type PersistKind = "markdown" | "excalidraw" | "text";
+
+/** Serialized saves per kind, keyed by normalized absolute path: overlapping
+ * editor lifecycles cannot race their disk snapshot checks and writes. */
+const persistQueues: Record<PersistKind, Map<string, Promise<boolean>>> = {
+	markdown: new Map(),
+	excalidraw: new Map(),
+	text: new Map(),
+};
+
+/** Post-write outcome per kind, run only after the write is confirmed. */
+const persistOutcomes: Record<
+	PersistKind,
+	(path: string, content: string) => void
+> = {
+	markdown: (path, content) => {
+		primeSeedCache(path, content);
+		// The Markdown editor keeps live content: only the owning tab's seed
+		// advances (dirty state stays editor-owned).
+		setTabs((prev) => syncTabSeedsForPath(prev, path, content));
+	},
+	excalidraw: (path, content) => {
+		setTabs((prev) => seedTabs(prev, path, content, "excalidraw"));
+	},
+	text: (path, content) => {
+		setTabs((prev) => seedTabs(prev, path, content, "text"));
+		// NOTE: autosave only writes — .tex compiles are manual now
+		// (⌘S / compile button); see compileTexOnManualSave.
+	},
+};
 
 /**
  * Where disk-change reseeds land. The main window uses the workspace tab
  * store; doc popout windows pass a single-tab sink over local React state.
+ * Both run the same pure tab-list transforms (`seedTabs` / `refreshPdfTab`).
  */
 export type DiskChangeSink = {
 	getTabs: () => DocTab[];
-	refreshNotes: (paperDir: string, content: string) => void;
-	refreshMarkdown: (absPath: string, content: string) => void;
-	refreshExcalidraw: (absPath: string, content: string) => void;
-	refreshText: (absPath: string, content: string) => void;
-	refreshPdf: (absPath: string, bytes: ArrayBuffer) => void;
+	/** Apply a tab-list transform to this window's panel list. */
+	updateTabs: (update: (prev: DocTab[]) => DocTab[]) => void;
 };
 
 const defaultDiskChangeSink: DiskChangeSink = {
 	getTabs,
-	refreshNotes: refreshTabNotes,
-	refreshMarkdown: refreshTabMarkdown,
-	refreshExcalidraw: refreshTabExcalidraw,
-	refreshText: refreshTabText,
-	refreshPdf: refreshTabPdf,
+	updateTabs: (update) => setTabs(update),
 };
+
+/** One text-like editor kind for disk-change reseeding: which open tabs own
+ * the path plus the tab fields holding its in-memory seed / dirty flag. */
+type DiskChangeKind = {
+	/** Open tabs whose editor renders this path (notes: via the paper pairing). */
+	owns: (tab: DocTab, norm: string) => boolean;
+	/** Tab fields holding this editor's in-memory seed / unsaved-edits flag. */
+	seed: "notesSeed" | "markdownSeed" | "excalidrawSeed" | "textSeed";
+	dirty: "notesDirty" | "markdownDirty" | "excalidrawDirty" | "textDirty";
+	/** External-write reseed transform (pure: the sink applies it to its tabs). */
+	refresh: (prev: DocTab[], absPath: string, content: string) => DocTab[];
+};
+
+const diskChangeKinds: DiskChangeKind[] = [
+	{
+		owns: (tab, norm) =>
+			Boolean(tab.notesPath && normalizeTabPath(tab.notesPath) === norm),
+		seed: "notesSeed",
+		dirty: "notesDirty",
+		refresh: (prev, absPath, content) =>
+			seedTabs(
+				prev,
+				absPath.replace(/[\\/]NOTES\.md$/i, ""),
+				content,
+				"notes",
+				true,
+			),
+	},
+	{
+		owns: (tab, norm) =>
+			normalizeTabPath(tab.path) === norm && isMarkdownPath(tab.path),
+		seed: "markdownSeed",
+		dirty: "markdownDirty",
+		refresh: (prev, absPath, content) =>
+			seedTabs(prev, absPath, content, "markdown", true),
+	},
+	{
+		owns: (tab, norm) =>
+			normalizeTabPath(tab.path) === norm && tab.mode === "excalidraw",
+		seed: "excalidrawSeed",
+		dirty: "excalidrawDirty",
+		refresh: (prev, absPath, content) =>
+			seedTabs(prev, absPath, content, "excalidraw", true),
+	},
+	{
+		owns: (tab, norm) =>
+			normalizeTabPath(tab.path) === norm && tab.mode === "text",
+		seed: "textSeed",
+		dirty: "textDirty",
+		refresh: (prev, absPath, content) =>
+			seedTabs(prev, absPath, content, "text", true),
+	},
+];
 
 /**
  * Reload an open editor when its file changed on disk (external editor /
@@ -1501,46 +1567,26 @@ export async function applyDiskChange(
 ): Promise<void> {
 	const norm = normalizeTabPath(absPath);
 	const openTabs = sink.getTabs();
-	const notesOwners = openTabs.filter(
-		(t) => t.notesPath && normalizeTabPath(t.notesPath) === norm,
-	);
-	const mdOwners = openTabs.filter(
-		(t) => normalizeTabPath(t.path) === norm && isMarkdownPath(t.path),
-	);
-	const excalidrawOwners = openTabs.filter(
-		(t) => normalizeTabPath(t.path) === norm && t.mode === "excalidraw",
-	);
-	const textOwners = openTabs.filter(
-		(t) => normalizeTabPath(t.path) === norm && t.mode === "text",
-	);
+	const kindOwners = diskChangeKinds.map((kind) => ({
+		kind,
+		owners: openTabs.filter((tab) => kind.owns(tab, norm)),
+	}));
 	const pdfOwners = openTabs.filter(
 		(t) =>
 			normalizeTabPath(t.path) === norm &&
 			viewerModeSpec(t.mode).resource === "pdf",
 	);
-	if (
-		!notesOwners.length &&
-		!mdOwners.length &&
-		!excalidrawOwners.length &&
-		!textOwners.length &&
-		!pdfOwners.length
-	)
-		return;
+	const hasTextOwners = kindOwners.some((entry) => entry.owners.length > 0);
+	if (!hasTextOwners && !pdfOwners.length) return;
 	// PDF panes reload from bytes: one read feeds every matching pane (source
 	// tab + translation split); the fresh ArrayBuffer identity is the mounted
 	// viewer's reload signal. Panes still on the compile shimmer are skipped
 	// inside refreshPdfTab — the compile flow fills them when the run lands.
 	if (pdfOwners.length) {
 		const bytes = await localFileToArrayBuffer(absPath);
-		if (bytes) sink.refreshPdf(absPath, bytes);
+		if (bytes) sink.updateTabs((prev) => refreshPdfTab(prev, absPath, bytes));
 	}
-	if (
-		!notesOwners.length &&
-		!mdOwners.length &&
-		!excalidrawOwners.length &&
-		!textOwners.length
-	)
-		return;
+	if (!hasTextOwners) return;
 	let content: string;
 	try {
 		content = await readVaultFile(absPath);
@@ -1561,59 +1607,34 @@ export async function applyDiskChange(
 			duration: 12000,
 		});
 	};
-	for (const notesTab of notesOwners) {
-		if (content === notesTab.notesSeed) continue;
-		const paperDir = absPath.replace(/[\\/]NOTES\.md$/i, "");
-		const reload = () => {
-			guard();
-			sink.refreshNotes(paperDir, content);
-		};
-		if (notesTab.notesDirty) promptReload(reload);
-		else reload();
-	}
-	for (const mdTab of mdOwners) {
-		if (content === mdTab.markdownSeed) continue;
-		const reload = () => {
-			guard();
-			sink.refreshMarkdown(absPath, content);
-		};
-		if (mdTab.markdownDirty) promptReload(reload);
-		else reload();
-	}
-	for (const excalidrawTab of excalidrawOwners) {
-		if (content === excalidrawTab.excalidrawSeed) continue;
-		const reload = () => {
-			guard();
-			sink.refreshExcalidraw(absPath, content);
-		};
-		if (excalidrawTab.excalidrawDirty) promptReload(reload);
-		else reload();
-	}
-	for (const textTab of textOwners) {
-		if (content === textTab.textSeed) continue;
-		const reload = () => {
-			guard();
-			sink.refreshText(absPath, content);
-		};
-		if (textTab.textDirty) promptReload(reload);
-		else reload();
+	for (const { kind, owners } of kindOwners) {
+		for (const tab of owners) {
+			if (content === tab[kind.seed]) continue;
+			const reload = () => {
+				guard();
+				sink.updateTabs((prev) => kind.refresh(prev, absPath, content));
+			};
+			if (tab[kind.dirty]) promptReload(reload);
+			else reload();
+		}
 	}
 }
 
 /**
- * Persist a specific file's Markdown to disk. The MarkdownEditor calls this
- * with its own fixed path (debounced autosave, ⌘S, and unmount flush), so
- * writes always target the correct file even when switching files quickly.
+ * Shared autosave pipeline for the text-like editors (Markdown / Excalidraw /
+ * plain text): per-path serialization, disk-conflict guard, self-write echo
+ * registration, then the kind's post-write reseed.
  */
-export function persistFile(
+function persistTextLike(
+	kind: PersistKind,
 	path: string,
-	md: string,
+	content: string,
 	lastSaved: string,
 ): Promise<boolean> {
 	if (!isTauri() || !getVaultPath() || !path) return Promise.resolve(false);
+	const queues = persistQueues[kind];
 	const normalizedPath = normalizeTabPath(path);
-	const previous =
-		markdownPersistQueues.get(normalizedPath) ?? Promise.resolve(false);
+	const previous = queues.get(normalizedPath) ?? Promise.resolve(false);
 	const attempt = previous
 		.catch(() => false)
 		.then(async () => {
@@ -1633,33 +1654,37 @@ export function persistFile(
 				// Missing/unreadable file → no conflict to guard against.
 			}
 			try {
-				await writeVaultFile(path, md);
+				await writeVaultFile(path, content);
 				// The watcher echo of this write must not re-trigger a full Wiki
 				// rebuild on every autosave (#270).
 				trackSelfWrittenPath(path);
-				primeSeedCache(path, md);
-				// Advance the owning tab's seed only after the write is confirmed.
-				setTabs((prev) => syncTabSeedsForPath(prev, path, md));
+				persistOutcomes[kind](path, content);
 				return true;
 			} catch (e) {
 				notifyError(errorText(e));
 				return false;
 			}
 		});
-	markdownPersistQueues.set(normalizedPath, attempt);
-	void attempt.then(
-		() => {
-			if (markdownPersistQueues.get(normalizedPath) === attempt) {
-				markdownPersistQueues.delete(normalizedPath);
-			}
-		},
-		() => {
-			if (markdownPersistQueues.get(normalizedPath) === attempt) {
-				markdownPersistQueues.delete(normalizedPath);
-			}
-		},
-	);
+	queues.set(normalizedPath, attempt);
+	// Drop the queue entry once this attempt settles and is still the tail.
+	const settle = () => {
+		if (queues.get(normalizedPath) === attempt) queues.delete(normalizedPath);
+	};
+	void attempt.then(settle, settle);
 	return attempt;
+}
+
+/**
+ * Persist a specific file's Markdown to disk. The MarkdownEditor calls this
+ * with its own fixed path (debounced autosave, ⌘S, and unmount flush), so
+ * writes always target the correct file even when switching files quickly.
+ */
+export function persistFile(
+	path: string,
+	md: string,
+	lastSaved: string,
+): Promise<boolean> {
+	return persistTextLike("markdown", path, md, lastSaved);
 }
 
 /**
@@ -1671,48 +1696,7 @@ export function persistExcalidrawFile(
 	json: string,
 	lastSaved: string,
 ): Promise<boolean> {
-	if (!isTauri() || !getVaultPath() || !path) return Promise.resolve(false);
-	const normalizedPath = normalizeTabPath(path);
-	const previous =
-		excalidrawPersistQueues.get(normalizedPath) ?? Promise.resolve(false);
-	const attempt = previous
-		.catch(() => false)
-		.then(async () => {
-			if (reseedGuard.has(normalizedPath)) return false;
-			try {
-				const disk = await readVaultFile(path);
-				if (disk !== lastSaved) {
-					const name = path.split(/[\\/]/).pop() ?? path;
-					notifyWarning(i18n.t("app:diskConflict.saveBlocked", { name }));
-					return false;
-				}
-			} catch {
-				// Missing/unreadable file → no conflict to guard against.
-			}
-			try {
-				await writeVaultFile(path, json);
-				trackSelfWrittenPath(path);
-				setTabs((prev) => reseedExcalidrawTab(prev, path, json));
-				return true;
-			} catch (e) {
-				notifyError(errorText(e));
-				return false;
-			}
-		});
-	excalidrawPersistQueues.set(normalizedPath, attempt);
-	void attempt.then(
-		() => {
-			if (excalidrawPersistQueues.get(normalizedPath) === attempt) {
-				excalidrawPersistQueues.delete(normalizedPath);
-			}
-		},
-		() => {
-			if (excalidrawPersistQueues.get(normalizedPath) === attempt) {
-				excalidrawPersistQueues.delete(normalizedPath);
-			}
-		},
-	);
-	return attempt;
+	return persistTextLike("excalidraw", path, json, lastSaved);
 }
 
 /**
@@ -1724,50 +1708,7 @@ export function persistTextFile(
 	content: string,
 	lastSaved: string,
 ): Promise<boolean> {
-	if (!isTauri() || !getVaultPath() || !path) return Promise.resolve(false);
-	const normalizedPath = normalizeTabPath(path);
-	const previous =
-		textPersistQueues.get(normalizedPath) ?? Promise.resolve(false);
-	const attempt = previous
-		.catch(() => false)
-		.then(async () => {
-			if (reseedGuard.has(normalizedPath)) return false;
-			try {
-				const disk = await readVaultFile(path);
-				if (disk !== lastSaved) {
-					const name = path.split(/[\\/]/).pop() ?? path;
-					notifyWarning(i18n.t("app:diskConflict.saveBlocked", { name }));
-					return false;
-				}
-			} catch {
-				// Missing/unreadable file → no conflict to guard against.
-			}
-			try {
-				await writeVaultFile(path, content);
-				trackSelfWrittenPath(path);
-				setTabs((prev) => reseedTextTab(prev, path, content));
-				// NOTE: autosave only writes — .tex compiles are manual now
-				// (⌘S / compile button); see compileTexOnManualSave.
-				return true;
-			} catch (e) {
-				notifyError(errorText(e));
-				return false;
-			}
-		});
-	textPersistQueues.set(normalizedPath, attempt);
-	void attempt.then(
-		() => {
-			if (textPersistQueues.get(normalizedPath) === attempt) {
-				textPersistQueues.delete(normalizedPath);
-			}
-		},
-		() => {
-			if (textPersistQueues.get(normalizedPath) === attempt) {
-				textPersistQueues.delete(normalizedPath);
-			}
-		},
-	);
-	return attempt;
+	return persistTextLike("text", path, content, lastSaved);
 }
 
 /** Ensure the resident Library tab exists (no-op when already present). */

@@ -37,11 +37,6 @@ import {
 	type DocTab,
 	loadTabResources,
 	patchFromTabResources,
-	refreshExcalidrawTab,
-	refreshPdfTab,
-	refreshTextTab,
-	reseedMarkdownTab,
-	reseedNotesTab,
 	syncTabSeedsForPath,
 } from "@/lib/workspace/tabs";
 import { isCenterViewMode } from "@/lib/workspace/viewer";
@@ -179,35 +174,10 @@ export function DocWindowRoot() {
 	const diskChangeSink = useMemo(
 		() => ({
 			getTabs: () => (tabRef.current ? [tabRef.current] : []),
-			refreshNotes: (paperDir: string, content: string) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return reseedNotesTab([prev], paperDir, content)[0] ?? prev;
-				});
-			},
-			refreshMarkdown: (absPath: string, content: string) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return reseedMarkdownTab([prev], absPath, content)[0] ?? prev;
-				});
-			},
-			refreshExcalidraw: (absPath: string, content: string) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return refreshExcalidrawTab([prev], absPath, content)[0] ?? prev;
-				});
-			},
-			refreshText: (absPath: string, content: string) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return refreshTextTab([prev], absPath, content)[0] ?? prev;
-				});
-			},
-			refreshPdf: (absPath: string, bytes: ArrayBuffer) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return refreshPdfTab([prev], absPath, bytes)[0] ?? prev;
-				});
+			// Single-tab window: run the shared tab-list transforms over the
+			// local React tab and keep the patched tab.
+			updateTabs: (update: (prev: DocTab[]) => DocTab[]) => {
+				setTab((prev) => (prev ? (update([prev])[0] ?? prev) : prev));
 			},
 		}),
 		[],
