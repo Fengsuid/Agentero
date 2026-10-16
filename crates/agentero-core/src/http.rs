@@ -445,10 +445,10 @@ fn discover_github_auth_token() -> Option<String> {
     }
 
     let gh = crate::process::resolve_command("gh")?;
-    let output = std::process::Command::new(gh)
-        .args(["auth", "token", "--hostname", "github.com"])
-        .output()
-        .ok()?;
+    let mut command = std::process::Command::new(gh);
+    command.args(["auth", "token", "--hostname", "github.com"]);
+    crate::process::hide_console_window(&mut command);
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
