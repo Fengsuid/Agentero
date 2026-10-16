@@ -5,7 +5,6 @@
  * pattern; the hook stays a thin adapter.
  */
 
-import { listen } from "@tauri-apps/api/event";
 import { createStore } from "zustand/vanilla";
 import i18n from "@/i18n";
 import { isBackgroundTaskCancelledError } from "@/lib/core/background-tasks";
@@ -35,7 +34,6 @@ export const texCompileStore = createStore<TexCompileState>(() => ({
 	compilingPath: null,
 }));
 
-let logDrained = false;
 // Once the user explicitly picks an engine, never overwrite their choice
 // on subsequent engine-list refreshes.
 let userPickedEngine = false;
@@ -80,16 +78,9 @@ export function ensureTexEngines(): Promise<void> {
 
 /**
  * Kick off engine detection (idempotent; safe to call from every entry
- * point). Also wires the compile:log drain. Await `ensureTexEngines` when
- * the result is needed.
+ * point). Await `ensureTexEngines` when the result is needed.
  */
 export function initTexEngines(): void {
-	if (logDrained === false) {
-		logDrained = true;
-		listen<{ line: string }>("compile:log", () => {
-			// Drain log events; log UI can be added later.
-		});
-	}
 	void ensureTexEngines();
 }
 

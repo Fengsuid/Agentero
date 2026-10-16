@@ -15,7 +15,7 @@
 
 ## 命名规范
 
-1. **格式**：`domain:event-name`，全 kebab-case，单冒号分隔；域名用单个单词（`job:`，不用 `job-center:`）。
+1. **格式**：`domain:event-name`，全 kebab-case，单冒号分隔；域名用单个单词（`job:`，不用 `job-center:`）。（例外：进度事件 `agent-lifecycle:progress`、`layout-remote:progress` 属既有豁免，多词域名保留不改。）
 2. **按语义分三类**：
    - **事实事件**（生命周期核心，动词过去式）：`paper:imported`、`vault:opened` —— "某事已发生"，唯一的 hook 挂载点
    - **进度流**：`xxx:progress` —— 仅 UI 反馈，不是 hook 点
@@ -35,21 +35,21 @@
 
 ## 事件清单
 
-⭐ = 第一批（有明确消费者，现有硬编码链可迁移）；○ = 预留，有需求再加。
+⭐ = 有明确消费者（现有硬编码链可迁移）；○ = 预留/预埋，有需求再加。"预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过）" = 发射侧先落地，消费侧等第一个真实需求。
 
 ### app / window
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `app:ready` | 前端 bootstrap 完成（store 已在 `boot()` 种子化、restored vault 校验 settle 后）。已预埋 emit、暂无消费者 |
+| ○ `app:ready` | 前端 bootstrap 完成（store 已在 `boot()` 种子化、restored vault 校验 settle 后）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
 | ⏸ `app:will-quit` | **延后**。从 `RunEvent::Exit` 发前端事件修不了真实需求（退出前 flush debounce 写盘）：那时 webview 已销毁，写盘是异步 invoke。正确做法是 `WindowEvent::CloseRequested` → `api.prevent_close()` → emit → 等前端 ack → `window.destroy()`，属独立特性。Rust 侧 teardown 已直接放在 run closure 里 |
-| ⭐ `window:closed` | 子窗口销毁（Host `on_window_event(Destroyed)`）。payload `{ kind: "settings" \| "feature", view? }`。消费者：settings 回写 ui store、feature popout 清 `featurePoppedOut` |
+| ⭐ `window:closed` | 子窗口销毁（Host `on_window_event(Destroyed)`）。payload `{ kind: "settings" \| "feature", view? }`。消费者：settings 回写 ui store、feature popout 清 `featurePoppedOut`（`register.ts`） |
 
 ### vault
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `vault:opened` | **scoped**。打开/切换 vault（refreshTree、refreshLibrary、seedVaultSkills、job reconcile 挂载点）；其 teardown 负责各 store 的 vault 级清理与 `vault_release` |
+| ⭐ `vault:opened` | **scoped**。打开/切换 vault（refreshTree、refreshLibrary、seedVaultSkills、job/ingest reconcile、arXiv 预热挂载点）；其 teardown 负责各 store 的 vault 级清理（library / wiki / agent / annotations / layout / ui）与 `vault_release`（remote vault 跳过） |
 | ○ `vault:created` | 新建 vault |
 | ✅ ~~`vault:closed`~~ | **不再需要**，由 `vault:opened` 的作用域 teardown 承担 |
 | 保留 `vault:file-changed` | watcher 文件变更（已符合规范） |
@@ -58,8 +58,8 @@
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `paper:imported` | `paper_commit` 成功（catalog 已写入、NOTES 已建）。四条导入路径（魔棒 / 本地 PDF / Zotero / Connector）统一发；`paper_download_assets` 为孤儿文件夹补建 catalog 行时也发 |
-| ⭐ `paper:assets-ready` | PDF 下载 / LaTeX 解压 / PAPER.md 生成完成（异步，与 imported 分离） |
+| ⭐ `paper:imported` | `paper_commit` 成功（catalog 已写入、NOTES 已建）。四条导入路径（魔棒 / 本地 PDF / Zotero / Connector）统一发；`paper_download_assets` 为孤儿文件夹补建 catalog 行时也发。消费者：`register.ts`（树/库/双链刷新、tab 资源重解析） |
+| ○ `paper:assets-ready` | PDF 下载 / LaTeX 解压 / PAPER.md 生成完成（异步，与 imported 分离）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
 | ⭐ `paper:renamed` | 后台元数据识别落地：占位目录改名为规范 id（`outcome=renamed`，含 wiki 链接重写清单）或并入已有条目（`outcome=merged`）。前端 handler 抑制 watcher 外部 rename 修复、remap 打开 tab、定向刷新树/库 |
 | ○ `paper:deleted` / `paper:moved` / `paper:tags-changed` / `paper:metadata-updated` | 对象变更 |
 
@@ -67,7 +67,7 @@
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `paper:opened` | openPaper/openTab 完成（layout enqueue、activity 打点挂载点）。已预埋 emit、暂无消费者 |
+| ○ `paper:opened` | openPaper/openTab 完成（layout enqueue、activity 打点挂载点）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
 | ○ `paper:closed` | 关 tab |
 | ○ `mark:created` / `mark:deleted` | 标注增删 |
 | ○ `translation:completed` | 翻译完成 |
@@ -83,7 +83,7 @@
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `job:completed` / `job:failed` | 由 `job:changed` 状态机单点派生，payload 带 `JobKind`（ParseRefs / ParseBody / LayoutAnalyze / LayoutTranslate / DownloadAssets / PageCount / WikiReindex）。已预埋 emit、暂无消费者 |
+| ○ `job:completed` / `job:failed` | 由 `job:changed` 状态机单点派生（`emit_job_terminal`），payload 为共享的终端五字段，带生成的 `JobKind` 联合（16 种，见 `src/lib/core/bindings.ts`）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
 
 ### 已符合规范、直接纳入
 
@@ -92,16 +92,16 @@
 ## 架构设计
 
 ```text
-Rust 关键节点 ──emit──▶ Tauri wire 事件 ──┐
-                                          ├──▶ src/lib/lifecycle/（typed bus）──▶ 注册 handler
-前端本地动作（openTab 等）──emit──────────┘
+Rust 关键节点 ──emit──▶ Tauri wire 事件 ──▶ tauri-bridge.ts（listen/forward）─┐
+                                                                              ├──▶ typed bus ──▶ 注册 handler
+前端本地动作（bootstrap / openTab）──lifecycle.emit / emitScoped──────────────┘
 ```
 
 - **`src/lib/lifecycle/`**：
-  - `events.ts`：`LifecycleEventMap` 类型定义（事件名 → payload 类型），以及 `ScopedLifecycleEvent` / `FactLifecycleEvent` 的划分
+  - `events.ts`：`LifecycleEventMap` 类型定义（事件名 → payload 类型），以及 `ScopedLifecycleEvent` / `FactLifecycleEvent` 的划分。被桥接事件的字段类型与 wire 对齐（可空字段、`JobKind` 等），由 `tauri-bridge.ts` 的 `forward` 在编译期校验
   - `bus.ts`：极简 typed emitter（`on` / `emit` / `emitScoped`，无第三方依赖）
   - `tauri-bridge.ts`：集中 `listen()` wire 事件并转发进 bus；在 bootstrap 初始化一次
-  - `register.ts`：**唯一**的 handler 注册处
+  - `register.ts`：跨模块 handler 的集中注册处；组件本地的消费在自己的 hook 里 `lifecycle.on`（如 Agent 面板的 `agent:registry-changed`）
 - **Rust 端不做 observer 抽象**：仅在关键节点（`paper_commit` 后、jobs 状态机单点、assets 完成后）直接 emit 语义事件；当前只有前端一个消费者，不过度设计。
 - **顺序约束显式化**：handler 按注册顺序串行 await，不引入优先级系统，靠注册文件内的显式顺序表达。（注：openPaper 直接用导入结果里的绝对路径打开，不依赖 refreshLibrary 完成。）
 
@@ -121,7 +121,7 @@ Rust 关键节点 ──emit──▶ Tauri wire 事件 ──┐
 
 - teardown 按**注册逆序**执行（栈式，与 React 一致）
 - scoped 事件的 setup/teardown **按事件串行化**：setup 是异步的，快速连切两次 vault 否则会让旧作用域的 teardown 与新作用域的 setup 交错
-- 作用域在 setup 排到队之前就被 release（StrictMode 挂载即卸载）时**直接跳过 setup**，而不是做完再撤销
+- 作用域在 setup 排到队之前就被 release（StrictMode 挂载即卸载）时**直接跳过 setup**；setup 循环中途 release 同理：已完成且返回 teardown 的立即撤销，尚未开始的 handler 直接跳过——而不是做完一轮再撤销
 - 注册项以记录对象为身份，同一个 handler 注册两次可独立注销
 - handler 与 teardown 抛错只记日志，不中断其余项
 

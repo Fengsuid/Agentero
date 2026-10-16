@@ -126,6 +126,9 @@ export function emitScoped<E extends ScopedLifecycleEvent>(
 		// holds this scope, so skip the work instead of undoing it.
 		if (released) return;
 		for (const record of [...(registrations.get(event) ?? [])]) {
+			// Released while an earlier handler was setting up: this scope is gone,
+			// so later handlers skip setup entirely instead of running then undoing.
+			if (released) break;
 			if (record.disposed) continue;
 			let result: unknown;
 			try {

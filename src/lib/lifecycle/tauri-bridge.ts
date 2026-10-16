@@ -8,18 +8,17 @@ import type {
 } from "@/lib/lifecycle/events";
 
 /**
- * Forward one typed wire event into the frontend lifecycle bus. The bus
- * contract (`LifecycleEventMap`) predates the specta bindings and some wire
- * payloads supersede it (e.g. `job:completed` carries the full terminal
- * snapshot), so the payload crosses the boundary with a cast — the same
- * unchecked handoff the previous string-based `listen<T>` performed.
+ * Forward one typed wire event into the frontend lifecycle bus. `LifecycleEventMap`
+ * mirrors the wire payload for every bridged event, so incompatible payload changes
+ * (wire fields removed or retyped) fail the build instead of silently crossing a
+ * cast; additive wire-only changes still pass.
  */
 function forward<E extends FactLifecycleEvent>(
-	wire: TypedEventBinding<unknown>,
+	wire: TypedEventBinding<LifecycleEventMap[E]>,
 	event: E,
 ): Promise<UnlistenFn> {
 	return wire.listen((e) => {
-		void emit(event, e.payload as LifecycleEventMap[E]);
+		void emit(event, e.payload);
 	});
 }
 

@@ -42,6 +42,7 @@ import {
 import { removeVisualDraft } from "@/lib/agent/visual-context-store";
 import { notifyError } from "@/lib/core/notify";
 import { isTauri } from "@/lib/core/tauri";
+import { toSafeDisposer } from "@/lib/core/tauri-events";
 import { listenAgentSessionHandoff } from "@/lib/shell/workspace-broadcast";
 
 export type UseAgentPanelArgs = Pick<
@@ -486,45 +487,44 @@ export function useAgentPanel({
 	]);
 
 	// Cross-window handoff: first snapshot only (retries may arrive later).
-	useEffect(() => {
-		let unlisten: (() => void) | undefined;
-		void listenAgentSessionHandoff((payload) => {
-			const applied = applyAgentSessionHandoffOnce({
-				sessions: payload.sessions,
-				activeTabId: payload.activeTabId,
-				draftLines: payload.draftLines,
-			});
-			if (!applied) return;
-			const agentId =
-				payload.selectedAgentId ??
-				payload.sessions.find((s) => s.id === payload.activeTabId)?.agentId ??
-				payload.sessions[0]?.agentId ??
-				null;
-			if (agentId) {
-				setSelectedAgentId(agentId);
-				selectedAgentIdRef.current = agentId;
-			}
-			const tabId = payload.activeTabId || "draft";
-			activeTabRef.current = tabId;
-			activeConversationRef.current = tabId === "draft" ? null : tabId;
-			knownSessionIdsRef.current = new Set(
-				(payload.sessions ?? []).map((s) => s.id),
-			);
-			// Composer scope follows session id; force activate after handoff.
-			activateComposerSession(tabId);
-		}).then((u) => {
-			unlisten = u;
-		});
-		return () => {
-			unlisten?.();
-		};
-	}, [
-		activateComposerSession,
-		selectedAgentIdRef,
-		knownSessionIdsRef,
-		activeTabRef,
-		activeConversationRef,
-	]);
+	useEffect(
+		() =>
+			toSafeDisposer(
+				listenAgentSessionHandoff((payload) => {
+					const applied = applyAgentSessionHandoffOnce({
+						sessions: payload.sessions,
+						activeTabId: payload.activeTabId,
+						draftLines: payload.draftLines,
+					});
+					if (!applied) return;
+					const agentId =
+						payload.selectedAgentId ??
+						payload.sessions.find((s) => s.id === payload.activeTabId)
+							?.agentId ??
+						payload.sessions[0]?.agentId ??
+						null;
+					if (agentId) {
+						setSelectedAgentId(agentId);
+						selectedAgentIdRef.current = agentId;
+					}
+					const tabId = payload.activeTabId || "draft";
+					activeTabRef.current = tabId;
+					activeConversationRef.current = tabId === "draft" ? null : tabId;
+					knownSessionIdsRef.current = new Set(
+						(payload.sessions ?? []).map((s) => s.id),
+					);
+					// Composer scope follows session id; force activate after handoff.
+					activateComposerSession(tabId);
+				}),
+			),
+		[
+			activateComposerSession,
+			selectedAgentIdRef,
+			knownSessionIdsRef,
+			activeTabRef,
+			activeConversationRef,
+		],
+	);
 
 	const selectAgent = async (opt: AgentOption) => {
 		if (
