@@ -25,8 +25,9 @@
 - **`citation_count`（INTEGER，模型侧 i64）**：管道已通——Crossref / OpenAlex / Semantic Scholar 都能解析并声明 `PROVIDE_CITATION_COUNT`，`api_paper_to_meta` 带进 record，`merge_api_papers` 取较大值，upsert / sidecar / 部分更新都不会丢（有测试守护）。**但常规入库路径写入的仍是 NULL**：入库以 Translator 为主，`map_zotero_item_to_record` 不产出被引数；只有 Translator 失败后降级到 Crossref 直连的 DOI 导入才会落进真实值。补齐缺口见 [../development/import-api-abstraction.md](../development/import-api-abstraction.md) §11
 - 时间戳统一走 `core/time.rs::now_rfc3339_millis()`（RFC 3339 毫秒 + `Z`，固定宽度）。`updated_at` 参与 SQL 字符串 `ORDER BY`，Secs/`+00:00` 变体与毫秒格式混排会排错序（`'+' < '.' < 'Z'`）；schema v7 迁移已把存量 `papers.updated_at` / `added_at`、`arxiv_rec_state.computed_at` 重写为规范格式（不可解析值原样保留，幂等）
 - `tags_json`：字符串或 `{name,color}`（Apple 8 色）。`@zotero:` / `@arxiv:` 前缀为内部隐标签（Connector 来源 / arXiv 学科分类），UI 与 CLI 默认不展示。`#venue:`（出版 venue，来自 `publication` 元数据）与 `#submitted:`（arXiv LaTeX 模板推断的投稿目标）是**可见**命名空间标签，正常参与展示与筛选。**契约缺口**：`impl Serialize for PaperTag` 无色时输出裸字符串，而 specta 生成的类型是 `{ name, color }` 对象，因此前端必须保留 `PaperTagInput[]` + `coercePaperTags`
-- `paper_list` 对前端 Library 返回按 `id` 去重的视图：同一逻辑论文若因历史原因出现在多个路径，只保留一条（优先存在磁盘的路径，其次 `updated_at` 最新、路径最短/字典序最小）
-- `paper_rescan`：盘上有、库内无则补齐
+- `paper_list` 对前端 Library 返回按 `id` 去重的视图：同一逻辑论文若因历史原因出现在多个路径，只保留一条（优先存在磁盘的路径，其次 `updated_at` 最新、路径最短/字典序最小）。远端 `remote_paper_list` 不做该去重、返回裸 `PaperRecord`，为已知 wire 差异（见 [remote.md](remote.md)）
+- `paper_rescan`：盘上有、库内无则补齐。远端 rescan 为独立的 SFTP 回填扫描（见 [remote.md](remote.md)）
+- 本地/远端命令共享实现入口：`paper_get` / `paper_set_tags` / `paper_set_is_read` 的校验、错误文案与 catalog 写入与 `remote_paper_*` 对应命令共用 `src-tauri/src/features/paper/catalog/service.rs`；远端侧只补 session 解析与 `RemoteSession::push_catalog`
 - **同 Vault 移动**：core `catalog/move_paper.rs::move_with_index` 统一文件移动、Wiki 改链、Catalog 与页数路径更新；后两者在同一个 SQLite 事务内提交，提交失败由既有 rename 事务补偿文件和链接。桌面/本地 Connector 经 Host `catalog/service.rs` 适配，CLI 经 `move_paper_under` 构造 Wiki 索引；业务不再放在 commands。重复移动到当前父目录统一成功返回原路径和空 `linkUpdate.updatedSources`（桌面原先报错，CLI/Connector 保持幂等）；桌面 `dirty_paths` 仍在写入前校验。跨 Vault migrate 与远端移动保持原实现。
 - 删除：回收站快照；恢复 upsert。`list_under_path` / `delete_under_path` / `move_under_path` 共用转义后的 SQL 子路径 pattern，`%`、`_` 与 escape 字符 `!` 按文件名的字面值匹配；保留 `/` 组件边界、Windows 分隔符归一及 SQLite 既有 LIKE 大小写规则，避免修改相似兄弟路径。
 - 连接启用 WAL + `busy_timeout`，写入不阻塞列表读取；每个 Vault 维护一条常驻连接（`schema.rs::with_catalog`，进程级缓存，Mutex 串行化 `spawn_blocking` 并发），PRAGMA/迁移只在首次打开执行；数据库文件被外部删除时自动丢弃旧句柄并重建
@@ -52,4 +53,4 @@
 CLI：`agentero paper …` / `paper tag *`。
 
 入库如何写 catalog：[paper-import.md](paper-import.md)。  
-代码：模型 / schema / sidecar 与派生能力探测在 `crates/agentero-core/src/features/paper/catalog/` 与 `crates/agentero-core/src/features/paper/capabilities.rs`；Tauri 命令层在 `src-tauri/src/features/paper/catalog/commands.rs`。
+代码：模型 / schema / sidecar 与派生能力探测在 `crates/agentero-core/src/features/paper/catalog/` 与 `crates/agentero-core/src/features/paper/capabilities.rs`；Tauri 命令层在 `src-tauri/src/features/paper/catalog/commands.rs`，本地/远端共享的命令体在 `src-tauri/src/features/paper/catalog/service.rs`（远端侧见 `src-tauri/src/integration/remote/commands.rs`）。

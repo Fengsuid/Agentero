@@ -86,8 +86,7 @@ pub(crate) async fn remote_paper_commit(
     let record = meta.clone().at_path(&path_rel);
     papers::upsert_paper(&session.work_root, &record)?;
     if opts.push_catalog {
-        let mut cat = session.catalog.lock().await;
-        cat.push(session.fs.clone()).await?;
+        session.push_catalog().await?;
     }
 
     Ok(RemotePaperCommitResult {

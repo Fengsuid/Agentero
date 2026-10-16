@@ -51,6 +51,15 @@ impl RemoteSession {
             vault_handle: format!("remote:{}", self.id),
         }
     }
+
+    /// Publish the work-mirror catalog to the remote authority (SFTP PUT).
+    /// The single push hook for the remote paper command family: shared use
+    /// cases run against `work_root`, then commit through this; disconnect
+    /// reuses it for its best-effort flush.
+    pub async fn push_catalog(&self) -> Result<(), AppError> {
+        let mut cat = self.catalog.lock().await;
+        cat.push(self.fs.clone()).await
+    }
 }
 
 pub struct RemoteRegistry {
@@ -87,10 +96,7 @@ impl RemoteRegistry {
             })?
         };
         // Best-effort catalog push before drop
-        {
-            let mut cat = session.catalog.lock().await;
-            let _ = cat.push(session.fs.clone()).await;
-        }
+        let _ = session.push_catalog().await;
         let _ = std::fs::remove_dir_all(&session.work_root);
         // Keep blob cache for LRU reuse; optional cleanup of empty parent
         Ok(())
