@@ -71,9 +71,8 @@ describe("layoutBackendsAfterClearingProvider", () => {
 });
 
 describe("provider card descriptors", () => {
-	// The MinerU self-hosted options (tier / 3.x legacy params) are rendered
-	// from this flag, so it must survive `layoutProviderCard` + the layout and
-	// parser card merge.
+	// The MinerU self-hosted switch is rendered from this flag, so it must
+	// survive `layoutProviderCard` + the layout and parser card merge.
 	it("keeps supportsSelfHosted on the merged MinerU card only", () => {
 		const mineru = mergeProviderCards([
 			layoutProviderCard(LAYOUT_PROVIDERS.mineru),

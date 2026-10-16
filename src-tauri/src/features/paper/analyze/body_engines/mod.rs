@@ -70,7 +70,6 @@ pub fn refresh_parser_config(store: &AppSettingsStore) {
 fn parser_credentials(store: &AppSettingsStore) -> HashMap<String, engines::EngineCredentials> {
     let mut credentials = HashMap::new();
     for provider in CREDENTIAL_PROVIDERS {
-        let mineru = store.layout_mineru_self_hosted(provider);
         credentials.insert(
             (*provider).to_string(),
             engines::EngineCredentials {
@@ -80,10 +79,7 @@ fn parser_credentials(store: &AppSettingsStore) -> HashMap<String, engines::Engi
                 prompt: store.layout_prompt(provider),
                 language: store.layout_language(provider),
                 is_ocr: store.layout_is_ocr(provider),
-                self_hosted: mineru.self_hosted,
-                tier: mineru.tier,
-                legacy_backend: mineru.legacy_backend,
-                legacy_vllm_url: mineru.legacy_vllm_url,
+                self_hosted: store.layout_self_hosted(provider),
             },
         );
     }

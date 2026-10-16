@@ -785,9 +785,6 @@ function normalizeLayoutProviderConfigs(
 			language?: unknown;
 			isOcr?: unknown;
 			selfHosted?: unknown;
-			tier?: unknown;
-			legacyBackend?: unknown;
-			legacyVllmUrl?: unknown;
 		};
 		const language =
 			typeof cfg.language === "string" ? cfg.language.trim() : "";
@@ -799,11 +796,6 @@ function normalizeLayoutProviderConfigs(
 			language: isMineruLanguage(language) ? language : DEFAULT_MINERU_LANGUAGE,
 			isOcr: cfg.isOcr === true,
 			selfHosted: cfg.selfHosted === true,
-			tier: typeof cfg.tier === "string" ? cfg.tier.trim() : "",
-			legacyBackend:
-				typeof cfg.legacyBackend === "string" ? cfg.legacyBackend.trim() : "",
-			legacyVllmUrl:
-				typeof cfg.legacyVllmUrl === "string" ? cfg.legacyVllmUrl.trim() : "",
 		};
 	}
 	return out;

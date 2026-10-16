@@ -1287,7 +1287,7 @@ async fn run_v1_extract(
         v1_upload_file_id(&completed)?
     };
 
-    let mut job = json!({
+    let job = json!({
         "files": [{ "source": { "type": "file_id", "file_id": file_id } }],
         // `ocr` treats every page as an image; `auto` prefers the text layer
         // and still OCRs scanned pages.
@@ -1296,9 +1296,6 @@ async fn run_v1_extract(
         // is the only output that also carries the `images/` assets.
         "output_formats": ["zip"],
     });
-    if let Some(tier) = non_empty(credentials.tier.as_deref()) {
-        job["tier"] = json!(tier);
-    }
     let submit = authed(client.post(format!("{base}/v1/parse/jobs")), auth)
         .json(&job)
         .send()
@@ -1367,7 +1364,7 @@ async fn run_v1_extract(
 /// 3.x `/tasks` form fields; 4.0 removed every one of them.
 fn legacy_form_fields(credentials: &HostedProviderCredentials) -> Vec<(&'static str, String)> {
     let language = non_empty(credentials.language.as_deref()).unwrap_or(MINERU_DEFAULT_LANGUAGE);
-    let mut fields = vec![
+    vec![
         ("lang_list", language.to_string()),
         (
             "parse_method",
@@ -1380,14 +1377,7 @@ fn legacy_form_fields(credentials: &HostedProviderCredentials) -> Vec<(&'static 
         ("return_content_list", "true".to_string()),
         // Zip, so the layout and body paths read the same artifact.
         ("response_format_zip", "true".to_string()),
-    ];
-    if let Some(backend) = non_empty(credentials.legacy_backend.as_deref()) {
-        fields.push(("backend", backend.to_string()));
-    }
-    if let Some(url) = non_empty(credentials.legacy_vllm_url.as_deref()) {
-        fields.push(("server_url", url.to_string()));
-    }
-    fields
+    ]
 }
 
 /// Self-hosted 3.x flow: `POST /tasks` → poll `GET /tasks/{id}` → download the
@@ -1917,7 +1907,7 @@ mod tests {
             map.get("response_format_zip").map(String::as_str),
             Some("true")
         );
-        // 4.0 removed both parameters, so they are only sent when configured.
+        // 4.0 removed `backend` / `server_url`, so they are never sent.
         assert!(!map.contains_key("backend"));
         assert!(!map.contains_key("server_url"));
 
@@ -1925,22 +1915,12 @@ mod tests {
             legacy_form_fields(&HostedProviderCredentials {
                 language: Some("en".to_string()),
                 is_ocr: true,
-                legacy_backend: Some("hybrid-http-client".to_string()),
-                legacy_vllm_url: Some("http://127.0.0.1:30000".to_string()),
                 ..Default::default()
             })
             .into_iter()
             .collect();
         assert_eq!(map.get("lang_list").map(String::as_str), Some("en"));
         assert_eq!(map.get("parse_method").map(String::as_str), Some("ocr"));
-        assert_eq!(
-            map.get("backend").map(String::as_str),
-            Some("hybrid-http-client")
-        );
-        assert_eq!(
-            map.get("server_url").map(String::as_str),
-            Some("http://127.0.0.1:30000")
-        );
     }
 
     /// Build a zip from `(entry name, bytes)` pairs.

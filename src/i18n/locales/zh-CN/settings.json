@@ -596,24 +596,6 @@
 				"label": "强制 OCR",
 				"help": "对所有页面强制 OCR，而不是按文本层自动判断。官方云走 is_ocr，自建 4.0 走 ocr_mode，自建 3.x 走 parse_method。"
 			},
-			"serverDefault": "服务端默认",
-			"tier": {
-				"label": "解析档位（自建 API）",
-				"help": "仅 MinerU 4.0 及以上生效；可选档位取决于服务端启动时的 --tier。",
-				"serverDefault": "服务端默认（优先 standard）"
-			},
-			"legacy": {
-				"title": "旧版参数（自建 API · MinerU 3.x 及更早）",
-				"help": "MinerU 4.0 已移除以下请求参数，连接 4.0 及以上服务时会被忽略；VLM 地址改在 MinerU 服务端配置。",
-				"backend": {
-					"label": "Backend"
-				},
-				"vllmUrl": {
-					"label": "vLLM 服务器地址",
-					"placeholder": "如 http://your-vllm-server:8000",
-					"help": "当 Backend 选择 vlm-http-client 或 hybrid-http-client 时需要填写"
-				}
-			},
 			"probeIdle": "尚未检测",
 			"probeOk": "可用",
 			"probeFail": "不可用",

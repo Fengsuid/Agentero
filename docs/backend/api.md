@@ -2264,7 +2264,7 @@ Windows：未设 `XDG_CONFIG_HOME` 时回退 `%APPDATA%/agentero/`。旧版 macO
     "parserBackend": "local", // PAPER.md 正文解析引擎："local" | "paddle" | "mineru" | "openaiCompatible" | "agentero"（内置）。默认取构建是否注入内置 provider key：注入则 "agentero"，否则 "local"
     "providerConfigs": {
       "paddle": { "apiKey": "***", "baseUrl": "", "model": "", "prompt": "", "language": "", "isOcr": false },
-      "mineru": { "apiKey": "***", "baseUrl": "", "model": "", "prompt": "", "language": "ch", "isOcr": false, "selfHosted": false, "tier": "", "legacyBackend": "", "legacyVllmUrl": "" }, // selfHosted false → 官方云（baseUrl 空即 https://mineru.net）；true → 自建服务
+      "mineru": { "apiKey": "***", "baseUrl": "", "model": "", "prompt": "", "language": "ch", "isOcr": false, "selfHosted": false }, // selfHosted false → 官方云（baseUrl 空即 https://mineru.net）；true → 自建服务
       "openaiCompatible": { "apiKey": "***", "baseUrl": "", "model": "", "prompt": "", "language": "", "isOcr": false } // baseUrl 空 → https://api.siliconflow.cn/v1
     }
   }
@@ -2278,11 +2278,8 @@ Windows：未设 `XDG_CONFIG_HOME` 时回退 `%APPDATA%/agentero/`。旧版 macO
 - `model` 供正文解析引擎使用：openaiCompatible 预设 `PaddlePaddle/PaddleOCR-VL-1.5` / `deepseek-ai/DeepSeek-OCR`（空 → 前者）；paddle 正文预设 `PaddleOCR-VL-1.6` / `PaddleOCR-VL-1.5`（空 → 前者；版面分析固定用 `PP-StructureV3`，不读该字段）。
 - `prompt` 仅 openaiCompatible 使用：OCR 提示词覆盖，空 → 按 model id 自动选择。注意 `PaddleOCR-VL` 只接受固定任务提示词，自定义提示词请配指令型 VLM（详见 [paper-import.md](paper-import.md) § 正文解析引擎）。
 - `language` 仅 mineru 使用：OCR 语言包（云端 API `language` 顶层字段；自建 3.x 作为 `lang_list` 表单字段，4.0 已移除该参数）。白名单校验（`ch` / `en` / `japan` / `korean` 等 16 个语言包，含仅 Host 侧保留的 `ch_server`），未知值回落 `ch`；UI 只提供「中英文」（`ch`，默认，涵盖简体/繁体/混排）与「纯英文」（`en`）。
-- `isOcr` 仅 mineru 使用：强制对所有页面执行 OCR。云端映射 `files[].is_ocr`，自建 4.0 映射 `ocr_mode: "ocr"`（关闭为 `auto`），3.x 映射 `parse_method: "ocr"`（关闭为 `auto`）。默认 `false`，由 MinerU 按文本层自动判断；扫描件文本层缺失/乱码时开启。`selfHosted` 与 `isOcr`（两者官方云与自建共用）之外的三个字段只服务自建服务：
-  - `selfHosted`：布尔开关，官方云 API 与自建服务的分界（见上一条 `baseUrl`）。
-  - `tier`：4.0 解析档位 `flash` / `basic` / `standard` / `advanced`，空 → 服务端 `--tier` 默认；Host 白名单校验，未知值清空（不发送该字段）。
-  - `legacyBackend`：3.x `backend`（`pipeline` / `vlm-engine` / `hybrid-engine` / `vlm-http-client` / `hybrid-http-client`），空 → 服务端默认。4.0 已移除该参数，连接 4.0 时不会发送。
-  - `legacyVllmUrl`：3.x `*-http-client` 后端的 `server_url`，仅在该字段非空且 `legacyBackend` 选中 http-client 后端时才有意义。
+- `isOcr` 仅 mineru 使用：强制对所有页面执行 OCR。云端映射 `files[].is_ocr`，自建 4.0 映射 `ocr_mode: "ocr"`（关闭为 `auto`），3.x 映射 `parse_method: "ocr"`（关闭为 `auto`）。默认 `false`，由 MinerU 按文本层自动判断；扫描件文本层缺失/乱码时开启。
+- `selfHosted` 仅 mineru 使用：布尔开关，官方云 API 与自建服务的分界（见上一条 `baseUrl`）；自建侧的服务端参数（如 4.0 解析档位、3.x 后端）由 MinerU 服务端自行配置，不随请求发送。
 - `parserBackend` 与版面 `backend` 独立选择；`paddle` / `mineru` / `openaiCompatible` 共用 `providerConfigs` 凭据池，内置 `agentero` 的凭据来自构建期注入、不进凭据池。正文引擎详见 [paper-import.md](paper-import.md) § 正文解析引擎。
 - 设置 UI：Settings →「版面解析 / Layout」（版面后端由前端 `LAYOUT_PROVIDERS`、正文引擎由 `PARSER_PROVIDERS` 注册表驱动；所有远程 provider 平铺为配置卡，`mergeProviderCards` 按 provider 合并、按 `requiresApiKey` / `supportsBaseUrl` / `supportsModel` / `supportsPrompt` / `supportsLanguage` / `supportsOcr` 显隐 API Key / Base URL / Model / Prompt / 语言 / 强制 OCR 输入 + 连通性测试；Model / Base URL 空值时预填引擎默认值，语言预填 `ch`（中英文）。两个 backend 选择只提供本地 + 已配置（apiKey 非空）的 provider；`local` 与内置 `agentero` 豁免这条过滤（后者没有 apiKey，不豁免就会整个从 `parserBackend` 下拉里消失），内置的描述符 `requiresApiKey` / `supports*` 全 false，因此不渲染任何凭证输入或连通性测试；可选项 ≤1 时保留 Select 外观但 disabled（不弹出下拉，避免换成纯文本导致布局抖动）。清空 API Key 输入框会立即落盘清除密钥（无需点确认）；若当前 `backend` / `parserBackend` 指向该 provider 则回退 `local`，下拉随之移除该项）。
 
@@ -2296,7 +2293,7 @@ Windows：未设 `XDG_CONFIG_HOME` 时回退 `%APPDATA%/agentero/`。旧版 macO
   - `requestId` 用于并行任务把 `layout-remote:progress` 对回调用方。
 - **Paddle 流程**：multipart 提交任务 `POST /api/v2/ocr/jobs`（`model: PP-StructureV3`，`Authorization: bearer <token>`，端点固定 `https://paddleocr.aistudio-app.com`）→ 每 3s 轮询 `GET /api/v2/ocr/jobs/{jobId}`（总时限 10 分钟）→ 完成后下载 `resultUrl.jsonUrl`（JSONL）并提取每页 `prunedResult.layout_det_res.boxes`。
 - **MinerU 流程（官方云）**：`POST {base}/api/v4/file-urls/batch` 申请预签名上传 URL → `PUT` 上传 PDF 字节 → 每 3s 轮询 `GET {base}/api/v4/extract-results/batch/{batchId}`（总时限 10 分钟）→ 下载结果 zip，解析 `*content_list.json`（bbox 为 0–1000 归一化，Host 换算回页面像素）+ 中间结果（每页尺寸；条目名按候选匹配：旧版 `*middle.json` / `middle.json`，云端 v4 为 `layout.json`），label 映射到与 PP-DocLayoutV3 统一的词表。不受信 zip 设下载（256 MB）与单条目解压（128 MB）上限；候选条目缺失时报错并列出 zip 实际 entries。
-- **MinerU 流程（自建）**：4.0 走 `POST /v1/uploads`（相对上传地址按 base 解析，同源上传才附 Bearer）→ `PUT` 字节 → `POST /v1/uploads/{id}/complete` → `POST /v1/parse/jobs`（`output_formats: ["zip"]`，带 `tier` / `ocr_mode`）→ 轮询 `GET /v1/parse/jobs/{jobId}`（`progress.completed/total` 报进度，`partial` 视作成功）→ 按 `files[].output_files.zip.file_id` 下载 `GET /v1/files/{id}/content`；3.x 走 multipart `POST /tasks`（`response_format_zip=true`）→ 轮询 `GET /tasks/{id}` → 下载 `GET /tasks/{id}/result`。两个自建 zip 复用同一套解包/上限，正文解析读其中的 Markdown（`markdown.md` / `<stem>.md`）与 `images/`，版面分析读 `middle_json.json`（4.0 `docvortex.middle`，bbox 为 0–1 页相对坐标 + `extensions.docvortex_layout` 页尺寸）或 `*content_list.json` + `*middle.json`（3.x）。
+- **MinerU 流程（自建）**：4.0 走 `POST /v1/uploads`（相对上传地址按 base 解析，同源上传才附 Bearer）→ `PUT` 字节 → `POST /v1/uploads/{id}/complete` → `POST /v1/parse/jobs`（`output_formats: ["zip"]` / `ocr_mode`）→ 轮询 `GET /v1/parse/jobs/{jobId}`（`progress.completed/total` 报进度，`partial` 视作成功）→ 按 `files[].output_files.zip.file_id` 下载 `GET /v1/files/{id}/content`；3.x 走 multipart `POST /tasks`（`response_format_zip=true`）→ 轮询 `GET /tasks/{id}` → 下载 `GET /tasks/{id}/result`。两个自建 zip 复用同一套解包/上限，正文解析读其中的 Markdown（`markdown.md` / `<stem>.md`）与 `images/`，版面分析读 `middle_json.json`（4.0 `docvortex.middle`，bbox 为 0–1 页相对坐标 + `extensions.docvortex_layout` 页尺寸）或 `*content_list.json` + `*middle.json`（3.x）。
 - **进度**：轮询期间 emit `layout-remote:progress`，payload `{ phase, extractedPages, totalPages, requestId? }`（phase：`uploading` / `pending` / `running` / `downloading` / `done`）。
 - **并发**：`settings.layout.backend` 为远程 provider 时 JobCenter `layoutAnalyze` **无并发上限**（远端排队）；本地 ONNX 仍 cap=1。
 - **返回**：`{ pages: [{ boxes: [{ clsId, label, score, coordinate }], widthPx, heightPx }] }`；渲染像素尺寸优先取服务端报告（Paddle：`dataInfo` / `inputImage` JPEG 头；MinerU：中间结果 `middle.json` / `layout.json` 页尺寸），缺失为 `null`（前端按 200 DPI 估算）。

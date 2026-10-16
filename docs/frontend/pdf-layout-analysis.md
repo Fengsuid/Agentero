@@ -130,7 +130,7 @@ LayoutAnalysisPluginPackage: {
 |---|---|---|
 | 本地推理（默认） | `local` | 浏览器内 ONNX PP-DocLayoutV3，完全离线 |
 | Paddle API | `paddle` | AI Studio 托管 PP-StructureV3 **异步任务** API，**整份 PDF 会上传到云端**；端点固定（`supportsBaseUrl: false`） |
-| MinerU（云端 / 自建） | `mineru` | 默认走 mineru.net 批量解析 API（**整份 PDF 上传到云端**）；Base URL 下方的「自建 API」开关切到自建（官方协议与中转站地址兼容，不看域名），切自建后按健康端点自动识别版本（4.0+ → V1 API，3.x → `/file_parse` + `/tasks`），可用 http 局域网地址。语言（默认 `ch` 中英文，可选纯英文）、强制 OCR（`supportsLanguage` / `supportsOcr`）与自建专用选项：解析档位 `tier`（4.0）、3.x 旧版参数（`legacyBackend` / `legacyVllmUrl`） |
+| MinerU（云端 / 自建） | `mineru` | 默认走 mineru.net 批量解析 API（**整份 PDF 上传到云端**）；Base URL 下方的「自建 API」开关切到自建（官方协议与中转站地址兼容，不看域名），切自建后按健康端点自动识别版本（4.0+ → V1 API，3.x → `/file_parse` + `/tasks`），可用 http 局域网地址。语言（默认 `ch` 中英文，可选纯英文）与强制 OCR（`supportsLanguage` / `supportsOcr`）；解析档位、3.x 后端等服务端参数在 MinerU 服务端配置 |
 
 **`agentero` 刻意不在这张表里**：内置 provider 只是**正文解析**（`parserBackend`）后端，不是版面分析后端。版面分析继续跑上表的 `local`（随包 PP-DocLayoutV3 ONNX，首次使用下载到 XDG cache，经 `agentero-model://` 喂给 webview）——已经免费且离线，切到云端网关只会让每个 PDF 都产生费用而无收益。Host 侧 `LAYOUT_BACKENDS` 白名单不含它，`default_layout_backend()` 无条件返回 `local`；把它写进 `backend` 会在下次保存时被重置。理由与实现见 [../backend/builtin-provider.md](../backend/builtin-provider.md) §版面分析不走内置。
 

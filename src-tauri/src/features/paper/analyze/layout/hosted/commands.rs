@@ -38,16 +38,12 @@ fn inject_provider_credentials(
     }
     // Move the key out of args so the plaintext never lingers in the
     // Debug-derivable args struct; engines read credentials only.
-    let mineru = store.layout_mineru_self_hosted(provider);
     HostedProviderCredentials {
         api_key: api_key.take(),
         base_url: store.layout_base_url(provider),
         language: store.layout_language(provider),
         is_ocr: store.layout_is_ocr(provider),
-        self_hosted: mineru.self_hosted,
-        tier: mineru.tier,
-        legacy_backend: mineru.legacy_backend,
-        legacy_vllm_url: mineru.legacy_vllm_url,
+        self_hosted: store.layout_self_hosted(provider),
     }
 }
 

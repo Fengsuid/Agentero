@@ -3301,15 +3301,6 @@ export type LayoutProviderConfig = {
 	 *  instead of the official cloud API (which also covers relays).
 	 */
 	selfHosted?: boolean,
-	/**  MinerU 4.0 self-hosted parse tier; empty → the server's own default. */
-	tier?: string,
-	/**
-	 *  MinerU 3.x self-hosted backend; empty → the server's own default. 4.0
-	 *  removed this parameter, so it is only sent to legacy servers.
-	 */
-	legacyBackend?: string,
-	/**  OpenAI-compatible server URL for the 3.x `*-http-client` backends. */
-	legacyVllmUrl?: string,
 };
 
 export type LayoutRemoteAnalyzePdfArgs = {

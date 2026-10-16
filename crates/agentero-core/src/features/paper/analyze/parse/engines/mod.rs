@@ -38,12 +38,9 @@ pub struct EngineCredentials {
     pub language: Option<String>,
     /// MinerU force-OCR: OCR every page regardless of the PDF text layer.
     pub is_ocr: bool,
-    /// MinerU self-hosted extras (4.0 `tier`, 3.x `backend` / vLLM URL); all
-    /// `None` leaves the server on its own defaults.
+    /// MinerU: treat `base_url` as a self-hosted deployment (dialect detected
+    /// from its health endpoint) instead of the official cloud API.
     pub self_hosted: bool,
-    pub tier: Option<String>,
-    pub legacy_backend: Option<String>,
-    pub legacy_vllm_url: Option<String>,
 }
 
 pub struct BodyParseCtx<'a> {

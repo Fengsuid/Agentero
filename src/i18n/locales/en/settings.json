@@ -596,24 +596,6 @@
 				"label": "Force OCR",
 				"help": "OCR every page instead of trusting the text layer. Official cloud uses is_ocr, self-hosted 4.0 uses ocr_mode, self-hosted 3.x uses parse_method."
 			},
-			"serverDefault": "Server default",
-			"tier": {
-				"label": "Parse tier (self-hosted API)",
-				"help": "MinerU 4.0 and later only; the available tiers come from the server's --tier.",
-				"serverDefault": "Server default (prefers standard)"
-			},
-			"legacy": {
-				"title": "Legacy parameters (self-hosted API · MinerU 3.x and earlier)",
-				"help": "MinerU 4.0 removed these request parameters, so they are ignored on 4.0 and later; configure the VLM address on the MinerU server instead.",
-				"backend": {
-					"label": "Backend"
-				},
-				"vllmUrl": {
-					"label": "vLLM server address",
-					"placeholder": "http://your-vllm-server:8000",
-					"help": "Required when Backend is vlm-http-client or hybrid-http-client."
-				}
-			},
 			"probeIdle": "Not checked yet",
 			"probeOk": "Available",
 			"probeFail": "Unavailable",

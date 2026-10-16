@@ -56,35 +56,7 @@ export type LayoutProviderConfig = {
 	isOcr: boolean;
 	/** Treat `baseUrl` as a self-hosted MinerU server instead of the cloud API. */
 	selfHosted: boolean;
-	/** MinerU 4.0 self-hosted parse tier; empty → the server's own default. */
-	tier: string;
-	/** MinerU 3.x self-hosted backend; empty → the server's own default. */
-	legacyBackend: string;
-	/** OpenAI-compatible server URL for the 3.x `*-http-client` backends. */
-	legacyVllmUrl: string;
 };
-
-/**
- * MinerU 4.0 self-hosted parse tiers. The empty value keeps the server's own
- * default (`--tier`), which is what a plain deployment expects.
- */
-export const MINERU_TIERS = [
-	"",
-	"flash",
-	"basic",
-	"standard",
-	"advanced",
-] as const;
-
-/** MinerU 3.x self-hosted backends (empty → the server's own default). */
-export const MINERU_LEGACY_BACKENDS = [
-	"",
-	"pipeline",
-	"vlm-engine",
-	"hybrid-engine",
-	"vlm-http-client",
-	"hybrid-http-client",
-] as const;
 
 /**
  * MinerU API `language` options offered in the UI, default first.
