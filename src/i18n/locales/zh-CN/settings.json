@@ -572,10 +572,10 @@
 			"baseUrl": {
 				"label": "Base URL"
 			},
-			"selfHostedHelp": "官方云 API 地址，默认为 https://mineru.net；使用中转站时填其中转地址即可，协议与官方一致。",
+			"selfHostedHelp": "官方云 API 地址，或中转站地址。",
 			"selfHosted": {
 				"label": "自建 API",
-				"help": "开启后把上面的地址当作自建 MinerU 服务，并自动识别版本：4.0 及以上走 V1 API，3.x 走 /file_parse。关闭则按官方云 API（含中转站）处理。"
+				"help": "仅在使用自建服务时打开。"
 			},
 			"model": {
 				"label": "模型"
@@ -586,7 +586,7 @@
 			},
 			"language": {
 				"label": "语言",
-				"help": "文档语言（OCR 语言包）。官方云与自建 3.x 会随请求发送；自建 4.0 已改为服务端配置，不再生效。",
+				"help": "OCR 语言包；自建 4.0 不生效。",
 				"options": {
 					"ch": "中英文",
 					"en": "纯英文"
@@ -594,7 +594,7 @@
 			},
 			"forceOcr": {
 				"label": "强制 OCR",
-				"help": "对所有页面强制 OCR，而不是按文本层自动判断。官方云走 is_ocr，自建 4.0 走 ocr_mode，自建 3.x 走 parse_method。"
+				"help": "对所有页面强制 OCR，不按文本层自动判断。"
 			},
 			"probeIdle": "尚未检测",
 			"probeOk": "可用",

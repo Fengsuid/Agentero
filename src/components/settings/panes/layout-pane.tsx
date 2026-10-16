@@ -687,29 +687,6 @@ function ProviderConfigCard({
 						/>
 					</ProviderFieldRow>
 				) : null}
-				{provider.supportsSelfHosted ? (
-					<ProviderFieldRow
-						label={
-							<HelpLabel
-								label={t("layout.providerConfig.selfHosted.label")}
-								help={t("layout.providerConfig.selfHosted.help")}
-							/>
-						}
-						htmlFor={`layout-provider-${provider.id}-self-hosted`}
-					>
-						<Switch
-							id={`layout-provider-${provider.id}-self-hosted`}
-							size="sm"
-							checked={displaySelfHosted}
-							onCheckedChange={(checked) =>
-								setDraft((prev) => ({
-									...prev,
-									selfHosted: checked === true,
-								}))
-							}
-						/>
-					</ProviderFieldRow>
-				) : null}
 				{provider.supportsModel ? (
 					<ProviderFieldRow
 						label={t("layout.providerConfig.model.label")}
@@ -754,7 +731,9 @@ function ProviderConfigCard({
 						/>
 					</ProviderFieldRow>
 				) : null}
-				{provider.supportsLanguage || provider.supportsOcr ? (
+				{provider.supportsLanguage ||
+				provider.supportsOcr ||
+				provider.supportsSelfHosted ? (
 					<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
 						<CollapsibleTrigger asChild>
 							<button
@@ -825,6 +804,29 @@ function ProviderConfigCard({
 											setDraft((prev) => ({
 												...prev,
 												isOcr: checked === true,
+											}))
+										}
+									/>
+								</ProviderFieldRow>
+							) : null}
+							{provider.supportsSelfHosted ? (
+								<ProviderFieldRow
+									label={
+										<HelpLabel
+											label={t("layout.providerConfig.selfHosted.label")}
+											help={t("layout.providerConfig.selfHosted.help")}
+										/>
+									}
+									htmlFor={`layout-provider-${provider.id}-self-hosted`}
+								>
+									<Switch
+										id={`layout-provider-${provider.id}-self-hosted`}
+										size="sm"
+										checked={displaySelfHosted}
+										onCheckedChange={(checked) =>
+											setDraft((prev) => ({
+												...prev,
+												selfHosted: checked === true,
 											}))
 										}
 									/>

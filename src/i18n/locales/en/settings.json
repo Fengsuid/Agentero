@@ -572,10 +572,10 @@
 			"baseUrl": {
 				"label": "Base URL"
 			},
-			"selfHostedHelp": "Official cloud API base, https://mineru.net by default. For a relay, put the relay address here — the protocol stays the official one.",
+			"selfHostedHelp": "Official cloud API base, or a relay address.",
 			"selfHosted": {
 				"label": "Self-hosted API",
-				"help": "Treat the address above as a self-hosted MinerU server and detect its version automatically: 4.0 and later use the V1 API, 3.x uses /file_parse. Off keeps the official cloud API, including relays."
+				"help": "Enable only when using a self-hosted server."
 			},
 			"model": {
 				"label": "Model"
@@ -586,7 +586,7 @@
 			},
 			"language": {
 				"label": "Language",
-				"help": "Document language (OCR language pack). Sent by the official cloud and self-hosted 3.x; self-hosted 4.0 sets it on the server instead, so it has no effect there.",
+				"help": "OCR language pack; ignored by self-hosted 4.0.",
 				"options": {
 					"ch": "Chinese–English",
 					"en": "Pure English"
@@ -594,7 +594,7 @@
 			},
 			"forceOcr": {
 				"label": "Force OCR",
-				"help": "OCR every page instead of trusting the text layer. Official cloud uses is_ocr, self-hosted 4.0 uses ocr_mode, self-hosted 3.x uses parse_method."
+				"help": "OCR every page regardless of the text layer."
 			},
 			"probeIdle": "Not checked yet",
 			"probeOk": "Available",
