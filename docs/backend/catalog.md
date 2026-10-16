@@ -30,7 +30,7 @@
 - **同 Vault 移动**：core `catalog/move_paper.rs::move_with_index` 统一文件移动、Wiki 改链、Catalog 与页数路径更新；后两者在同一个 SQLite 事务内提交，提交失败由既有 rename 事务补偿文件和链接。桌面/本地 Connector 经 Host `catalog/service.rs` 适配，CLI 经 `move_paper_under` 构造 Wiki 索引；业务不再放在 commands。重复移动到当前父目录统一成功返回原路径和空 `linkUpdate.updatedSources`（桌面原先报错，CLI/Connector 保持幂等）；桌面 `dirty_paths` 仍在写入前校验。跨 Vault migrate 与远端移动保持原实现。
 - 删除：回收站快照；恢复 upsert。`list_under_path` / `delete_under_path` / `move_under_path` 共用转义后的 SQL 子路径 pattern，`%`、`_` 与 escape 字符 `!` 按文件名的字面值匹配；保留 `/` 组件边界、Windows 分隔符归一及 SQLite 既有 LIKE 大小写规则，避免修改相似兄弟路径。
 - 连接启用 WAL + `busy_timeout`，写入不阻塞列表读取；每个 Vault 维护一条常驻连接（`schema.rs::with_catalog`，进程级缓存，Mutex 串行化 `spawn_blocking` 并发），PRAGMA/迁移只在首次打开执行；数据库文件被外部删除时自动丢弃旧句柄并重建
-- 连接缓存生命期：切走 / 关闭 vault 时由前端 `vault:opened` 作用域的 teardown 调 `vault_release` 驱逐（`evict_catalog_conn`）。否则一次会话中访问过的每个 Vault 都会把 SQLite 句柄与 WAL 留到进程退出。驱逐对进行中的操作安全 —— 它们持有连接的 `Arc` 克隆
+- 连接缓存生命期：切走 / 关闭 vault 时由前端 `vault:opened` 作用域的 teardown 调 `vault_release` 驱逐（`evict_catalog_conn`）；同一 vault 被多窗口打开时按窗口持有计数，仅最后持有者离开才驱逐。否则一次会话中访问过的每个 Vault 都会把 SQLite 句柄与 WAL 留到进程退出。驱逐对进行中的操作安全 —— 它们持有连接的 `Arc` 克隆
 - `pdf_page_counts`：PDF 页数缓存表（随移动/删除同步），阅读热力图不再整文件打开 PDF 数页；缺缓存时仅对可视行按需补数并回写
 - `embed_cache`（schema v6）：广场 arXiv 推荐的摘要向量缓存，按 sha256(title+abstract)+model 存小端 f32，使论文库语料只 embed 一次。
 - `discovery_runs`（schema v8）：广场 arXiv 推荐的多行运行结果，按 `key = sha256(source|model|top_n|分类)` 分槽，`recommend_arxiv_last` 取最新一行。取代 v6 的单行 `arxiv_rec_state`（保留给旧库、不再写入）。均不触碰 `papers` 表；规格见 [../development/plaza.md](../development/plaza.md) §3.4

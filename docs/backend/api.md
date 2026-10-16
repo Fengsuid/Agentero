@@ -64,8 +64,8 @@ Host 通过 Tauri event 向前端推送事件。文件系统、任务和菜单�
 | `job:progress` | 下载/解析任务字节与计数进度（`taskId` = JobCenter job id，投影行消费） | `{ taskId, phase, downloadedBytes, totalBytes?, progress?, currentCount?, totalCount? }`；PDF 与 TeX 并发下载，Host 把两条流的字节合并成**一个**总体进度后再 emit（两条流同时跑时 `phase` = `assets`，只有一条时为 `pdf` / `tex`），前端只做 clamp 不再按阶段加权；任一流仍在下载且 `Content-Length` 未知时 `totalBytes` / `progress` 为空（面板转不确定态），解析阶段显示为处理中，任务完成时为 100%。Host 对字节级进度做节流：百分比变化 ≥1 个点或距上次 emit ≥100ms 才发事件，流结束时必发最终值 |
 | `paper:imported`（已实现） | `paper_commit` 成功（catalog 已写入、NOTES 已建）；本地与远程导入路径统一发；`paper_download_assets` 为孤儿文件夹补建 catalog 行时也发 | `{ vaultId, paperId, timestamp }`（`vaultId` 为 vault 根路径，远程为 `remote:<sessionId>`） |
 | `paper:assets-ready`（已实现） | 论文资产就绪：同步下载完成 / 本地 PDF 拷贝完成 / `DownloadAssets` job 成功 | `{ vaultId, paperId, timestamp }` |
-| `job:completed`（已实现） | job 状态机真实迁移到 `Succeeded` 时由 `job:changed` 单点派生 | `{ jobId, kind, paperId?, timestamp }` |
-| `job:failed`（已实现） | job 状态机真实迁移到 `Failed` 时由 `job:changed` 单点派生 | `{ jobId, kind, paperId?, error?, timestamp }` |
+| `job:completed`（已实现） | job 状态机真实迁移到 `Succeeded` 时由 `job:changed` 单点派生 | `{ jobId, kind, vaultId, paperId?, timestamp }`（`vaultId` = `JobSnapshot.vault_id`：**发起方传入的 vault 路径串**。前端直连的流程与 `getVaultPath()` 逐字一致；经 offer 中继或 Host 内部发起的流程为 Host 持有的形式（通常 canonical）—— Windows 上带 `\\?\` 前缀，消费端比较需容忍两种拼写，见 [../development/lifecycle-events.md](../development/lifecycle-events.md) 已知限制） |
+| `job:failed`（已实现） | job 状态机真实迁移到 `Failed` 时由 `job:changed` 单点派生 | `{ jobId, kind, vaultId, paperId?, error?, timestamp }`（`vaultId` 同上） |
 | `window:closed`（已实现） | 子窗口销毁（`on_window_event(Destroyed)`）。经 lifecycle bridge 转发进前端 bus，消费者集中在 `lifecycle/register.ts` | `{ kind: 'settings' \| 'feature', view? }`（无 `timestamp`） |
 
 #### `agent_warm`
@@ -447,13 +447,21 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
   - 文件监听由前端打开 Vault 后调用 `fs_watch_start`（已落地；见上），非本命令内隐式启动。
   - 返回完整文件树。
 
+#### `vault_hold`
+
+注册当前窗口对某个 vault 的持有（窗口 label 由 Host 注入，前端签名只有 `path`）。前端在 `vault:opened` 作用域 setup 时调用（remote handle 跳过），与 `vault_release` 成对。
+
+- **参数**：`{ path: string }`
+- **返回**：`{ ok: true; data: null }`
+- **行为**：把窗口 label 加入 `VaultHolders`（vault 键 → 窗口集合，幂等）。键在命令里经 `canonicalize_best_effort` 归一（目录已删时回退原串），同一 vault 以 `D:\v` 与 `\\?\D:\v` 两种形式被不同窗口持有时归一到同一键。同一 vault 可被多个窗口同时打开，持有计数让 `vault_release` 知道全局释放是否可以执行。
+
 #### `vault_release`
 
 释放 Host 侧为某个 vault 持有的资源。前端在释放 `vault:opened` 作用域时调用（remote handle 跳过）。
 
 - **参数**：`{ path: string }`
 - **返回**：`{ ok: true; data: null }`
-- **行为**：驱逐该 vault 的 catalog 连接缓存条目。该缓存是进程级、按 vault 根路径索引的，此前唯一的驱逐路径是 `with_catalog` 发现数据库文件消失，因此一次会话中访问过的每个 vault 都会把 SQLite 句柄与 WAL 留到进程退出。对正在进行的 catalog 操作安全：它们持有连接的 `Arc` 克隆，这里只移除缓存条目。
+- **行为**：先解除当前窗口的持有（键归一同 `vault_hold`）；仅当该 vault 不再被任何窗口持有时执行释放序列（取消该 vault 的 JobCenter 任务并 drain、清 paper caps cache、驱逐 catalog 连接缓存条目）。catalog 连接缓存是进程级、按 vault 根路径索引的，驱逐对正在进行的操作安全（它们持有连接的 `Arc` 克隆，这里只移除缓存条目）。**无持有记录时仍执行释放**：刻意保留的单窗口兼容回退（漏注册 `vault_hold`、或目录已删导致 canonicalize 回退原串而查不到 entry 时都不回归旧行为）。窗口销毁时 Host 的 `on_window_event(Destroyed)` 兜底清理该窗口的全部持有，对变为空的 vault 异步执行同一释放序列。
 - **不负责**：文件监听。`fs_watch_start` 本身就会替换该窗口的既有 watcher，窗口销毁时由 Host 的 `on_window_event(Destroyed)` 停止。
 - **没有 `vault:close` 命令**：vault 的生命期由前端 `vault:opened` 作用域的 teardown 表达，见 [../development/lifecycle-events.md](../development/lifecycle-events.md)。
 

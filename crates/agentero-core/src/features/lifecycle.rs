@@ -15,8 +15,10 @@ pub const PAPER_IMPORTED_EVENT: &str = "paper:imported";
 pub const PAPER_ASSETS_READY_EVENT: &str = "paper:assets-ready";
 pub const PAPER_RENAMED_EVENT: &str = "paper:renamed";
 
-/// Envelope for paper fact events; `vault_id` is the absolute vault root path
-/// (same identity as `JobSnapshot.vault_path` / catalog access).
+/// Envelope for paper fact events; `vault_id` is the vault root as passed by
+/// the emit site: frontend-initiated flows carry the frontend's own path
+/// string (`getVaultPath()`), host-internal flows (recognize etc.) the Host's
+/// form, usually canonical — not a fixed canonicalization identity.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PaperEventPayload {

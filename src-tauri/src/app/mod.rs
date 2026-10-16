@@ -126,6 +126,7 @@ pub fn run() {
                 .with_import_concurrency(import_concurrency),
         )
         .manage(crate::features::paper::catalog::CapsCache::new())
+        .manage(crate::app::vault_session::VaultHolders::new())
         .manage(WikiIndexState::new())
         .manage(crate::features::vault::doctor::DoctorDirtyPathsState::default())
         .manage(ExternalRenameRepairStore::new())
@@ -483,6 +484,25 @@ pub fn run() {
         builder = builder.on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 window.state::<FsWatchController>().stop(window.label());
+                // The window is gone, so it must not keep pinning any vault's
+                // Host resources (see `VaultHolders`). The global release
+                // sequence is async; spawn it so this synchronous event
+                // callback never blocks the event loop.
+                let drained = window
+                    .state::<vault_session::VaultHolders>()
+                    .drain_window(window.label());
+                if !drained.is_empty() {
+                    let app = window.app_handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        for vault in drained {
+                            vault_session::lifecycle::release_vault_resources(
+                                &app,
+                                std::path::Path::new(&vault),
+                            )
+                            .await;
+                        }
+                    });
+                }
                 if window.label() == crate::app::window::commands::SETTINGS_WINDOW_LABEL {
                     crate::app::window::commands::emit_window_closed(
                         window.app_handle(),

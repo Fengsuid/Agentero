@@ -83,6 +83,7 @@ macro_rules! common_commands {
             crate::features::vault::commands::vault_create,
             crate::features::vault::commands::vault_ensure,
             crate::app::vault_session::fs_scope::vault_allow_fs_scope,
+            crate::app::vault_session::lifecycle::vault_hold,
             crate::app::vault_session::lifecycle::vault_release,
             crate::features::vault::commands::vault_tree_build,
             crate::features::vault::commands::vault_tree_children,

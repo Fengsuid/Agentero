@@ -219,7 +219,7 @@
 | V21 | 取消=Ok+字符串：run.rs 恰 9 处 `select!`，取消返回 `Ok` + `stop_reason:"cancelled"` 硬编码 | `session/run.rs:502-768`、`acp/client.rs:266` |
 | V22 | `is_ssh()`/`is_local_sim()` flag 泄漏 4 处（比原报告多 2 处） | `remote_host.rs:23,25`、`acp/client.rs:169`、`registry/remote.rs:121,158,211`、`commands/remote.rs:137`、`remote/launch.rs:75` |
 | V23 | IPC 包络三态 95 / 94 / **7**（`set_locale` 曾被漏计）；成因是 State-borrow 变通，文档自认 | `integration/remote/commands.rs:1-4`；前端 3 个 unwrap helper（`src/lib/core/ipc.ts`） |
-| V24 | fs scope 由渲染层授予：`vault_allow_fs_scope` 命令对任意非空路径 `allow_directory(&p, true)` 递归授予，无 canonicalize/白名单/活跃 vault 校验（host 侧 `handle_open_dir` 反而会先 canonicalize） | `app/vault_session/fs_scope.rs:30`、`vault_session/mod.rs:6-14` |
+| V24 | fs scope 由渲染层授予：`vault_allow_fs_scope` 命令对任意非空路径 `allow_directory(&p, true)` 递归授予，无 canonicalize/白名单/活跃 vault 校验（host 侧 `handle_open_dir` 反而会先 canonicalize） | `app/vault_session/fs_scope.rs:30`、`vault_session/mod.rs:118-126` |
 | V25 | 注册表双份：handlers.rs 191 vs bindings_test.rs 191 手工对齐；`bridge_status` 桌面/iOS 同名不同签名 → iOS 5 个命令整体排除在 bindings.ts 外（cfg 互斥故无运行时遮蔽） | `app/bindings_test.rs:11-13` |
 | V26 | `events_contract.rs` 1248 行 + 手写 Rust 源码扫描器；42 事件（`:360` 的"43"注释过期）；57 个 emit 点 | `app/events_contract.rs:905-915` |
 | V27 | OpTimer 覆盖 50/196 命令；jobs 全部 20 个命令、agent、feeds、catalog 大部无计时 | `core/log_util.rs` |

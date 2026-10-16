@@ -105,7 +105,7 @@ Plate + `@platejs/markdown`。普通文本粘贴默认按 Markdown 解析。`\$a
 
 - **启动**：`src/main.tsx` `boot()` 串行完成设置加载、主题/字体、i18n、store 种子，再按窗口种类 `createRoot`；Rust 侧 `app/mod.rs` 的顺序同样有约束（单实例插件必须最先装，settings 要在 builder 之前读出）。
 - **语义事件**：Rust 在关键节点 emit（`paper:imported`、`paper:assets-ready`、job 终态、`window:closed`），经 `src/lib/lifecycle/tauri-bridge.ts` 转发进前端 typed bus；handler 集中注册在 `lifecycle/register.ts`。
-- **作用域释放**：`vault:opened` 是 scoped 事件，handler 返回 teardown，"打开时做什么"和"切走时撤销什么"写在同一闭包里 —— 各 store 的 vault 级 clear 与 app 层 `vault_release`（取消该 vault 的后台 jobs、清 paper caps cache、驱逐 Host catalog 连接）都挂在这里。退出时 run closure 关闭 connector、telemetry、sync 与 Bridge relay。
+- **作用域释放**：`vault:opened` 是 scoped 事件，handler 返回 teardown，"打开时做什么"和"切走时撤销什么"写在同一闭包里 —— setup 里 `vault_hold` 注册窗口级持有、各 store 的 vault 级 clear 与 app 层 `vault_release`（取消该 vault 的后台 jobs、清 paper caps cache、驱逐 Host catalog 连接）都在 teardown。释放是 vault 全局语义：仅当最后一个持有该 vault 的窗口离开时才执行（窗口销毁由 Host 兜底清理持有）。退出时 run closure 关闭 connector、telemetry、sync 与 Bridge relay。
 
 细节与取舍（为何不需要 `vault:closed`、为何 `app:will-quit` 延后）见 [development/lifecycle-events.md](development/lifecycle-events.md)。
 
@@ -123,7 +123,7 @@ Host `notify` → `vault:file-changed`。打开的 `.md`/`NOTES.md` 磁盘变化
 
 ### 多窗口
 
-`⌘N` → Host `window_new`。Vault 按窗口 session 隔离，最近列表在 localStorage。设置窗口独立原生单例。
+`⌘N` → Host `window_new`。Vault 按窗口 session 隔离，最近列表在 localStorage。设置窗口独立原生单例。同一 vault 可被多个窗口同时打开：Host 侧 `vault_hold` / `vault_release` 按窗口持有计数（`VaultHolders`），仅最后一个窗口离开（切库 / 关窗）时才执行 vault 全局释放；窗口销毁由 `on_window_event(Destroyed)` 兜底清理该窗口的持有。
 
 ### 配色主题
 

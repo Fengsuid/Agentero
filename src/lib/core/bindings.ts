@@ -232,10 +232,20 @@ export const commands = {
 	 */
 	vaultAllowFsScope: (path: string) => __TAURI_INVOKE<ApiResult<null>>("vault_allow_fs_scope", { path }),
 	/**
+	 *  Register this window as a holder of `vault`.
+	 * 
+	 *  Paired with [`vault_release`]: a window holds a vault for as long as its
+	 *  frontend `vault:opened` scope is live (hold in setup, release in teardown),
+	 *  so the vault-global release below only runs when the last window lets go.
+	 *  Idempotent per (vault, window).
+	 */
+	vaultHold: (path: string) => __TAURI_INVOKE<ApiResult<null>>("vault_hold", { path }),
+	/**
 	 *  Release Host-side resources held for a vault the app switched away from.
 	 * 
 	 *  Feature-specific cleanup remains owned by each feature; the app shell only
-	 *  orchestrates the cross-feature release sequence.
+	 *  orchestrates the cross-feature release sequence, and only once the calling
+	 *  window was the last holder of the vault (see [`VaultHolders`]).
 	 */
 	vaultRelease: (path: string) => __TAURI_INVOKE<ApiResult<null>>("vault_release", { path }),
 	/**  Build the whole vault file tree in one pass (single IPC). */
@@ -3229,6 +3239,16 @@ export type JobSnapshot = {
 	kind: JobKind,
 	lane: JobLane,
 	state: JobState,
+	/**
+	 *  Vault root as passed by the enqueuing caller, verbatim (lossy string).
+	 *  Frontend-initiated jobs carry the exact frontend `getVaultPath()`
+	 *  string, so consumers can filter by active vault; host-internal jobs
+	 *  (watcher / recognize helpers) carry the Host's own form, usually
+	 *  canonical (Windows: `\\?\` prefix). `vault_path` below stays the
+	 *  canonical path used for filesystem access and the dedupe key.
+	 */
+	vaultId: string,
+	/**  Canonical vault root: filesystem operations + dedupe identity. */
 	vaultPath: string,
 	paperPath: string | null,
 	fingerprint: string,
@@ -3257,6 +3277,13 @@ export type JobTerminalPayload = JobTerminalPayload_Serialize | JobTerminalPaylo
 export type JobTerminalPayload_Deserialize = {
 	jobId: string,
 	kind: JobKind,
+	/**
+	 *  Vault root as passed by the enqueuing caller (`JobSnapshot.vault_id`):
+	 *  frontend-initiated jobs carry the exact `getVaultPath()` string;
+	 *  host-internal jobs the Host's (usually canonical) form. See the
+	 *  已知限制 note in docs/development/lifecycle-events.md.
+	 */
+	vaultId: string,
 	paperId?: string | null,
 	timestamp: number,
 	error?: string | null,
@@ -3269,6 +3296,13 @@ export type JobTerminalPayload_Deserialize = {
 export type JobTerminalPayload_Serialize = {
 	jobId: string,
 	kind: JobKind,
+	/**
+	 *  Vault root as passed by the enqueuing caller (`JobSnapshot.vault_id`):
+	 *  frontend-initiated jobs carry the exact `getVaultPath()` string;
+	 *  host-internal jobs the Host's (usually canonical) form. See the
+	 *  已知限制 note in docs/development/lifecycle-events.md.
+	 */
+	vaultId: string,
 	paperId?: string | null,
 	timestamp: number,
 	error?: string | null,

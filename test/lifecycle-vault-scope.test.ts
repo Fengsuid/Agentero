@@ -130,7 +130,11 @@ describe("vault:opened scope", () => {
 
 		expect(mocks.refreshTree).toHaveBeenCalledWith("/vault-a");
 		expect(mocks.seedVaultSkills).toHaveBeenCalledWith("/vault-a");
+		// The window registers its hold in setup; the Host only releases when
+		// the last holder lets go (see `vault_session::VaultHolders`).
+		expect(mocks.commandSpy("vaultHold")).toHaveBeenCalledWith("/vault-a");
 		for (const clear of clears) expect(clear).not.toHaveBeenCalled();
+		expect(mocks.commandSpy("vaultRelease")).not.toHaveBeenCalled();
 
 		release();
 		await drain();
@@ -152,7 +156,7 @@ describe("vault:opened scope", () => {
 		});
 	});
 
-	it("skips the Host release for remote vaults, which have no local catalog", async () => {
+	it("skips the Host hold and release for remote vaults, which have no local catalog", async () => {
 		const release = emitScoped("vault:opened", {
 			vaultId: "remote:abc",
 			timestamp: 1,
@@ -162,6 +166,7 @@ describe("vault:opened scope", () => {
 		await drain();
 
 		for (const clear of clears) expect(clear).toHaveBeenCalledTimes(1);
+		expect(mocks.commandSpy("vaultHold")).not.toHaveBeenCalled();
 		expect(mocks.commandSpy("vaultRelease")).not.toHaveBeenCalled();
 	});
 

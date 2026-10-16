@@ -49,7 +49,7 @@
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `vault:opened` | **scoped**。打开/切换 vault（refreshTree、refreshLibrary、seedVaultSkills、job/ingest reconcile、arXiv 预热挂载点）；其 teardown 负责各 store 的 vault 级清理（library / wiki / agent / annotations / layout / ui）与 `vault_release`（remote vault 跳过） |
+| ⭐ `vault:opened` | **scoped**。打开/切换 vault（refreshTree、refreshLibrary、seedVaultSkills、job/ingest reconcile、arXiv 预热挂载点）；setup 里 `vault_hold` 注册本窗口对该 vault 的持有，teardown 负责各 store 的 vault 级清理（library / wiki / agent / annotations / layout / ui）与 `vault_release`（remote vault 跳过）。Host 侧释放是 **vault 全局**语义，按窗口持有计数：仅最后一个持有该 vault 的窗口触发（详见下文「生命期作用域」） |
 | ○ `vault:created` | 新建 vault |
 | ✅ ~~`vault:closed`~~ | **不再需要**，由 `vault:opened` 的作用域 teardown 承担 |
 | 保留 `vault:file-changed` | watcher 文件变更（已符合规范） |
@@ -83,7 +83,16 @@
 
 | 事件 | 时机 |
 |---|---|
-| ○ `job:completed` / `job:failed` | 由 `job:changed` 状态机单点派生（`emit_job_terminal`），payload 为共享的终端五字段，带生成的 `JobKind` 联合（16 种，见 `src/lib/core/bindings.ts`）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
+| ○ `job:completed` / `job:failed` | 由 `job:changed` 状态机单点派生（`emit_job_terminal`），payload 为共享的终端字段（`jobId` / `kind` / `vaultId` / `paperId` / `timestamp` / `error`，后两者缺省省略；`vaultId` = `JobSnapshot.vault_id`，**发起方传入的 vault 路径串**，拼写随来源而异 —— 见下节已知限制；供消费者按当前 vault 过滤），带生成的 `JobKind` 联合（16 种，见 `src/lib/core/bindings.ts`）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
+
+#### 已知限制（vaultId 的拼写）
+
+fact 事件的 `vaultId` 是**发起方传入的 vault 路径串**，拼写随来源而异：
+
+- 前端直连发起的流程（以 `getVaultPath()` 调用命令，如下载 / 补资源 / reconcile）：与前端 `getVaultPath()` 逐字一致，可直接比较。
+- 经 job-executor 中继或 Host 内部发起的流程：传入/持有的是 Host 形式（通常 canonical）—— Windows 上带 `\\?\` 前缀，软链接根路径同理，与前端拾取串不逐字相等；个别后台流程沿用触发方原串。例：`tasks.ts` 的 offer 回传（lookup 导入及其补发的 layout / DownloadAssets 子 job）、后台识别落地的 `paper:renamed`。
+
+消费端按当前 vault 过滤时需容忍上述差异（比较前两侧都做 best-effort 归一，如 `canonicalize_best_effort` 语义）。系统性统一（激活时 canonicalize vault 身份并全链路使用同一形式）留作后续工作。
 
 ### 已符合规范、直接纳入
 
@@ -125,6 +134,17 @@ Rust 关键节点 ──emit──▶ Tauri wire 事件 ──▶ tauri-bridge.t
 - 注册项以记录对象为身份，同一个 handler 注册两次可独立注销
 - handler 与 teardown 抛错只记日志，不中断其余项
 
+#### 窗口级持有计数（vault_hold / vault_release）
+
+Vault 在前端按窗口 session 隔离（两窗口可同时打开同一 vault），但 `vault_release` 的释放序列是 **vault 全局**语义（取消该 vault 所有在途 job、清 caps cache、驱逐 catalog 连接）。因此 Host 维护 `VaultHolders`（vault → 窗口 label 集合）：
+
+- `vault:opened` setup 调 `vault_hold(path)` 注册持有（窗口 label 由 Tauri 注入，前端签名只有 `path`）；teardown 调 `vault_release(path)` 解除。
+- `vault_release` 仅当该 vault 持有集变空时才执行全局释放序列；仍有其他窗口持有则不做任何全局释放（如窗口 A 切库不再取消窗口 B 该 vault 的在途 job）。
+- 无持有记录时仍执行释放：刻意保留的单窗口兼容回退（漏注册不回归旧行为）。hold 调用失败被吞时（前端 fire & forget，仅记日志）同样落在这条路径：`vault_release` 走「无 entry 回退」照常执行全局释放。
+- 窗口销毁兜底：Host `on_window_event(Destroyed)` 清理该 label 全部持有，变为空的 vault 用 `tauri::async_runtime::spawn` 异步执行释放（不阻塞事件循环）。
+- 同一窗口重复激活（StrictMode remount）因 Set 语义幂等；hold / release 的先后由前端单线程发送决定（命令按运行时调度，本身无 FIFO 保证），理论乱序留下的陈旧持有条目由窗口 Destroyed drain 兜底。
+- 路径身份按 `canonicalize_best_effort` 归一（与 job 去重 key / catalog 连接缓存同一身份；目录已删时回退原串，查不到 entry 则走上面的回退释放），Windows 上 `D:\v` 与 `\\?\D:\v` 归一到同一键；`CapsCache::clear()` 保持全局语义，只在完整释放时执行（有意减少全局清频率，不做按 vault 清）。
+
 ### 订阅 Tauri 事件的约定
 
 一律用类型化事件绑定（`src/lib/core/bindings.ts` 的 `events.*`）：组件内 `useTauriEvent(events.x, cb)`，非 UI 模块 `listenEventSafe(events.x, cb)`（`src/lib/core/tauri-events.ts`），**不要**手写 `let off; void (async () => { off = await listen(...) })(); return () => off?.()`：`listen()` 需要一次 Host 往返，在它 resolve 前 dispose 会让 `off` 仍是 undefined，清理成为空操作、监听器永久泄漏 —— StrictMode 每次开发挂载都会命中。字符串事件名订阅仅限前端窗口间广播（`workspace:*` 等）与 iOS bridge client 事件；非 Tauri wire 的 promise 式订阅（bridge、workspace-broadcast）用 `toSafeDisposer()`。
@@ -139,7 +159,7 @@ Rust 关键节点 ──emit──▶ Tauri wire 事件 ──▶ tauri-bridge.t
    - bus 支持返回 cleanup 的 scoped handler + `emitScoped`
    - `listenSafe` / `useTauriEvent`，替掉全部 20 处 leaky 订阅
    - bootstrap：store 种子移入 `boot()`（不再在 render 期做副作用）、JobCenter 订阅补 disposer、`app:ready` 等校验 settle、`window:closed` 收进 bus
-   - 各 store 的 vault 级 clear + `vault_release`（驱逐 Host catalog 连接）
+   - 各 store 的 vault 级 clear + `vault_release`（驱逐 Host catalog 连接；窗口级持有计数 `vault_hold`，多窗口同 vault 时仅最后持有者触发全局释放）
    - 退出时 `BridgeController::stop()`
    - ACP 退出清理已接入 `ExitRequested` / `Exit`：同步关闭 warm 池；warm setup 超时/替换
      通过取消 token 回收。Windows 已回退 SDK 启动，完整进程树与崩溃清理仍为
