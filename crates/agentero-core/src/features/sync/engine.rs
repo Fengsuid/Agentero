@@ -24,11 +24,11 @@
 //! `.agentero/sync/pushed.jsonl` records the blobs it already sent, which no
 //! manifest can vouch for until `HEAD` moves.
 
-use crate::core::error::AppError;
-use crate::integration::sync::config::SyncBackendConfig;
-use crate::integration::sync::local::{self, SyncMeta};
-use crate::integration::sync::snapshot::{self, FileEntry, Manifest};
-use crate::integration::sync::store::{PutCondition, PutOutcome, RemoteStore, SyncStore};
+use crate::error::AppError;
+use crate::features::sync::config::SyncBackendConfig;
+use crate::features::sync::local::{self, SyncMeta};
+use crate::features::sync::snapshot::{self, FileEntry, Manifest};
+use crate::features::sync::store::{PutCondition, PutOutcome, RemoteStore, SyncStore};
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use serde::{Deserialize, Serialize};
@@ -99,6 +99,33 @@ pub async fn sync_vault(
     run_sync(vault, cfg, &client, progress).await
 }
 
+/// One sync pass under the cross-process vault lock: the desktop Host, the
+/// CLI and cron jobs on the same machine serialize here. Fails with the
+/// `sync_busy` domain code while another process is mid-pass, and records
+/// any failure into `.agentero/sync/state.json` (`last_error`) so
+/// `sync status` can explain the last failed pass.
+pub async fn sync_vault_locked(
+    vault: &Path,
+    cfg: &SyncBackendConfig,
+    progress: Progress<'_>,
+) -> Result<SyncOutcome, AppError> {
+    let _lock = crate::features::sync::lock::SyncLock::try_acquire(vault)
+        .map_err(|e| AppError::message(format!("sync lock: {e}")))?
+        .ok_or_else(|| {
+            AppError::domain(
+                "sync_busy",
+                "another sync is already running for this vault",
+            )
+        })?;
+    match sync_vault(vault, cfg, progress).await {
+        Ok(outcome) => Ok(outcome),
+        Err(e) => {
+            local::record_error(vault, &e.to_string());
+            Err(e)
+        }
+    }
+}
+
 /// Engine core, generic over the storage contract: `sync_vault` plugs in the
 /// configured backend; tests can plug in an in-memory store instead.
 async fn run_sync<S: RemoteStore>(
@@ -158,6 +185,13 @@ async fn run_sync<S: RemoteStore>(
                 && same_content(&local_files, &base_files);
             if up_to_date {
                 outcome.version = meta.last_version;
+                // The pass succeeded (nothing to do); a stale failure note
+                // from an earlier pass must not survive it.
+                if meta.last_error.is_some() {
+                    let mut cleared = meta.clone();
+                    cleared.last_error = None;
+                    let _ = local::write_meta(vault, &cleared);
+                }
                 return Ok(outcome);
             }
             ensure_remote_identity(vault, client).await?;
@@ -217,6 +251,7 @@ async fn run_sync<S: RemoteStore>(
                     &SyncMeta {
                         last_sync_at: Some(now()),
                         last_version: ptr.version,
+                        last_error: None,
                     },
                 )?;
                 // The manifest just adopted references every blob `merged`
@@ -306,6 +341,7 @@ async fn run_sync<S: RemoteStore>(
                     &SyncMeta {
                         last_sync_at: Some(now()),
                         last_version: new_version,
+                        last_error: None,
                     },
                 )?;
                 // The published manifest is now the authority on what the
@@ -617,7 +653,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AppError> {
     }
     // Shared default temp `{name}.tmp`: snapshot scans skip `*.tmp`, so the
     // half-written download is never synced.
-    crate::core::fs::atomic_write(target, bytes)?;
+    crate::fs::atomic_write(target, bytes)?;
     Ok(())
 }
 
@@ -643,7 +679,7 @@ fn gunzip_limited(bytes: &[u8], limit: u64) -> Result<Vec<u8>, AppError> {
 }
 
 fn now() -> String {
-    crate::core::time::now_rfc3339_millis()
+    crate::time::now_rfc3339_millis()
 }
 
 #[cfg(test)]
@@ -1066,7 +1102,7 @@ mod tests {
     /// ignore list, or a mirrored store would leak back into the blob store.
     #[test]
     fn store_artifact_names_cover_the_remote_layout() {
-        use agentero_core::features::vault::tree::SYNC_STORE_ARTIFACT_NAMES;
+        use crate::features::vault::tree::SYNC_STORE_ARTIFACT_NAMES;
         for key in [HEAD_KEY, VAULT_KEY, "blobs", "manifests"] {
             assert!(
                 SYNC_STORE_ARTIFACT_NAMES.contains(&key),
@@ -1088,7 +1124,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a local MinIO (see doc comment)"]
     async fn two_device_roundtrip_against_minio() {
-        use crate::integration::sync::config::SyncBackendConfig;
+        use crate::features::sync::config::SyncBackendConfig;
         use uuid::Uuid;
 
         let cfg = SyncBackendConfig {
@@ -1171,7 +1207,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a live WebDAV server (see doc comment)"]
     async fn two_device_roundtrip_against_webdav() {
-        use crate::integration::sync::config::SyncBackendKind;
+        use crate::features::sync::config::SyncBackendKind;
         use uuid::Uuid;
 
         let base = std::env::var("AGENTERO_SYNC_WEBDAV_TEST_URL")

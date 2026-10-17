@@ -1,6 +1,6 @@
 //! Vault scanning → manifest (relative path → content hash + stat).
 
-use crate::core::error::AppError;
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -42,7 +42,7 @@ pub struct FileEntry {
 /// store — a loop that bloats the remote every pass. The cost: a nested user
 /// path that happens to share one of these names (e.g. `notes/blobs/`)
 /// silently stops syncing — edits stay local, nothing propagates or deletes.
-pub(crate) fn is_ignored_name(name: &str) -> bool {
+pub fn is_ignored_name(name: &str) -> bool {
     matches!(name, ".agentero" | ".git" | "node_modules" | ".DS_Store")
         || name.ends_with(".tmp")
         || crate::features::vault::tree::is_sync_store_artifact(name)
