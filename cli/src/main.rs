@@ -176,6 +176,12 @@ enum Commands {
         #[command(subcommand)]
         cmd: commands::vault::VaultCmd,
     },
+    /// Cloud sync (S3/R2, WebDAV): configure, run, inspect — same engine as
+    /// the desktop app, no GUI required.
+    Sync {
+        #[command(subcommand)]
+        cmd: commands::sync::SyncCmd,
+    },
     /// Introspect curated machine ops (agent schema). Omit id for the full index.
     Describe {
         /// Op id (`paper.list`) or MCP tool name (`paper_list`).
@@ -373,6 +379,7 @@ fn command_label(cmd: &Commands) -> &'static str {
             commands::vault::VaultCmd::Create { .. } => "cli.vault.create",
             commands::vault::VaultCmd::List => "cli.vault.list",
         },
+        Commands::Sync { .. } => "cli.sync",
         Commands::Describe { .. } => "cli.describe",
         Commands::Paper { .. } => "cli.paper",
         Commands::Import { .. } => "cli.import",
@@ -407,6 +414,7 @@ fn resolve_format(cli: &Cli) -> OutputFormat {
 async fn run(command: Commands, globals: &GlobalOpts) -> Result<serde_json::Value, CliError> {
     match command {
         Commands::Vault { cmd } => commands::vault::run(cmd, globals).await,
+        Commands::Sync { cmd } => commands::sync::run(cmd, globals).await,
         Commands::Describe { op } => commands::describe::run(op.as_deref(), globals),
         Commands::Paper { cmd } => commands::paper::run(cmd, globals).await,
         Commands::Import { cmd } => commands::import::run(cmd, globals).await,
