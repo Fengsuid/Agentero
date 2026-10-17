@@ -19,8 +19,9 @@ const WHEEL_ZOOM_IDLE_MS = 150;
 const WHEEL_SCALE_DELTA_GAIN = 1000;
 
 /** Magnification equivalent to one wheel delta (negative delta zooms in). */
-export function wheelDeltaToZoomRatio(delta: number): number {
-	return Math.exp(-delta / WHEEL_SCALE_DELTA_GAIN);
+export function wheelDeltaToZoomRatio(delta: number, pinch = false): number {
+	// Chromium encodes native pinch magnification as -100 * ln(scale).
+	return Math.exp(-delta / (pinch ? 100 : WHEEL_SCALE_DELTA_GAIN));
 }
 
 /** Minimal shape of WebKit's non-standard GestureEvent. */
@@ -60,9 +61,9 @@ export type ZoomGestureBindingOptions = {
  * gesturestart/gesturechange/gestureend instead. Those are default-prevented so
  * the platform magnify is suppressed and reported through the same
  * start/change/end callbacks, with the scale
- * ratio measured against the start of the gesture. On WebView2 (Windows) a
- * trackpad pinch never reaches the page at all: the renderer consumes it in the
- * compositor, so only the Ctrl/Cmd+wheel path applies there.
+ * ratio measured against the start of the gesture. On Windows, the host enables
+ * WebView2 pinch recognition and cancels native page scaling in capture. Its
+ * synthetic Ctrl+wheel reaches this binding, tagged for native pinch sensitivity.
  */
 export function bindZoomGesture({
 	target,
@@ -113,7 +114,10 @@ export function bindZoomGesture({
 				wheelRatio = 1;
 				onZoomStart({ x: event.clientX, y: event.clientY });
 			}
-			wheelRatio *= wheelDeltaToZoomRatio(event.deltaY);
+			wheelRatio *= wheelDeltaToZoomRatio(
+				event.deltaY,
+				(event as WheelEvent & { agenteroPinch?: boolean }).agenteroPinch,
+			);
 			onZoomChange(wheelRatio);
 			armIdleTimer(() => {
 				wheelZooming = false;

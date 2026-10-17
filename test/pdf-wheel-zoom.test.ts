@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bindZoomGesture, wheelDeltaToZoomRatio } from "@/lib/pdf/wheel-zoom";
 
@@ -23,7 +25,11 @@ function wheelTargetHarness() {
 		} as unknown as HTMLElement,
 		isPassive: () => attachedPassive,
 		hasListener: () => listeners.has("wheel"),
-		dispatch: (init: { deltaY: number; ctrlKey?: boolean }) => {
+		dispatch: (init: {
+			deltaY: number;
+			ctrlKey?: boolean;
+			agenteroPinch?: boolean;
+		}) => {
 			const preventDefault = vi.fn();
 			listeners.get("wheel")?.({
 				deltaY: init.deltaY,
@@ -32,6 +38,7 @@ function wheelTargetHarness() {
 				cancelable: true,
 				clientX: 40,
 				clientY: 60,
+				agenteroPinch: init.agenteroPinch,
 				preventDefault,
 			} as unknown as WheelEvent);
 			return preventDefault;
@@ -99,6 +106,23 @@ describe("PDF wheel zoom gesture binding", () => {
 		expect(preventDefault).toHaveBeenCalledTimes(1);
 		expect(onZoomChange).toHaveBeenCalledTimes(1);
 		expect(harness.isPassive()).toBe(false);
+	});
+
+	it("uses native magnification for tagged Windows pinches", () => {
+		const harness = wheelTargetHarness();
+		const onZoomChange = vi.fn();
+		bindZoomGesture({
+			target: harness.target,
+			onZoomStart: vi.fn(),
+			onZoomChange,
+			onZoomEnd: vi.fn(),
+		});
+		harness.dispatch({
+			deltaY: -100 * Math.log(1.7),
+			ctrlKey: true,
+			agenteroPinch: true,
+		});
+		expect(onZoomChange).toHaveBeenLastCalledWith(expect.closeTo(1.7, 8));
 	});
 
 	it("goes passive for a plain scroll gesture and back after it idles", () => {
@@ -282,8 +306,7 @@ describe("PDF wheel zoom WebKit gesture binding", () => {
 });
 
 describe("PDF wheel delta to zoom ratio", () => {
-	it("inverts the magnification a pinch reports", () => {
-		// A wheel tick that reports a 1.25× pinch magnification.
+	it("preserves the existing gentle wheel conversion", () => {
 		const delta = -1000 * Math.log(1.25);
 		expect(wheelDeltaToZoomRatio(delta)).toBeCloseTo(1.25, 10);
 	});
@@ -291,5 +314,82 @@ describe("PDF wheel delta to zoom ratio", () => {
 	it("zooms in for negative deltas and out for positive ones", () => {
 		expect(wheelDeltaToZoomRatio(-100)).toBeGreaterThan(1);
 		expect(wheelDeltaToZoomRatio(100)).toBeLessThan(1);
+	});
+});
+
+describe("Windows WebView2 pinch guard", () => {
+	const source = readFileSync(
+		new URL("../src-tauri/src/app/window/pinch-zoom.js", import.meta.url),
+		"utf8",
+	);
+	function guard() {
+		const listeners = new Map<string, (event: unknown) => void>();
+		const addEventListener = vi.fn(
+			(type: string, listener: (event: unknown) => void) =>
+				listeners.set(type, listener),
+		);
+		runInNewContext(source, { window: { addEventListener } });
+		return {
+			addEventListener,
+			fire: (type: string, event: unknown) => listeners.get(type)?.(event),
+		};
+	}
+
+	it("tags precision pinches and cancels native scaling before PDF listeners", () => {
+		const binding = guard();
+		const event = {
+			ctrlKey: true,
+			deltaMode: 0,
+			deltaY: -2,
+			cancelable: true,
+			preventDefault: vi.fn(),
+			agenteroPinch: undefined,
+		};
+		binding.fire("wheel", event);
+		expect(event.agenteroPinch).toBe(true);
+		expect(event.preventDefault).toHaveBeenCalledOnce();
+		expect(binding.addEventListener).toHaveBeenCalledWith(
+			"wheel",
+			expect.any(Function),
+			{ capture: true, passive: false },
+		);
+	});
+
+	it("preserves ordinary scrolling and keeps mouse wheel sensitivity with physical Ctrl", () => {
+		const binding = guard();
+		const scroll = { ctrlKey: false, deltaY: 10, preventDefault: vi.fn() };
+		binding.fire("wheel", scroll);
+		expect(scroll.preventDefault).not.toHaveBeenCalled();
+		binding.fire("keydown", { ctrlKey: true });
+		const wheel = {
+			ctrlKey: true,
+			deltaMode: 0,
+			deltaY: -2,
+			cancelable: true,
+			preventDefault: vi.fn(),
+			agenteroPinch: undefined,
+		};
+		binding.fire("wheel", wheel);
+		expect(wheel.agenteroPinch).toBeUndefined();
+		expect(wheel.preventDefault).toHaveBeenCalledOnce();
+		binding.fire("blur", {});
+		const pinch = { ...wheel, preventDefault: vi.fn() };
+		binding.fire("wheel", pinch);
+		expect(pinch.agenteroPinch).toBe(true);
+	});
+
+	it("does not tag a mouse notch when Ctrl was already down at page load", () => {
+		const binding = guard();
+		const wheel = {
+			ctrlKey: true,
+			deltaMode: 0,
+			deltaY: 120,
+			cancelable: true,
+			preventDefault: vi.fn(),
+			agenteroPinch: undefined,
+		};
+		binding.fire("wheel", wheel);
+		expect(wheel.agenteroPinch).toBeUndefined();
+		expect(wheel.preventDefault).toHaveBeenCalledOnce();
 	});
 });

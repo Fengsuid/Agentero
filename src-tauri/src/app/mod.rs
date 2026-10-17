@@ -62,6 +62,11 @@ pub fn run() {
         }));
     }
 
+    #[cfg(windows)]
+    {
+        builder = builder.plugin(window::pinch_zoom::init());
+    }
+
     builder = builder
         .register_asynchronous_uri_scheme_protocol("agentero-arxiv", |_ctx, request, responder| {
             crate::features::paper::discovery::proxy::arxiv::handle(request, responder);
