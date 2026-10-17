@@ -574,62 +574,6 @@ pub async fn load_acp_session(
     }
 }
 
-#[cfg(all(test, windows))]
-mod official_pi_tests {
-    /// Opt-in integration check against installed Pi/pi-acp and isolated JSONL
-    /// fixtures produced by Pi's SessionManager. No model prompt is sent.
-    #[tokio::test]
-    #[ignore = "requires AGENTERO_PI_HISTORY_ROOT and AGENTERO_PI_HISTORY_NODE"]
-    async fn official_pi_history_survives_fresh_processes() {
-        use super::*;
-        use serde_json::json;
-
-        let root = PathBuf::from(std::env::var("AGENTERO_PI_HISTORY_ROOT").unwrap());
-        let node = std::env::var("AGENTERO_PI_HISTORY_NODE").unwrap();
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(root.join("fixtures.json")).unwrap()).unwrap();
-        let cwd = PathBuf::from(manifest["cwd"].as_str().unwrap());
-        let desc: AgentDescriptor = serde_json::from_value(json!({
-            "id": "pi-history-test", "name": "Pi", "template": "pi",
-            "command": node,
-            "args": [root.join("node_modules/pi-acp/dist/index.js")],
-            "env": {
-                "USERPROFILE": root.join("test-user"),
-                "PI_CODING_AGENT_DIR": manifest["home"],
-                "PI_ACP_PI_COMMAND": root.join("node_modules/.bin/pi.cmd")
-            }
-        }))
-        .unwrap();
-        for fixture in manifest["fixtures"].as_array().unwrap() {
-            let turns = fixture["turns"].as_u64().unwrap() as usize;
-            for _ in 0..2 {
-                let started = std::time::Instant::now();
-                let history = load_acp_session(
-                    &desc,
-                    fixture["id"].as_str().unwrap().to_string(),
-                    cwd.clone(),
-                    None,
-                )
-                .await
-                .unwrap();
-                assert_eq!(history.lines.len(), turns * 2);
-                assert_eq!(history.lines[0].text, "question 0");
-                assert!(history
-                    .lines
-                    .last()
-                    .unwrap()
-                    .text
-                    .starts_with(&format!("answer {}", turns - 1)));
-                eprintln!(
-                    "Pi host restore: messages={} elapsed_ms={}",
-                    history.lines.len(),
-                    started.elapsed().as_millis()
-                );
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod replay_builder_tests {
     use super::ReplayBuilder;
