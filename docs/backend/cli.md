@@ -5,7 +5,7 @@ Headless Vault / Catalog / Wiki 接口；**不含** BYOA / paper-reader。
 ## 位置
 
 - 目录：`cli/`（crate `agentero-cli`）
-- path 依赖 `agentero-core`（**不**依赖 `agentero_lib`，依赖树无 tauri/wry/tao）：`features::{vault,catalog,import,wiki,zotero,feeds,translate,doctor,trash,pdf_locate,open_request}` + 顶层 `{error,fs}`
+- path 依赖 `agentero-core`（**不**依赖 `agentero_lib`，依赖树无 tauri/wry/tao）：`features::{vault,catalog,import,wiki,zotero,feeds,translate,doctor,trash,pdf_locate,open_request,sync}` + 顶层 `{error,fs}`
 - 可选同版本 CLI 安装（不随桌面安装包打入，减小体积 [#285](https://github.com/poco-ai/Agentero/issues/285)；open/deep-link 仍见 [#165](https://github.com/poco-ai/Agentero/issues/165) / [#166](https://github.com/poco-ai/Agentero/issues/166)）
   - 设置 → 关于：**安装 CLI** 从 GitHub Release 下载与 App **同版本** 的 `agentero-cli-{ver}-{triple}` 归档，校验 `.sha256` 后写入用户目录并创建 PATH shim。POSIX 写 `~/.local/bin/agentero` 软链（不静默改 shell rc）；Windows 写 `agentero-cli.cmd` 并**自动把安装目录加入用户 PATH**（`HKCU\Environment`，广播 `WM_SETTINGCHANGE`，无需重启，新开终端即可用 `agentero-cli`）。下载 404 的错误文案会带上完整资产 URL（含宿主 triple），架构/版本不匹配时自解释；`CliInstallStatus.commandName` 供前端按平台展示验证命令
   - 独立 CLI 归档仍随每次 Release 发布，供无桌面的 headless 机器使用；macOS 亦可通过 Homebrew tap `poco-ai/agentero` 安装 headless CLI
@@ -17,6 +17,7 @@ Headless Vault / Catalog / Wiki 接口；**不含** BYOA / paper-reader。
 |---|---|
 | `open` | 在桌面 App 打开本地目录为 Vault（`agentero open <PATH>`；简写 `agentero <PATH>`） |
 | `vault` | create / list 等 |
+| `sync` | 云同步（S3/R2、WebDAV）：configure / status / test / now / disconnect，与桌面端共用引擎（见下） |
 | `describe` | Agent 自省：策展型 op 目录与单 op 的 input/output/errors/examples（机器契约真源） |
 | `paper` | list/get、tag list/set/add/rm、move、open、download/parse… |
 | `import` | 标识符入库 |
@@ -304,6 +305,28 @@ agentero paper open papers/nlp/attention --json
 
 - **Windows 资源管理器**：NSIS 安装钩子（`src-tauri/nsis/hooks.nsh`，经 `bundle.windows.nsis.installerHooks` 引入）在 `Software\Classes\Directory\shell` 与 `Directory\Background\shell` 下写入 `OpenWithAgentero` 条目，命令为 `"$INSTDIR\agentero.exe" "%1"`；卸载时仅清理指向本安装位置的条目。Win11 新式菜单中条目位于「显示更多选项」。
 - **macOS 访达**：Finder 对目录没有「打开方式」，改用 Quick Action。桌面 App 启动时自动安装/刷新 `~/Library/Services/Open with Agentero.workflow`（`features::finder_service`，shell 动作直接调用当前 App 二进制并传裸路径）；用户显式移除后写入配置标记（`finder-service.removed`），启动时不再自动恢复。设置 → 关于 提供安装/更新/移除入口；App 移动位置后状态显示为过期，可一键更新。
+
+## 云同步（`sync`）
+
+无桌面环境（服务器等）下的双向 Vault 同步；与桌面端共用 `agentero-core::features::sync` 引擎与 XDG `sync.json` 绑定，冲突处理（三方合并 + 冲突副本）、条件写降级、断点续传与空转短路语义完全一致（实现细节见 [sync.md](sync.md)）。
+
+```bash
+# 服务器首次接入已有远端库（vault 从未同步过时自动采纳远端 vaultId 完成加入）
+agentero vault create ~/papers
+AGENTERO_SYNC_ACCESS_KEY=xxx AGENTERO_SYNC_SECRET_KEY=yyy \
+  agentero sync configure --vault ~/papers \
+    --backend s3 --endpoint https://<account>.r2.cloudflarestorage.com --bucket papers
+agentero sync now --vault ~/papers --json      # cron / 助理调用，退出码即成败
+agentero sync status --vault ~/papers --json   # lastError 给出上次失败原因
+agentero sync test --vault ~/papers --json     # 凭据/桶/条件写连通测试
+agentero sync disconnect --vault ~/papers -y   # 解绑（远端数据不动）
+```
+
+- **凭据安全**：secret 不进 argv——flag 只收 endpoint/bucket/prefix 等非敏感字段；secret 来源为 `AGENTERO_SYNC_ACCESS_KEY` / `AGENTERO_SYNC_SECRET_KEY` / `AGENTERO_SYNC_WEBDAV_PASSWORD`、TTY 交互提示（`--json` / 管道下绝不提示），或 `--stdin` 读完整配置 JSON（camelCase，脚本友好，不落 shell history）。所有输出经掩码（`*`），日志与 `remoteIdentity()` 均不含密钥；`sync.json` 以 0600 落盘。
+- **并发**：`sync now` 经 `.agentero/sync/lock` 跨进程文件锁与桌面端（及 cron）在同一 Vault 上互斥，冲突时返回 `sync_busy`（退出码 1）；进程崩溃锁自动释放。
+- **状态与错误码**：未配置 → `sync_not_configured`；配置非法（缺 secret 等，非交互下无法补提示时错误里附 secret 传入门径）→ `sync_config_invalid`；引擎错误透传 `AppError` 域码。`status` 输出 `configured` / `config`（掩码）/ `lastSyncAt` / `lastVersion` / `lastError`。
+- **进度**：`now` 的阶段进度（scan/pull/download/upload/finalize）打 stderr，stdout 始终纯 JSON；text 模式默认显示，`--progress` 在 `--json` 下开启。
+- **同步范围**：`configure --exclude pdf,source,attachments` 排除大体积可再生资产（与设置页「同步范围」一致）；笔记、sidecar、marks 永远同步。
 
 ## Doctor
 

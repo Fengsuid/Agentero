@@ -2,22 +2,30 @@
 
 多设备间同步整个 Vault 到 S3 兼容对象存储（AWS S3 / R2 / MinIO / OSS / BOS 等）或任意 WebDAV 服务器（坚果云 / Nextcloud / ownCloud / NAS 等）。设计草稿与分期：[../development/cloud-sync-s3.md](../development/cloud-sync-s3.md)。当前已落地 Phase 0–1 与 Phase 2 的自动同步（状态栏指示、GC、multipart 除外）。
 
+引擎位于 `crates/agentero-core/src/features/sync/`（Tauri 无关），桌面端与 headless CLI 共用同一份实现——冲突处理、失败恢复与请求预算语义完全一致；CLI 侧见 `agentero sync`（[cli.md](cli.md)）。桌面端仅在 `src-tauri/src/integration/sync/` 叠加 IPC 命令与调度。
+
 两种后端共用同一套状态化同步协议（内容寻址 blob + 不可变 manifest + CAS `HEAD`），契约收敛在 `store.rs` 的 `RemoteStore` trait，`SyncStore` 枚举按配置选择实现，引擎对具体后端无感知。新增后端 = 新客户端模块实现 trait + 枚举一个变体。设置页可切换后端；已配置的 Vault 锁定后端选择，需先解绑再切换（换后端即指向另一个远端 store）。Azure Blob、百度网盘等无 S3 / WebDAV 对应凭据模型的服务仍不能接入。
 
 ## 模块
 
-`src-tauri/src/integration/sync/`（desktop-only）：
+`crates/agentero-core/src/features/sync/`（桌面端与 CLI 共享）：
 
 | 文件 | 职责 |
 |---|---|
-| `mod.rs` | `SyncService` 与 `SyncRunLease`：手动、自动与退出同步共用按 Vault 的占用，guard 释放覆盖正常返回、错误、超时和 task abort |
 | `config.rs` | `SyncBackendConfig`（`backend: s3 \| webdav` 判别字段，旧 `sync.json` 缺省即 S3）与凭据持久化：XDG `agentero/sync.json`（按 Vault 路径分键，0600）；`secretKey` / `webdavPassword` 出站掩码 / 回传掩码保留旧值（同 translate API key 先例）；`conditionalWrites` 持久化连接测试的条件写探测结果；`webdavUrl` 归一化（trim 尾斜杠 + 坚果云根地址展开，见 WebDAV 节）；`scope` 同步范围（见下）；`remoteIdentity()` 给出远端 store 标识（后端 + 地址/bucket/prefix + 账号名，不含密钥），供本地状态在换 store 后判失效 |
 | `store.rs` | 后端无关抽象（Strategy）：`RemoteStore` trait 定义后端契约（`ensure_root` / `get` / 条件 `put` / `probe_conditional_writes`，futures 均为 `Send`），`SyncStore` 枚举是唯一的组合点（从配置选择具体客户端并转发）；engine 只依赖 trait，可用内存实现做引擎测试。另含两个客户端共享的 HTTP 工具：`send_with_retries`（幂等操作传输层 3 次重试）、`check` / `etag_of` / `error_chain` |
 | `s3.rs` | 最小 S3 客户端：GET / 条件 PUT（`If-Match` / `If-None-Match`）/ DELETE / ListObjectsV2，reqwest + 手写 SigV4（HMAC-SHA256 自实现，RFC 4231 向量测试）；条件写探测与降级（见下） |
 | `webdav.rs` | 最小 WebDAV 客户端：Basic Auth + GET / 条件 PUT / DELETE / MKCOL / PROPFIND（仅取状态码，无 XML 解析），见下节 |
 | `snapshot.rs` | Vault 扫描 → `Manifest`（relPath → sha256/size/mtime）；`size+mtime` 未变复用 base 哈希；忽略 `.agentero` `.git` `node_modules` `.DS_Store` `*.tmp`；`SyncScope` 与分类谓词（见「同步范围」） |
-| `local.rs` | `.agentero/vault.json`（Vault UUID）、`.agentero/sync/{base,state}.json`、`.agentero/sync/pushed.jsonl`（已上传未发布的 blob，见「请求预算」）；watcher 忽略 `.agentero/`，无事件回环 |
-| `engine.rs` | 三方合并 + 应用 + 发布 + 空转短路 / 断点续传（见下） |
+| `local.rs` | `.agentero/vault.json`（Vault UUID）、`.agentero/sync/{base,state}.json`（`state.json` 含 `lastError`，上次失败原因，成功即清除）、`.agentero/sync/pushed.jsonl`（已上传未发布的 blob，见「请求预算」）；watcher 忽略 `.agentero/`，无事件回环 |
+| `lock.rs` | 跨进程 pass 锁：`.agentero/sync/lock` 上的 advisory 文件锁（flock / LockFileEx），桌面端、CLI 与 cron 在同一 Vault 上串行化；锁随文件句柄释放，进程崩溃不残留 |
+| `engine.rs` | 三方合并 + 应用 + 发布 + 空转短路 / 断点续传（见下）；`sync_vault_locked` 在进入 pass 前取跨进程锁（冲突时报 `sync_busy` 域码）并把失败写入 `state.json` 的 `lastError` |
+
+`src-tauri/src/integration/sync/`（desktop-only 壳层）：
+
+| 文件 | 职责 |
+|---|---|
+| `mod.rs` | 引擎 re-export + `SyncService` 与 `SyncRunLease`：手动、自动与退出同步共用按 Vault 的进程内占用，guard 释放覆盖正常返回、错误、超时和 task abort（跨进程占用由引擎内文件锁负责） |
 | `commands.rs` | `sync_get_status` / `sync_configure` / `sync_disconnect` / `sync_now` / `sync_scope_sizes`（本地各附件分类体积，供设置页展示）；广播 `sync:state` / `sync:progress` 事件 |
 | `scheduler.rs` | 自动同步：每 Vault 一个后台任务——启动时同步一次、改动静置 30s 后同步、按 `intervalMinutes`（15/30/60）定时兜底；退出时尽力推送（每 Vault 限 5s） |
 
@@ -96,6 +104,30 @@
 同一 Vault 的手动、自动、退出同步共用 `SyncRunLease` 占用；不同 Vault 可独立运行。退出 flush 若该 Vault 已在同步则记录并跳过，避免并发改写本地 base/state。正常成功/失败先释放占用再广播既有终态，超时或 task abort 通过 guard 自动释放，后续同步可重新取得占用。
 
 本轮只收敛占用生命周期：abort 不新增 `sync:state` 终态事件，事件驱动的 UI 可能保持旧状态直到刷新或后续事件（`sync_get_status` 已能读取正确的 `running`）。中止 future 也不保证已启动的 `spawn_blocking` 或远端请求被撤销；协调取消、等待子任务与取消后的 UI 对账仍属架构计划 E2。
+
+## 并发（跨进程）
+
+远端一致性由 CAS `HEAD` 保证（多设备天然串行化）；同一台设备上桌面端与 CLI（或 cron）同时跑 pass 的**本地**写入交错，由 `engine::sync_vault_locked` 入口处的 `.agentero/sync/lock` advisory 文件锁串行化：
+
+- 拿不到锁立即失败，域码 `sync_busy`（CLI 退出码 1，桌面端记入 `sync:state` error）。
+- 锁随文件句柄存活：进程退出、崩溃或被杀即释放，无陈旧锁清理。
+- 桌面端手动 / 自动 / 退出同步与 CLI `sync now` 均走该入口；`SyncRunLease` 仅叠加进程内 UI 状态（`running`）。
+- 锁只覆盖 pass 本身；`catalog.sqlite` 并发访问由 WAL + busy_timeout 兜底（CLI 与桌面端共用 `with_catalog` 的连接缓存语义）。
+
+## CLI（headless）
+
+`agentero sync`（[cli.md](cli.md)）面向无桌面环境的服务器：同一引擎、同一 `sync.json` 绑定、同一冲突与断点续传语义。典型服务器侧接入（vault 从未同步过，引擎自动采纳远端 `vault.json` 的 id 完成加入）：
+
+```bash
+agentero vault create ~/papers
+AGENTERO_SYNC_ACCESS_KEY=… AGENTERO_SYNC_SECRET_KEY=… \
+  agentero sync configure --vault ~/papers \
+    --backend s3 --endpoint https://<account>.r2.cloudflarestorage.com --bucket papers
+agentero sync now --vault ~/papers --json   # cron / 助理调用，退出码即成败
+agentero sync status --vault ~/papers --json  # lastError 给出上次失败原因
+```
+
+凭据安全：secret 不进 argv（flag 只收 endpoint/bucket 等非敏感字段），来源为 `AGENTERO_SYNC_*` 环境变量、TTY 交互（`--json` 下绝不提示）或 `--stdin` JSON；所有输出经 `masked()` 掩码，`remoteIdentity()` 与日志均不含密钥。
 
 ## 安全约束
 
