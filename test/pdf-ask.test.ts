@@ -188,7 +188,7 @@ describe("pdf-ask schema", () => {
 });
 
 describe("pdf-ask prompt", () => {
-	it("includes page, quote, and question", () => {
+	it("asks the question without pasting the quote", () => {
 		const thread = createEmptyThread({
 			paperPath: "papers/x",
 			anchor: {
@@ -205,9 +205,10 @@ describe("pdf-ask prompt", () => {
 			createdAt: new Date().toISOString(),
 		});
 		const p = buildPdfAskPrompt(thread, "Explain");
-		expect(p).toContain("Page: 3");
-		expect(p).toContain("Transformer");
+		expect(p).not.toContain("Page: 3");
+		expect(p).not.toContain("Transformer");
 		expect(p).toContain("Explain");
+		expect(p).toContain("research context");
 	});
 
 	it("adds a session translation without writing it onto the thread", () => {
@@ -228,8 +229,7 @@ describe("pdf-ask prompt", () => {
 			createdAt: new Date().toISOString(),
 		});
 		const prompt = buildPdfAskPrompt(thread, "Explain");
-		expect(prompt).toContain("Translation of the quoted sentences:");
-		expect(prompt).toContain("第一句。");
+		expect(prompt).not.toContain("第一句。");
 		expect(JSON.stringify(thread)).not.toContain("第一句");
 	});
 

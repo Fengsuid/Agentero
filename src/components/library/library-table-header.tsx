@@ -57,14 +57,18 @@ import {
 	mergeEasyScholarTags,
 } from "@/lib/easyscholar";
 import type { PaperMetadata } from "@/lib/paper";
-import {
-	libraryStore,
-	setLibraryPapers,
-	setLibraryPaperTags,
-} from "@/lib/paper/library-store";
+import { setPaperTags } from "@/lib/paper/api";
+import { libraryStore, setLibraryPapers } from "@/lib/paper/library-store";
 import { coercePaperTags, type PaperTag } from "@/lib/paper/tags";
 import type { LibraryColumnPref } from "@/lib/settings";
 import { getVaultPath } from "@/lib/vault/store";
+
+/**
+ * PERF: coalesce EasyScholar catalog writes into one store refresh per chunk.
+ * Each per-paper `setLibraryPapers` rebuilds the whole array + path index and
+ * re-sorts the table, which stalls large libraries over a batch fetch.
+ */
+const EASY_SCHOLAR_STORE_BATCH = 50;
 
 type LibraryTableHeaderProps = {
 	t: CellT;
@@ -156,6 +160,21 @@ export const LibraryTableHeader = memo(function LibraryTableHeader({
 		let updated = 0;
 		let failed = 0;
 		let empty = 0;
+		// Rows written to the catalog but not yet pushed to the store.
+		let pendingByPath = new Map<string, PaperMetadata>();
+		const flushPending = () => {
+			if (pendingByPath.size === 0) return;
+			const byPath = pendingByPath;
+			pendingByPath = new Map();
+			// Vault switched mid-batch: these rows belong to the old vault.
+			if (getVaultPath() !== vaultPath) return;
+			setLibraryPapers((prev) =>
+				prev.map((p) => {
+					const row = byPath.get(p.path);
+					return row ? { ...p, ...row } : p;
+				}),
+			);
+		};
 		try {
 			for (const paper of papers) {
 				const title = paper.publication?.trim();
@@ -174,17 +193,21 @@ export const LibraryTableHeader = memo(function LibraryTableHeader({
 						.getState()
 						.papers.find((row) => row.path === paper.path);
 					if (!current) continue;
-					await setLibraryPaperTags(
+					// Catalog write only; the store refresh is batched in flushPending.
+					const saved = await setPaperTags(
 						vaultPath,
 						paper.path,
 						mergeEasyScholarTags(current.tags, newTags),
 					);
+					pendingByPath.set(paper.path, saved);
 					updated += 1;
+					if (pendingByPath.size >= EASY_SCHOLAR_STORE_BATCH) flushPending();
 				} catch {
 					failed += 1;
 					// Continue with the next paper; summarize at the end.
 				}
 			}
+			flushPending();
 			notifySuccess(
 				t("papersLibrary.easyScholar.batchDone", { updated, failed, empty }),
 			);

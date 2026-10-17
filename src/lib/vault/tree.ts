@@ -69,8 +69,74 @@ const TREE_SYNC_STORE_ARTIFACT_NAMES = new Set([
 /** Any of these marks a directory as a paper unit whose `source/` is lazy. */
 const PAPER_MARKER_FILE_NAMES = new Set(["NOTES.md", "PAPER.md"]);
 
+/** Paper-internal directory markers (mirrors `src/lib/paper/paths.ts`). */
+const PAPER_MARKER_DIR_NAMES = new Set(["source", "assets", "marks"]);
+
 /** Paper subdirectory listed lazily (arXiv e-prints hold hundreds of files). */
 const LAZY_PAPER_DIR_NAME = "source";
+
+/**
+ * App-owned rebuildable sidecars written inside a paper's `source/` bucket
+ * (reference sidecar + PDF layout sidecars, see `docs/backend/api.md`). They
+ * are never user content, so the tree blinds itself to them — mirrors the Host
+ * rule in `crates/agentero-core/src/features/vault/tree.rs` (#747).
+ */
+const PAPER_SOURCE_ARTIFACT_NAMES = new Set([
+	"agentero-cite.json",
+	"agentero-figures.json",
+	"layout.json",
+	"layout-index.json",
+	"layout-translate.json",
+]);
+
+/** Last segment of a vault-relative path (`""` at the vault root). */
+function lastRelSegment(rel: string): string {
+	const trimmed = rel.replace(/^\/+|\/+$/g, "");
+	return trimmed.slice(trimmed.lastIndexOf("/") + 1);
+}
+
+/** True when a vault-relative path sits at or below `papers/`. */
+function isUnderPapersRel(rel: string): boolean {
+	const r = rel.replace(/^\/+|\/+$/g, "");
+	return r === "papers" || r.startsWith("papers/");
+}
+
+/** Paper unit: under `papers/` and carrying a paper marker (file or dir). */
+function isPaperUnitRel(
+	rel: string,
+	hasPaperMarkerFile: boolean,
+	entries: TreeListEntry[],
+): boolean {
+	return (
+		isUnderPapersRel(rel) &&
+		(hasPaperMarkerFile ||
+			entries.some((e) => e.isDir && PAPER_MARKER_DIR_NAMES.has(e.name)))
+	);
+}
+
+/** One-level probe: the directory holds nothing but the app's own sidecars. */
+async function isAppSidecarOnlyDir(
+	adapter: TreeAdapter,
+	dirPath: string,
+	dirRel: string,
+): Promise<boolean> {
+	let entries: TreeListEntry[];
+	try {
+		entries = await listTreeEntries(adapter, dirPath, dirRel);
+	} catch {
+		return false;
+	}
+	let sawSidecar = false;
+	for (const entry of entries) {
+		if (PAPER_SOURCE_ARTIFACT_NAMES.has(entry.name)) {
+			sawSidecar = true;
+			continue;
+		}
+		if (shouldIgnoreTreeName(entry.name)) continue;
+		return false;
+	}
+	return sawSidecar;
+}
 
 /** True when this basename should never appear in the tree. */
 export function shouldIgnoreTreeName(name: string): boolean {
@@ -187,12 +253,24 @@ async function buildTree(
 	const hasPaperMarker = entries.some(
 		(e) => e.isFile && PAPER_MARKER_FILE_NAMES.has(e.name),
 	);
+	// Under `papers/` with a paper marker the folder is a paper unit: its
+	// `source/` bucket keeps its current handling (lazy shell, hidden by the
+	// renderer for paper rows).
+	const isPaperUnit = isPaperUnitRel(rel, hasPaperMarker, entries);
 
 	for (const entry of entries) {
 		if (shouldIgnoreTreeName(entry.name)) continue;
 		// Mirrored sync-store artifacts only ever sit at the vault root
 		// (`rel` is the listed directory's vault-relative path).
 		if (!rel && TREE_SYNC_STORE_ARTIFACT_NAMES.has(entry.name)) continue;
+		// The app's own sidecars inside a paper's `source/` bucket are never
+		// user content (references + PDF layout sidecars).
+		if (
+			lastRelSegment(rel) === LAZY_PAPER_DIR_NAME &&
+			PAPER_SOURCE_ARTIFACT_NAMES.has(entry.name)
+		) {
+			continue;
+		}
 
 		if (entry.isDir) {
 			// Paper `source/` (arXiv e-print) is listed lazily on expand.
@@ -218,6 +296,16 @@ async function buildTree(
 						(e) => e.isFile && /\.(tex|ltx)$/i.test(e.name),
 					),
 				});
+				continue;
+			}
+			// Outside a paper unit the `source/` bucket exists only to hold the
+			// app's rebuildable sidecars — skip it instead of surfacing an empty
+			// folder (#747).
+			if (
+				entry.name === LAZY_PAPER_DIR_NAME &&
+				!isPaperUnit &&
+				(await isAppSidecarOnlyDir(adapter, entry.childPath, entry.childRel))
+			) {
 				continue;
 			}
 			const node = await buildDirNode(

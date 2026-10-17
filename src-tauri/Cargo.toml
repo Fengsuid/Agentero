@@ -1,6 +1,6 @@
 [package]
 name = "agentero"
-version = "0.11.8"
+version = "0.11.9"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -78,6 +78,7 @@ rmcp = { version = "3.1", optional = true, default-features = false, features = 
   "server",
   "macros",
   "schemars",
+  "transport-io",
   "transport-streamable-http-server",
 ] }
 schemars = { version = "1", optional = true }
@@ -151,8 +152,4 @@ openssh-sftp-client = { version = "0.15.7", features = ["openssh"] }
 # new terminals can run `agentero-cli` without manual setup.
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
-windows-spawn = "0.1.0"
 roxmltree = "0.20"
-
-[target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

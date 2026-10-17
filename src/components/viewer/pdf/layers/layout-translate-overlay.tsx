@@ -16,6 +16,13 @@ import type { PdfHighlightRect } from "@/lib/pdf/highlight/types";
 import { isLayoutTranslateHeadingKind } from "@/lib/pdf/layout/labels";
 import { layoutTranslateSentenceNodes } from "@/lib/pdf/layout/layout-sentences";
 import type { LayoutTranslateItem } from "@/lib/pdf/layout/layout-translate";
+import {
+	fitLayoutTranslateParagraph,
+	layoutTranslateDomFitKey,
+	readLayoutTranslateDomFit,
+	scheduleLayoutTranslateDomFit,
+	writeLayoutTranslateDomFit,
+} from "@/lib/pdf/layout/layout-translate-dom-fit";
 import { isLayoutTranslateItemPainted } from "@/lib/pdf/layout/layout-translate-reliable";
 import { linkColorOnPaper } from "@/lib/pdf/layout/link-ink";
 import {
@@ -111,15 +118,6 @@ export function applyHeadingBodyFloor(
 	);
 }
 
-const DOM_FIT_ABSOLUTE_MIN = 1;
-const DOM_FIT_EPSILON_PX = 0.5;
-/**
- * Keep the source paragraph's leading whenever possible. If translation
- * expands, BabelDOC's typesetter reduces leading before it reduces glyph
- * scale; doing the same here preserves a much more paper-like hierarchy than
- * immediately making a dense CJK paragraph tiny.
- */
-const DOM_FIT_LINE_HEIGHTS = [LINE_HEIGHT, 1.2, 1.15, 1.1] as const;
 const OVERLAY_PAGE_RIGHT = 0.97;
 const OVERLAY_GUTTER = 0.006;
 
@@ -449,13 +447,6 @@ function fontSizeForLayoutTranslateItem(
 	return fontSize;
 }
 
-function elementFitsBox(element: HTMLParagraphElement): boolean {
-	return (
-		element.scrollHeight <= element.clientHeight + DOM_FIT_EPSILON_PX &&
-		element.scrollWidth <= element.clientWidth + DOM_FIT_EPSILON_PX
-	);
-}
-
 function applyParagraphMetrics(
 	element: HTMLParagraphElement,
 	fontSize: number,
@@ -618,63 +609,38 @@ export const LayoutTranslateParagraph = memo(function LayoutTranslateParagraph({
 	const slices = sentenceNodes
 		? sentenceSlices(text, sentenceNodes.nodes, sentenceNodes.gap)
 		: null;
+	const domFitKey = layoutTranslateDomFitKey({
+		text,
+		boxWidthPx,
+		boxHeightPx,
+		initialFontSize,
+		isHeading,
+	});
+	const cachedDomFit = readLayoutTranslateDomFit(domFitKey);
 
 	useLayoutEffect(() => {
 		const element = ref.current;
 		if (!element || boxWidthPx <= 0 || boxHeightPx <= 0) return;
-		// Wait until React has committed the text this fit pass is measuring.
-		if (element.textContent !== text) return;
-
-		// Preserve source-like leading first. Reducing line-height is markedly
-		// less harmful to the page's visual hierarchy than shrinking every glyph.
-		let lineHeight = LINE_HEIGHT;
-		for (const candidate of DOM_FIT_LINE_HEIGHTS) {
-			applyParagraphMetrics(element, initialFontSize, candidate);
-			if (elementFitsBox(element)) return;
-			lineHeight = candidate;
+		const cached = readLayoutTranslateDomFit(domFitKey);
+		if (cached) {
+			applyParagraphMetrics(element, cached.fontSize, cached.lineHeight);
+			element.style.overflowWrap = cached.overflowWrap;
+			return;
 		}
-
-		// Headings stay near the source size. The box grows to fit; this pass must
-		// not binary-search a title down to 1px the way a body block may.
-		const floor = isHeading
-			? Math.max(DOM_FIT_ABSOLUTE_MIN, initialFontSize * 0.9)
-			: DOM_FIT_ABSOLUTE_MIN;
-		let lo = floor;
-		let hi = initialFontSize;
-		let best = floor;
-		applyParagraphMetrics(element, lo, lineHeight);
-
-		// An unbreakable URL / identifier can exceed the box at every readable
-		// size. Only then relax normal word boundaries, mirroring BabelDOC's final
-		// fallback after its language-aware line-break pass.
-		if (!elementFitsBox(element)) {
-			element.style.overflowWrap = "anywhere";
-			for (const candidate of DOM_FIT_LINE_HEIGHTS) {
-				applyParagraphMetrics(element, lo, candidate);
-				if (elementFitsBox(element)) {
-					lineHeight = candidate;
-					break;
-				}
-			}
-			if (!elementFitsBox(element)) return;
-		}
-
-		for (let i = 0; i < 10; i++) {
-			const mid = (lo + hi) / 2;
-			applyParagraphMetrics(element, mid, lineHeight);
-			if (elementFitsBox(element)) {
-				best = mid;
-				lo = mid;
-			} else {
-				hi = mid;
-			}
-		}
-		applyParagraphMetrics(
-			element,
-			Math.max(floor, best * FIT_SAFETY),
-			lineHeight,
-		);
-	}, [boxHeightPx, boxWidthPx, initialFontSize, isHeading, text]);
+		// A page of paragraphs used to binary-search on the mount frame. Spread
+		// that across frames, and drop the job if this page scrolls away.
+		return scheduleLayoutTranslateDomFit(() => {
+			const live = ref.current;
+			if (!live) return;
+			const fit = fitLayoutTranslateParagraph(live, {
+				text,
+				initialFontSize,
+				isHeading,
+			});
+			if (!fit) return;
+			writeLayoutTranslateDomFit(domFitKey, fit);
+		});
+	}, [boxHeightPx, boxWidthPx, domFitKey, initialFontSize, isHeading, text]);
 
 	return (
 		<p
@@ -686,13 +652,13 @@ export const LayoutTranslateParagraph = memo(function LayoutTranslateParagraph({
 			data-layout-item={itemId}
 			data-paper={paperDark ? "dark" : undefined}
 			style={{
-				fontSize: initialFontSize,
-				lineHeight: LINE_HEIGHT,
+				fontSize: cachedDomFit?.fontSize ?? initialFontSize,
+				lineHeight: cachedDomFit?.lineHeight ?? LINE_HEIGHT,
+				overflowWrap: cachedDomFit?.overflowWrap ?? "normal",
 				// Browser-native UAX #14 breaking avoids a CJK opening bracket at a
 				// line end and keeps Latin words intact until the measured fallback.
 				lineBreak: "strict",
 				wordBreak: "normal",
-				overflowWrap: "normal",
 			}}
 		>
 			{slices && sentenceNodes ? (

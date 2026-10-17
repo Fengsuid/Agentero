@@ -82,7 +82,11 @@ import {
 	tabIdForPath,
 	tabNotesEligible,
 } from "@/lib/workspace/tabs";
-import { type CenterViewMode, isTexPath } from "@/lib/workspace/viewer";
+import {
+	type CenterViewMode,
+	isTexPath,
+	viewerModeSpec,
+} from "@/lib/workspace/viewer";
 import { pdfHandleFor } from "@/lib/workspace/viewer/pdf-viewer-registry";
 
 /** Grey + paper tag palette (same swatches as library tags). */
@@ -384,19 +388,14 @@ function resolveReferencePanel(
 }
 
 /**
- * PDF and Markdown panels use dockview `renderer: 'always'` so inactive
- * sibling tabs keep their React shell mounted (enables App-level PDF /
- * editor LRU keep-alive). Other modes stay `onlyWhenVisible` to free DOM
- * when not shown.
+ * dockview panel renderer per mode, declared in the viewer registry: PDF /
+ * Markdown / Excalidraw / plain-text / translation panels use
+ * `renderer: 'always'` so inactive sibling tabs keep their React shell
+ * mounted (enables the App-level LRU keep-alive); HTML / image stay
+ * `onlyWhenVisible` to free DOM when not shown.
  */
 function rendererForMode(mode: CenterViewMode): DockviewPanelRenderer {
-	return mode === "pdf" ||
-		mode === "markdown" ||
-		mode === "translation" ||
-		mode === "excalidraw" ||
-		mode === "text"
-		? "always"
-		: "onlyWhenVisible";
+	return viewerModeSpec(mode).renderer;
 }
 
 function applyPanelRenderer(panel: IDockviewPanel, mode: CenterViewMode): void {

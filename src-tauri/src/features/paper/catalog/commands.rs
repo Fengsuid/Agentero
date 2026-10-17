@@ -16,6 +16,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::State;
 
+use super::service;
+
 #[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PaperGetArgs {
@@ -34,26 +36,7 @@ pub struct PaperGetArgs {
 pub async fn paper_get(args: PaperGetArgs) -> ApiResult<PaperRecord> {
     run_blocking(move || {
         let vault = try_vault!(&args.vault_path);
-
-        let result = if let Some(path) = args
-            .path
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            let path = path.trim_matches('/').replace('\\', "/");
-            papers::get_by_path(&vault, &path)
-        } else if let Some(id) = args.id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            papers::get_by_id(&vault, id)
-        } else {
-            return map_err(AppError::message("path or id is required"));
-        };
-
-        match result {
-            Ok(Some(row)) => ApiResult::ok(row),
-            Ok(None) => map_err(AppError::message("paper not found in catalog")),
-            Err(e) => map_err(e),
-        }
+        service::get_paper(&vault, args.path.as_deref(), args.id.as_deref())
     })
     .await
 }
@@ -154,6 +137,9 @@ pub async fn paper_list(
     let cache = cache.inner().clone();
     Ok(run_blocking(move || {
         let vault = try_vault!(&args.vault_path);
+        // Projection intentionally differs from `remote_paper_list` (raw
+        // `PaperRecord`, no has_pdf probe, no id dedupe) — known drift kept
+        // for wire stability; see `docs/backend/remote.md`.
         match papers::list_all_unique_by_id(&vault) {
             Ok(rows) => ApiResult::ok(
                 rows.into_iter()
@@ -185,14 +171,7 @@ pub struct PaperSetIsReadArgs {
 pub async fn paper_set_is_read(args: PaperSetIsReadArgs) -> ApiResult<PaperRecord> {
     run_blocking(move || {
         let vault = try_vault!(&args.vault_path);
-        let path = args.path.trim().trim_matches('/').replace('\\', "/");
-        if path.is_empty() {
-            return map_err(AppError::message("path is required"));
-        }
-        match papers::set_is_read(&vault, &path, args.is_read) {
-            Ok(row) => ApiResult::ok(row),
-            Err(e) => map_err(e),
-        }
+        service::set_is_read(&vault, &args.path, args.is_read)
     })
     .await
 }
@@ -213,11 +192,9 @@ pub struct PaperUpdateMetaArgs {
 pub async fn paper_update_meta(args: PaperUpdateMetaArgs) -> ApiResult<PaperRecord> {
     run_blocking(move || {
         let vault = try_vault!(&args.vault_path);
-        let path = args.path.trim().trim_matches('/').replace('\\', "/");
-        if path.is_empty() {
-            return map_err(AppError::message("path is required"));
-        }
-        match papers::update_meta(&vault, &path, &args.patch) {
+        match service::normalize_paper_path(&args.path)
+            .and_then(|path| papers::update_meta(&vault, &path, &args.patch))
+        {
             Ok(row) => ApiResult::ok(row),
             Err(e) => map_err(e),
         }
@@ -265,6 +242,7 @@ mod open_bundle_tests {
             pdf_url: None,
             html_url: None,
             source_url: None,
+            code_repo: None,
             body_source: None,
             body_quality: None,
             bibtex_key: None,
@@ -345,14 +323,7 @@ pub struct PaperSetTagsArgs {
 pub async fn paper_set_tags(args: PaperSetTagsArgs) -> ApiResult<PaperRecord> {
     run_blocking(move || {
         let vault = try_vault!(&args.vault_path);
-        let path = args.path.trim().trim_matches('/').replace('\\', "/");
-        if path.is_empty() {
-            return map_err(AppError::message("path is required"));
-        }
-        match papers::set_tags(&vault, &path, &args.tags) {
-            Ok(row) => ApiResult::ok(row),
-            Err(e) => map_err(e),
-        }
+        service::set_tags(&vault, &args.path, &args.tags)
     })
     .await
 }

@@ -14,7 +14,13 @@ import {
 	useState,
 } from "react";
 import { createPdfViewportResizeGate } from "@/lib/pdf/dockview-resize";
-import { registerScrollSyncElement } from "@/lib/pdf/scroll-sync";
+import {
+	getScrollSyncPartner,
+	handleScrollSyncIntent,
+	handleScrollSyncScroll,
+	handleScrollSyncScrollEnd,
+	registerScrollSyncElement,
+} from "@/lib/pdf/scroll-sync";
 import { createPdfViewportScrollScheduler } from "@/lib/pdf/viewport-scroll";
 import { isDockviewSashTarget } from "@/lib/workspace/dockview-sash";
 
@@ -66,14 +72,6 @@ export function DockviewViewport({
 			return;
 		}
 
-		// Dual-pane scroll sync reads / writes this element directly so the
-		// follower pane does not inherit the scroll-request pipeline's extra
-		// animation frame (and so pan-drag writes propagate immediately).
-		const unregisterScrollSyncElement = registerScrollSyncElement(
-			documentId,
-			viewport,
-		);
-
 		const ownerDocument = viewport.ownerDocument;
 		const ownerWindow = ownerDocument.defaultView;
 		const workspace = hostRef.current?.closest(".agentero-dockview") ?? null;
@@ -96,6 +94,16 @@ export function DockviewViewport({
 				});
 			},
 		});
+		// Dual-pane scroll sync writes this element inside the scroll event.
+		// A scrollTo still waiting on the next frame is dropped so it cannot
+		// pull the follower back; plugin metrics stay on the frame below.
+		const unregisterScrollSyncElement = registerScrollSyncElement(
+			documentId,
+			viewport,
+			{
+				cancelPendingScroll: () => scrollScheduler.cancelPending(),
+			},
+		);
 		const commitResize = () => {
 			// Report a reduced width so EmbedPDF's fitWidth zoom leaves room for the
 			// comment rail that overflows into the reserved right gutter.
@@ -154,10 +162,12 @@ export function DockviewViewport({
 
 		let scrollFrame: number | null = null;
 		const handleScroll = () => {
-			// Scroll events are not sufficient to identify user input: virtual page
-			// reordering, zoom/layout changes, and dual-pane synchronization all
-			// write the viewport programmatically. Only the explicit wheel precursor
-			// below cancels a deferred request.
+			// Scrollbar, keyboard, drag, and the browser's wheel. The partner is
+			// not moved here; it jumps once the gesture settles. A programmatic
+			// write also arrives here. This handler still must not cancel pending
+			// jumps: virtual-page reordering, zoom, and the jump itself all scroll
+			// programmatically. The wheel listener only claims the leader.
+			handleScrollSyncScroll(documentId);
 			if (scrollFrame != null) return;
 			scrollFrame = requestFrame(() => {
 				scrollFrame = null;
@@ -167,11 +177,28 @@ export function DockviewViewport({
 				});
 			});
 		};
+		const handleScrollEnd = () => handleScrollSyncScrollEnd(documentId);
 		viewport.addEventListener("scroll", handleScroll, { passive: true });
-		// Wheel is an unambiguous user-originated precursor to the native scroll
-		// event. Cancel here, before the native scroll event, so the deferred
-		// request cannot overwrite the user's new position.
-		const handleWheel = () => scrollScheduler.cancelPending();
+		viewport.addEventListener("scrollend", handleScrollEnd);
+		// Passive on purpose. Canceling the wheel forces this pane off the
+		// compositor. The partner is not moved until the gesture settles.
+		// Ctrl/Cmd+wheel and pinches belong to zoom. A wheel over PDF chrome,
+		// a dialog, or a field scrolls that surface.
+		const handleWheel = (event: WheelEvent) => {
+			if (event.ctrlKey || event.metaKey) return;
+			const target = event.target;
+			if (
+				target instanceof Element &&
+				target.closest(
+					"[data-pdf-chrome], [role='dialog'], textarea, input, select",
+				)
+			) {
+				return;
+			}
+			if (!getScrollSyncPartner(documentId)) return;
+			handleScrollSyncIntent(documentId);
+			scrollScheduler.cancelPending();
+		};
 		viewport.addEventListener("wheel", handleWheel, {
 			capture: true,
 			passive: true,
@@ -199,6 +226,7 @@ export function DockviewViewport({
 			if (scrollFrame != null) cancelFrame(scrollFrame);
 			scrollScheduler.dispose();
 			viewport.removeEventListener("scroll", handleScroll);
+			viewport.removeEventListener("scrollend", handleScrollEnd);
 			viewport.removeEventListener("wheel", handleWheel, true);
 			unsubscribeScrollRequest();
 			unregisterScrollSyncElement();

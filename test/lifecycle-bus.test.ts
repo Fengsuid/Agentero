@@ -115,6 +115,25 @@ describe("lifecycle bus", () => {
 		expect(calls).toEqual([]);
 	});
 
+	it("skips later handlers when released during an earlier handler's setup", async () => {
+		let release: () => void = () => undefined;
+		track(
+			on("vault:opened", () => {
+				calls.push("setup-first");
+				// Fast close mid-loop: the scope is released while its first
+				// handler is still setting up.
+				release();
+				return () => void calls.push("teardown-first");
+			}),
+		);
+		track(on("vault:opened", () => void calls.push("setup-second")));
+
+		release = track(emitScoped("vault:opened", vaultPayload("/v1")));
+		await drain();
+
+		expect(calls).toEqual(["setup-first", "teardown-first"]);
+	});
+
 	it("orders teardown before the next setup when released mid-flight", async () => {
 		const gate = deferred();
 		track(

@@ -93,6 +93,7 @@ const onMoveTo = (paths: string[], dest: string) =>
 	void movePathsTo(paths, dest);
 const onDropMove = (paths: string[], targetPath: string) =>
 	void dropMovePaths(paths, targetPath);
+const onPasteInto = (targetPath: string) => void pasteCutPaths(targetPath);
 const onEmptyTrash = () => void emptyTrash();
 const onExportLibrary = () => void libraryExport();
 const onDiscoverCiting = () => void discoverCitingPapers();
@@ -248,7 +249,7 @@ export function VaultSidebar() {
 					onMoveTo={onMoveTo}
 					onDropMove={onDropMove}
 					onCutPaths={cutSelectedPaths}
-					onPasteInto={(target) => void pasteCutPaths(target)}
+					onPasteInto={onPasteInto}
 					onSelectionChange={setTreeSelectionCount}
 					cutPaths={cutPaths}
 					onDropLocalPdfs={dropLocalPdfs}

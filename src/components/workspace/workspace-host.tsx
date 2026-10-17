@@ -65,12 +65,14 @@ import {
 	updateTab,
 } from "@/lib/workspace/store";
 import { savePersistedTabs } from "@/lib/workspace/tabs";
+import { viewerModeSpec } from "@/lib/workspace/viewer";
 
 /**
  * Number of PDF *viewers* kept mounted (most recent first). Dockview already
  * keeps PDF panel shells mounted (`renderer: 'always'`); this LRU only gates
  * EmbedPDF/PDFium so switching among recent PDFs is instant without holding
- * every open document on the main thread.
+ * every open document on the main thread. Which modes join this pool is
+ * declared per mode in the viewer registry (`keepAlive: "pdf"`).
  */
 const PDF_TAB_MOUNT_LRU = 2;
 
@@ -79,7 +81,8 @@ const PDF_TAB_MOUNT_LRU = 2;
  * shell/LRU split as PDF: switching back to a recent note skips plugin init
  * and full-document deserialization without retaining every open editor.
  * Raised to 4 so a few split notes stay warm; heavier documents deserialize
- * through the content-trimmed remark pipeline.
+ * through the content-trimmed remark pipeline. Pool membership is declared
+ * per mode in the viewer registry (`keepAlive: "editor"`).
  */
 const EDITOR_TAB_MOUNT_LRU = 4;
 
@@ -146,7 +149,10 @@ export function WorkspaceHost() {
 	const visiblePdfIds = useMemo(() => {
 		const visible = new Set(visiblePanelIds);
 		return tabs
-			.filter((tab) => tab.mode === "pdf" && visible.has(tab.id))
+			.filter(
+				(tab) =>
+					viewerModeSpec(tab.mode).keepAlive === "pdf" && visible.has(tab.id),
+			)
 			.map((tab) => tab.id);
 	}, [tabs, visiblePanelIds]);
 
@@ -155,50 +161,61 @@ export function WorkspaceHost() {
 		return tabs
 			.filter(
 				(tab) =>
-					(tab.mode === "markdown" || tab.mode === "text") &&
+					viewerModeSpec(tab.mode).keepAlive === "editor" &&
 					visible.has(tab.id),
 			)
 			.map((tab) => tab.id);
 	}, [tabs, visiblePanelIds]);
 
+	// Registry keep-alive pool membership of the active tab (drives LRU
+	// promotion and PDF-buffer retention below).
+	const activePdfId =
+		activeTab && viewerModeSpec(activeTab.mode).keepAlive === "pdf"
+			? activeTab.id
+			: null;
+	const activeEditorId =
+		activeTab && viewerModeSpec(activeTab.mode).keepAlive === "editor"
+			? activeTab.id
+			: null;
+
 	// Keep visible/recent PDF panels mounted without bootstrapping every restored PDF.
 	useEffect(() => {
-		const ids = tabs.filter((tab) => tab.mode === "pdf").map((tab) => tab.id);
-		const activePdf = activeTab?.mode === "pdf" ? activeTab.id : null;
+		const ids = tabs
+			.filter((tab) => viewerModeSpec(tab.mode).keepAlive === "pdf")
+			.map((tab) => tab.id);
 		if (!ids.length) {
 			setPdfLru((previous) => (previous.length ? [] : previous));
 			return;
 		}
-		const promoted = activePdf
-			? [activePdf, ...visiblePdfIds.filter((id) => id !== activePdf)]
+		const promoted = activePdfId
+			? [activePdfId, ...visiblePdfIds.filter((id) => id !== activePdfId)]
 			: visiblePdfIds;
 		setPdfLru((previous) =>
 			nextPdfLru(previous, ids, promoted, PDF_TAB_MOUNT_LRU),
 		);
-	}, [activeTab?.mode, activeTab?.id, tabs, visiblePdfIds]);
+	}, [activePdfId, tabs, visiblePdfIds]);
 
 	// Same keep-alive for Markdown editors (and the CodeMirror text editor):
 	// evicted tabs drop back to a placeholder and re-deserialize only when
 	// their group exposes them again.
 	useEffect(() => {
 		const ids = tabs
-			.filter((tab) => tab.mode === "markdown" || tab.mode === "text")
+			.filter((tab) => viewerModeSpec(tab.mode).keepAlive === "editor")
 			.map((tab) => tab.id);
-		const activeEditor =
-			activeTab?.mode === "markdown" || activeTab?.mode === "text"
-				? activeTab.id
-				: null;
 		if (!ids.length) {
 			setEditorLru((previous) => (previous.length ? [] : previous));
 			return;
 		}
-		const promoted = activeEditor
-			? [activeEditor, ...visibleEditorIds.filter((id) => id !== activeEditor)]
+		const promoted = activeEditorId
+			? [
+					activeEditorId,
+					...visibleEditorIds.filter((id) => id !== activeEditorId),
+				]
 			: visibleEditorIds;
 		setEditorLru((previous) =>
 			nextPdfLru(previous, ids, promoted, EDITOR_TAB_MOUNT_LRU),
 		);
-	}, [activeTab?.mode, activeTab?.id, tabs, visibleEditorIds]);
+	}, [activeEditorId, tabs, visibleEditorIds]);
 
 	// Local PDF ArrayBuffers are large and keep PDFium documents alive indirectly.
 	// Evicted tabs become placeholders and reload only when one of their groups
@@ -207,10 +224,10 @@ export function WorkspaceHost() {
 		const retained = new Set([
 			...pdfLru,
 			...visiblePanelIds,
-			...(activeTab?.mode === "pdf" ? [activeTab.id] : []),
+			...(activePdfId ? [activePdfId] : []),
 		]);
 		setTabs((previous) => evictPdfBuffers(previous, retained));
-	}, [activeTab?.mode, activeTab?.id, pdfLru, visiblePanelIds]);
+	}, [activePdfId, pdfLru, visiblePanelIds]);
 
 	// Tree selection / create-parent follows the active document.
 	// Scoped library keeps the tree highlight on the org folder.

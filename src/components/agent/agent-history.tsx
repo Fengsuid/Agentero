@@ -1,5 +1,5 @@
 import { History, Pencil, Plus } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	isSessionIdPrefixTitle,
@@ -23,7 +23,10 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import { useImeGuard } from "@/hooks/use-ime-guard";
-import { useAgentSessionStore } from "@/lib/agent/agent-session-store";
+import {
+	agentSessionStore,
+	useAgentSessionStore,
+} from "@/lib/agent/agent-session-store";
 import type { ChatLine, ChatSessionHistoryItem } from "@/lib/agent/chat-state";
 import { displayHistoryTitle } from "@/lib/agent/prompt-display";
 import { cn } from "@/lib/core/utils";
@@ -34,10 +37,17 @@ const HISTORY_STATUS_DOT = {
 	cancelled: "bg-muted-foreground",
 } as const;
 
-function historyRowLabel(item: ChatSessionHistoryItem): string {
-	const firstUserLine = item.lines.find(
-		(line): line is Extract<ChatLine, { kind: "user" }> => line.kind === "user",
+/** First user line text — the fallback label for untitled sessions. */
+function firstUserLineText(item: ChatSessionHistoryItem): string {
+	return (
+		item.lines.find(
+			(line): line is Extract<ChatLine, { kind: "user" }> =>
+				line.kind === "user",
+		)?.text ?? ""
 	);
+}
+
+function historyRowLabel(item: ChatSessionHistoryItem): string {
 	const providerId = item.providerSessionId?.trim() || "";
 	const storedTitle =
 		isSessionIdPrefixTitle(item.title, item.id) ||
@@ -45,9 +55,24 @@ function historyRowLabel(item: ChatSessionHistoryItem): string {
 			? ""
 			: item.title;
 	return displayHistoryTitle(
-		storedTitle || firstUserLine?.text || "",
+		storedTitle || firstUserLineText(item) || "",
 		item.id.slice(0, 8),
 	);
+}
+
+/**
+ * Primitive fingerprint of everything the history rows render. Stream flushes
+ * swap the sessions array (only `lines` change) without touching this string,
+ * so the popover list skips those re-renders; create/delete/rename/status and
+ * label-fallback changes still produce a new string.
+ */
+function sessionListFingerprint(sessions: ChatSessionHistoryItem[]): string {
+	return sessions
+		.map(
+			(item) =>
+				`${item.id}\t${item.providerSessionId ?? ""}\t${item.title}\t${item.status}\t${item.startedAt}\t${firstUserLineText(item)}`,
+		)
+		.join("\n");
 }
 
 export function HistorySessionList({
@@ -68,6 +93,11 @@ export function HistorySessionList({
 	// compositionend can fire before the confirming Enter (see useImeGuard).
 	const { isBlockedByIme, compositionProps } = useImeGuard();
 
+	// Rename-dialog keystrokes re-render this component; don't relabel every row.
+	const labels = useMemo(
+		() => sessionHistory.map((item) => historyRowLabel(item)),
+		[sessionHistory],
+	);
 	if (sessionHistory.length === 0) {
 		return (
 			<p className="px-3 py-4 text-muted-foreground text-sm leading-none">
@@ -91,9 +121,9 @@ export function HistorySessionList({
 	return (
 		<>
 			<div className="max-h-72 overflow-y-auto p-1.5">
-				{sessionHistory.map((item) => {
+				{sessionHistory.map((item, index) => {
 					const isActive = item.id === activeTabId;
-					const label = historyRowLabel(item);
+					const label = labels[index];
 					const statusDot =
 						item.status === "completed"
 							? null
@@ -200,7 +230,7 @@ export function HistorySessionList({
 }
 
 /**
- * Subscribes on its own so streamed tokens only re-render this list, not the
+ * Subscribes on its own so history changes re-render only this list, not the
  * whole AgentPanel. Mounted inside the popover, so it exists only while open.
  */
 function SidebarHistorySessions({
@@ -213,7 +243,19 @@ function SidebarHistorySessions({
 	onOpen: (item: ChatSessionHistoryItem) => void;
 }) {
 	const { t } = useTranslation("agent");
-	const sessionHistory = useAgentSessionStore((s) => s.sessions);
+	// Subscribe to a derived primitive: every stream flush replaces the
+	// sessions array (only `lines` change), which used to re-render this list
+	// on each flush while the popover is open.
+	const fingerprint = useAgentSessionStore((s) =>
+		sessionListFingerprint(s.sessions),
+	);
+	// Snapshot is safe: any store update that changes what the rows render
+	// also changes the fingerprint and re-runs this memo.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: fingerprint is the re-read signal; dropping it would freeze the snapshot
+	const sessionHistory = useMemo(
+		() => agentSessionStore.getState().sessions,
+		[fingerprint],
+	);
 	if (sessionHistory.length === 0) {
 		return (
 			<div className="px-3 py-4 text-muted-foreground text-sm leading-none">

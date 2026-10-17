@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PopoverContent } from "@/components/ui/popover";
+import { useImeGuard } from "@/hooks/use-ime-guard";
 import { usePapersOrgFolders } from "@/hooks/use-papers-org-folders";
 import { normalizePath } from "@/lib/core/path";
 import { cn } from "@/lib/core/utils";
@@ -30,6 +31,7 @@ export function MoveDestinationPicker({
 	onConfirm,
 }: MoveDestinationPickerProps) {
 	const { t } = useTranslation("sidebar");
+	const { isBlockedByIme, compositionProps } = useImeGuard();
 	const folders = usePapersOrgFolders(vaultPath, nodes, sourcePaths);
 	const typed = newFolder.trim();
 	const dest = typed
@@ -49,6 +51,9 @@ export function MoveDestinationPicker({
 			sideOffset={4}
 			avoidCollisions
 			className="w-56 p-2"
+			onEscapeKeyDown={(e) => {
+				if (isBlockedByIme(e)) e.preventDefault();
+			}}
 		>
 			<div className="space-y-2">
 				<p className="font-medium text-xs text-foreground">
@@ -98,11 +103,14 @@ export function MoveDestinationPicker({
 							spellCheck={false}
 							className="h-7 pl-6 text-xs font-mono"
 							onKeyDown={(e) => {
+								e.stopPropagation();
+								if (isBlockedByIme(e)) return;
 								if (e.key === "Enter" && destValid) {
 									e.preventDefault();
 									void onConfirm(dest);
 								}
 							}}
+							{...compositionProps}
 						/>
 					</div>
 					{typed && !destValid ? (

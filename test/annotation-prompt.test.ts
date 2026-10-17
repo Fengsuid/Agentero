@@ -45,7 +45,6 @@ describe("annotation markers in the turn prompt", () => {
 		const { prompt, images } = assembleTurnPrompt({
 			text: raw,
 			contextPaths: [],
-			selections: [selection],
 			visualDrafts: [visual("mark-1", 3, "crop")],
 			attachedImages: [],
 			isAcpCommand: false,
@@ -54,18 +53,15 @@ describe("annotation markers in the turn prompt", () => {
 		expect(
 			prompt.startsWith("这个公式 [Annotation 1] 和图 [Annotation 2] 矛盾吗"),
 		).toBe(true);
-		expect(prompt).toContain(
-			"## Annotation 1\nSelected text from papers/x/NOTES.md (lines 18):",
-		);
-		expect(prompt).toContain("> 分协议");
-		expect(prompt).toContain("User comment on this selection:\n看这里");
+		expect(prompt).not.toContain("> 分协议");
+		expect(prompt).not.toContain("User comment on this selection:\n看这里");
 		expect(prompt).toContain("## Annotation 2\nVisual annotation — page 3");
 		expect(prompt).toContain("User comment: note mark-1");
 		expect(prompt).toContain(
 			"Attached images, in order, are the crops for: Annotation 2.",
 		);
 		expect(prompt.indexOf("[Annotation 1]")).toBeLessThan(
-			prompt.indexOf("## Annotation 1"),
+			prompt.indexOf("## Annotation 2"),
 		);
 		expect(images?.map((image) => image.data)).toEqual(["crop"]);
 		expect(stripPromptEnvelopeForDisplay(prompt)).toBe(
@@ -85,7 +81,6 @@ describe("annotation markers in the turn prompt", () => {
 		const { prompt, images } = assembleTurnPrompt({
 			text: raw,
 			contextPaths: [],
-			selections: [],
 			visualDrafts: [visual("a", 1, "img-a"), visual("b", 2, "img-b")],
 			attachedImages: [{ data: "paste", mimeType: "image/png" }],
 			isAcpCommand: false,
@@ -115,7 +110,6 @@ describe("annotation markers in the turn prompt", () => {
 		const { prompt } = assembleTurnPrompt({
 			text: "解释一下",
 			contextPaths: [],
-			selections: [selection],
 			visualDrafts: [],
 			attachedImages: [],
 			isAcpCommand: false,
@@ -123,8 +117,6 @@ describe("annotation markers in the turn prompt", () => {
 		});
 		expect(prompt).toContain("解释一下");
 		expect(prompt).not.toContain("[Annotation 1]");
-		expect(prompt).toContain(
-			"Annotation 1\nSelected text from papers/x/NOTES.md (lines 18):",
-		);
+		expect(prompt).not.toContain("Selected text from papers/x/NOTES.md");
 	});
 });

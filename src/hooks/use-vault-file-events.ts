@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { isTauri } from "@/lib/core/tauri";
 import { isPaperAssetPath, isUnderPapers } from "@/lib/paper/paths";
 import { listenVaultFileChangedGated } from "@/lib/vault/file-change-gate";
@@ -60,36 +60,52 @@ export function useVaultFileEvents({
 		void startVaultWatch(vaultPath).catch(() => {});
 	}, [vaultPath]);
 
+	// PERF: hold the callbacks in a ref so inline arrows from the shell do not
+	// re-subscribe on every render. Re-listening is not just wasteful: the
+	// gated listener's disposer drops still-buffered events, so a re-render
+	// while the window is unfocused could silently lose file changes.
+	const handlersRef = useRef({
+		onDiskChange,
+		onStructuralChange,
+		onLibraryChange,
+		onWikiChange,
+		shouldIgnoreEvent,
+		onExternalRename,
+		onUnverifiedRename,
+	});
+	handlersRef.current = {
+		onDiskChange,
+		onStructuralChange,
+		onLibraryChange,
+		onWikiChange,
+		shouldIgnoreEvent,
+		onExternalRename,
+		onUnverifiedRename,
+	};
+
 	useEffect(() => {
 		// Buffer while the window is hidden/unfocused; flush on return so refresh
 		// work does not run against an invisible shell.
 		return listenVaultFileChangedGated(async (payload) => {
-			if (shouldIgnoreEvent?.(payload)) return;
-			if (onLibraryChange && payloadAffectsLibrary(payload)) {
-				onLibraryChange();
+			const h = handlersRef.current;
+			if (h.shouldIgnoreEvent?.(payload)) return;
+			if (h.onLibraryChange && payloadAffectsLibrary(payload)) {
+				h.onLibraryChange();
 			}
 			if (payload.rename) {
-				await onExternalRename?.(payload.rename, payload);
+				await h.onExternalRename?.(payload.rename, payload);
 			} else if (payload.kind === "rename") {
-				onUnverifiedRename?.(payload);
+				h.onUnverifiedRename?.(payload);
 			}
 			for (const p of payload.paths) {
 				invalidateSeedCache(p);
-				onDiskChange(p);
-				onWikiChange?.(p);
+				h.onDiskChange(p);
+				h.onWikiChange?.(p);
 			}
 			// Structural changes affect the tree; plain content edits don't.
-			if (payload.kind !== "modify") onStructuralChange(payload.paths);
+			if (payload.kind !== "modify") h.onStructuralChange(payload.paths);
 		});
-	}, [
-		onDiskChange,
-		onExternalRename,
-		onUnverifiedRename,
-		onLibraryChange,
-		onStructuralChange,
-		onWikiChange,
-		shouldIgnoreEvent,
-	]);
+	}, []);
 }
 
 function payloadAffectsLibrary(payload: VaultFileChangedPayload): boolean {

@@ -6,6 +6,7 @@ import {
 	placeAnchoredPopover,
 	remToPx,
 } from "@/components/agent/composer/anchored-popover";
+import { clientRectMoved } from "@/components/agent/composer/composer-annotations";
 import { ContextPathIcon } from "@/components/agent/context-path-icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -174,7 +175,10 @@ export function VisualReferenceCard({
 				onHoverRelease();
 				return;
 			}
-			setRect(anchor.getBoundingClientRect());
+			// A new DOMRect is always a new state value; guard so scrolling any
+			// container (capture listener) skips no-op re-renders of this card.
+			const next = anchor.getBoundingClientRect();
+			setRect((prev) => (clientRectMoved(prev, next) ? next : prev));
 		};
 		update();
 		window.addEventListener("scroll", update, true);

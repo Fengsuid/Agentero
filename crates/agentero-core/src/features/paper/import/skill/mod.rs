@@ -254,6 +254,7 @@ where
     command
         .args(["api", "--hostname", "github.com", &endpoint])
         .kill_on_drop(true);
+    crate::process::hide_console_window_tokio(&mut command);
     let output = match tokio::time::timeout(Duration::from_secs(20), command.output()).await {
         Ok(Ok(output)) => output,
         Ok(Err(error)) => {

@@ -22,7 +22,6 @@ import {
 } from "@embedpdf/plugin-interaction-manager/react";
 import {
 	LayoutAnalysisPluginPackage,
-	useLayoutAnalysis,
 	useLayoutAnalysisCapability,
 } from "@embedpdf/plugin-layout-analysis/react";
 import { RenderPluginPackage } from "@embedpdf/plugin-render/react";
@@ -98,7 +97,10 @@ import { usePdfViewerHandle } from "@/components/viewer/pdf/hooks/use-pdf-viewer
 import { usePdfVisualMarks } from "@/components/viewer/pdf/hooks/use-pdf-visual-marks";
 import { usePdfZoomControls } from "@/components/viewer/pdf/hooks/use-pdf-zoom-controls";
 import { useStableDerived } from "@/components/viewer/pdf/hooks/use-stable-derived";
-import { excludeOverlappingPdfTextLinks } from "@/components/viewer/pdf/layers/citation-links";
+import {
+	excludeOverlappingPdfTextLinks,
+	type PdfTextLink,
+} from "@/components/viewer/pdf/layers/citation-links";
 import { COMMENT_RAIL_WIDTH_PX } from "@/components/viewer/pdf/layers/comment-cards-layer";
 import { PDF_LINK_ANNOTATION_CONFIG } from "@/components/viewer/pdf/layers/link-annotation";
 import {
@@ -144,6 +146,7 @@ import {
 	wikiTargetForPaper,
 } from "@/lib/pdf/annotation-ref";
 import { embedPdfDocumentId } from "@/lib/pdf/document-id";
+import { noteTileBitmapDocument } from "@/lib/pdf/dual-pane-scroll";
 import {
 	HIGHLIGHT_HEX_LIST,
 	normalizeHighlightColor,
@@ -226,6 +229,7 @@ export const PdfViewer = memo(function PdfViewer(props: PdfViewerProps) {
 		}
 	}, [sourceBytes]);
 	const effectiveSourceBytes = pdfBuffer ?? sourceBytes;
+	noteTileBitmapDocument(docId, effectiveSourceBytes);
 
 	const translationOnly = Boolean(props.translationOnly);
 	const plugins = useMemo(() => {
@@ -471,7 +475,6 @@ function PdfViewerInner({
 	const { state: searchState, provides: search } = useSearch(docId);
 	const { provides: bookmarkCap } = useBookmarkCapability();
 	const { provides: layoutCap } = useLayoutAnalysisCapability();
-	const { provides: layoutAnalysisProvides } = useLayoutAnalysis(docId);
 
 	// EmbedPDF's useScroll calls forDocument() every render and returns a fresh
 	// scope object (createScrollScope). Never put `scroll` in useEffect deps —
@@ -481,13 +484,20 @@ function PdfViewerInner({
 	const scrollReady = Boolean(scroll);
 	const layoutCapRef = useRef(layoutCap);
 	layoutCapRef.current = layoutCap;
+	// Zoom capability behind a ref for stable chrome callbacks (the scope
+	// object, like scroll, is re-created per render).
+	const zoomCapRef = useRef(zoom);
+	zoomCapRef.current = zoom;
 
 	// Keep EmbedPDF's raw LayoutAnalysisLayer off. Sidecar cache hits never
 	// repopulate plugin page layouts, so that layer would stay empty; we paint
 	// post-merge store regions instead (same set as Figures / hover targets).
+	// Uses the capability (registry lookup, no plugin-state subscription):
+	// the useLayoutAnalysis hook subscribes to per-page analysis state, so
+	// each ONNX page result re-rendered the whole viewer.
 	useEffect(() => {
-		layoutAnalysisProvides?.setLayoutOverlayVisible(false);
-	}, [layoutAnalysisProvides]);
+		layoutCap?.setLayoutOverlayVisible(false);
+	}, [layoutCap]);
 	const engineRef = useRef(engine);
 	engineRef.current = engine;
 	const docCapRef = useRef(docCap);
@@ -597,6 +607,20 @@ function PdfViewerInner({
 			scrollReady,
 		});
 
+	// Latest-ref wrappers: the hook's helpers close over the fresh-per-render
+	// scroll scope, but the chrome consumers (outline panel, bottom bar) only
+	// need a stable identity so their memo holds across page turns.
+	const goToPageRef = useRef(goToPage);
+	goToPageRef.current = goToPage;
+	const handleGoToPage = useCallback((page: number) => {
+		goToPageRef.current(page);
+	}, []);
+	const commitPageFieldRef = useRef(commitPageField);
+	commitPageFieldRef.current = commitPageField;
+	const handleCommitPageField = useCallback(() => {
+		commitPageFieldRef.current();
+	}, []);
+
 	// ---- Highlights (EmbedPDF annotations) ----
 
 	const {
@@ -659,17 +683,36 @@ function PdfViewerInner({
 		highlights,
 		visualTraces,
 	});
+	/**
+	 * Text links per page with native-link overlap excluded. Array identities
+	 * are reused per page when that page's set did not change (the source maps
+	 * churn as a whole whenever any single page loads its text geometry), so
+	 * only affected pages' memoized layers re-render.
+	 */
+	const textLinksRef = useRef<Map<number, PdfTextLink[]> | null>(null);
 	const textLinks = useMemo(() => {
-		const next = new Map(pageTextLinkMap);
+		const prev = textLinksRef.current;
+		const next = new Map<number, PdfTextLink[]>();
+		let changed = !prev || prev.size !== pageTextLinkMap.size;
 		for (const [pageIndex, links] of pageTextLinkMap) {
-			next.set(
-				pageIndex,
-				excludeOverlappingPdfTextLinks(
-					links,
-					citationLinks.get(pageIndex) ?? [],
-				),
+			const filtered = excludeOverlappingPdfTextLinks(
+				links,
+				citationLinks.get(pageIndex) ?? [],
 			);
+			const prevLinks = prev?.get(pageIndex);
+			if (
+				prevLinks &&
+				prevLinks.length === filtered.length &&
+				prevLinks.every((link, i) => link === filtered[i])
+			) {
+				next.set(pageIndex, prevLinks);
+			} else {
+				next.set(pageIndex, filtered);
+				changed = true;
+			}
 		}
+		if (!changed && prev) return prev;
+		textLinksRef.current = next;
 		return next;
 	}, [pageTextLinkMap, citationLinks]);
 
@@ -834,6 +877,24 @@ function PdfViewerInner({
 		closeFind,
 	} = usePdfFind({ hostRef, search, searchState, scroll });
 
+	// Same latest-ref pattern as navigation: findNext / findPrev / closeFind
+	// are re-created per render but the find bar only needs stable identities.
+	const findNextRef = useRef(findNext);
+	findNextRef.current = findNext;
+	const handleFindNext = useCallback(() => {
+		findNextRef.current();
+	}, []);
+	const findPrevRef = useRef(findPrev);
+	findPrevRef.current = findPrev;
+	const handleFindPrev = useCallback(() => {
+		findPrevRef.current();
+	}, []);
+	const closeFindRef = useRef(closeFind);
+	closeFindRef.current = closeFind;
+	const handleCloseFind = useCallback(() => {
+		closeFindRef.current();
+	}, []);
+
 	const { outline, showOutline, toggleOutline } = usePdfOutline({
 		bookmarkCap,
 		docId,
@@ -973,18 +1034,26 @@ function PdfViewerInner({
 	clearLinkUrlTipRef.current = clearLinkUrlTip;
 
 	const { askPinAnchors } = usePdfPinAnchors({ threads });
+	// Fingerprint computed only when `translates` changes identity: streamed
+	// chunks replace the array, but hover / page turns re-render the viewer
+	// without touching it, so the eager stringify ran for nothing.
+	const pinnedTranslatesFingerprint = useMemo(
+		() =>
+			JSON.stringify(
+				translates
+					.filter((record) => record.pinned)
+					.map((record) => [
+						record.id,
+						record.page,
+						record.rects,
+						record.quote || record.result || "",
+					]),
+			),
+		[translates],
+	);
 	const pinnedTranslates = useStableDerived(
 		() => translates.filter((record) => record.pinned),
-		JSON.stringify(
-			translates
-				.filter((record) => record.pinned)
-				.map((record) => [
-					record.id,
-					record.page,
-					record.rects,
-					record.quote || record.result || "",
-				]),
-		),
+		pinnedTranslatesFingerprint,
 	);
 
 	/**
@@ -1409,6 +1478,23 @@ function PdfViewerInner({
 		return next;
 	}, [commentsByPageBase, railEdit]);
 
+	/**
+	 * Owning page (1-based) of each rail comment. Used to gate
+	 * `hoveredCommentId` per page: only the page that owns the hovered
+	 * comment needs to re-render on hover, instead of every mounted page
+	 * through the shared marks bundle.
+	 */
+	const commentPageById = useMemo(() => {
+		const map = new Map<string, number>();
+		for (const [page, comments] of commentsByPage) {
+			for (const comment of comments) map.set(comment.id, page);
+		}
+		return map;
+	}, [commentsByPage]);
+	const hoveredCommentPage = hoveredCommentId
+		? (commentPageById.get(hoveredCommentId) ?? 0)
+		: 0;
+
 	const {
 		handleOpenPin,
 		handleEditHighlightAnnotation,
@@ -1722,7 +1808,9 @@ function PdfViewerInner({
 			citationLinks,
 			textLinks,
 			activeCardId: activeCard?.id ?? null,
-			hoveredCommentId,
+			// hoveredCommentId deliberately not bundled: it is passed as a
+			// per-page gated prop in renderPage so a comment hover re-renders
+			// only the owning page, not every page sharing this bundle.
 			selectionCommentDraft,
 			translateHighlightsByPage,
 			highlightQuotesByPage,
@@ -1743,7 +1831,6 @@ function PdfViewerInner({
 			citationLinks,
 			textLinks,
 			activeCard?.id,
-			hoveredCommentId,
 			selectionCommentDraft,
 			translateHighlightsByPage,
 			highlightQuotesByPage,
@@ -1926,6 +2013,11 @@ function PdfViewerInner({
 				zoomRef={zoomRef}
 				annotationCap={annotationCap}
 				marks={pageMarks}
+				// Gated to the page owning the hovered comment: other pages
+				// keep null and their memo holds on hover.
+				hoveredCommentId={
+					hoveredCommentPage === pageIndex + 1 ? hoveredCommentId : null
+				}
 				layout={pageLayout}
 				mode={pageMode}
 				handlers={pageHandlers}
@@ -1939,6 +2031,8 @@ function PdfViewerInner({
 			zoomRef,
 			annotationCap,
 			pageMarks,
+			hoveredCommentPage,
+			hoveredCommentId,
 			pageLayout,
 			pageMode,
 			pageHandlers,
@@ -1952,6 +2046,151 @@ function PdfViewerInner({
 		scrollReady,
 		sticky: showOutline || showReferences || showFigures || findOpen,
 	});
+
+	// ---- Floating card stack props ----
+	// Memoized so PdfCardStack (the heaviest chrome subtree) bails out on page
+	// turns and unrelated mark churn. Objects rebuild only when the state they
+	// carry actually changes; every callback below is identity-stable.
+
+	const handleCitationImportOpenChange = useCallback(
+		(open: boolean) => {
+			if (open) markCitationHoverEnter();
+			else scheduleCitationHide();
+		},
+		[markCitationHoverEnter, scheduleCitationHide],
+	);
+	const citationImportMenu = useMemo(
+		() =>
+			citationImport
+				? {
+						folders: citationImport.folders,
+						lastImportParentDir: citationImport.lastImportParentDir,
+						importingId: citationImport.importingId,
+						onImport: citationImport.importCitation,
+						onOpenChange: handleCitationImportOpenChange,
+						remotePaper: isRemotePaper,
+					}
+				: undefined,
+		[citationImport, handleCitationImportOpenChange, isRemotePaper],
+	);
+	const cardSelectionMenu = useMemo(
+		() => ({
+			state: plainViewer ? null : selectionMenu,
+			onHighlight: handleHighlight,
+			onAsk: handleMenuAsk,
+			onAddToChat: handleMenuAddToChat,
+			onTranslate: handleMenuTranslate,
+			onCopy: handleMenuCopy,
+			showHighlight: !isRemotePaper && !plainViewer,
+			showTranslate:
+				!selectionMenu?.fromTranslation && !isRemotePaper && !plainViewer,
+		}),
+		[
+			plainViewer,
+			selectionMenu,
+			handleHighlight,
+			handleMenuAsk,
+			handleMenuAddToChat,
+			handleMenuTranslate,
+			handleMenuCopy,
+			isRemotePaper,
+		],
+	);
+	const cardCitationPreview = useMemo(
+		() => ({
+			state: citationPreview,
+			importMenu: citationImportMenu,
+			onHoverEnter: markCitationHoverEnter,
+			onHoverLeave: scheduleCitationHide,
+		}),
+		[
+			citationPreview,
+			citationImportMenu,
+			markCitationHoverEnter,
+			scheduleCitationHide,
+		],
+	);
+	const cardCrossrefPreview = useMemo(
+		() => ({
+			state: crossrefPreview,
+			onHoverEnter: markCrossrefHoverEnter,
+			onHoverLeave: scheduleCrossrefHide,
+		}),
+		[crossrefPreview, markCrossrefHoverEnter, scheduleCrossrefHide],
+	);
+	const cardLinkUrlTip = useMemo(
+		() => ({
+			state: linkUrlTip,
+			onHoverEnter: markLinkUrlHoverEnter,
+			onHoverLeave: scheduleLinkUrlHide,
+		}),
+		[linkUrlTip, markLinkUrlHoverEnter, scheduleLinkUrlHide],
+	);
+	const cardAsk = useMemo(
+		() => ({
+			thread: activeThread,
+			paperTitle,
+			paperLink,
+			streaming,
+			error: askError,
+			onSend: sendAskQuestion,
+			onResend: resendAskQuestion,
+			onHide: hideAskThread,
+			onDelete: deleteAskThread,
+			onStop: stopAskStreaming,
+		}),
+		[
+			activeThread,
+			paperTitle,
+			paperLink,
+			streaming,
+			askError,
+			sendAskQuestion,
+			resendAskQuestion,
+			hideAskThread,
+			deleteAskThread,
+			stopAskStreaming,
+		],
+	);
+	const handleToggleTranslatePin = useCallback(() => {
+		if (activeTranslate) toggleTranslatePin(activeTranslate);
+	}, [activeTranslate, toggleTranslatePin]);
+	const cardTranslate = useMemo(
+		() => ({
+			record: activeTranslate,
+			streaming: translateStreaming,
+			error: translateError,
+			onOpenSettings: openTranslateSettings,
+			onTogglePin:
+				paperAbsPath && activeTranslate?.rects.length
+					? handleToggleTranslatePin
+					: undefined,
+			onHide: hideActiveCard,
+		}),
+		[
+			activeTranslate,
+			translateStreaming,
+			translateError,
+			openTranslateSettings,
+			paperAbsPath,
+			handleToggleTranslatePin,
+			hideActiveCard,
+		],
+	);
+	const handleDeleteVisualTrace = useCallback(() => {
+		if (activeVisualTrace) deleteVisualTraceById(activeVisualTrace.id);
+	}, [activeVisualTrace, deleteVisualTraceById]);
+	const cardVisual = useMemo(
+		() => ({
+			trace: activeVisualTrace,
+			onHide: hideActiveCard,
+			onDelete: handleDeleteVisualTrace,
+		}),
+		[activeVisualTrace, hideActiveCard, handleDeleteVisualTrace],
+	);
+	const handleZoomSliderChange = useCallback((next: number) => {
+		zoomCapRef.current?.requestZoom(next);
+	}, []);
 
 	return (
 		<div
@@ -1980,7 +2219,7 @@ function PdfViewerInner({
 				<PdfOutlinePanel
 					outline={outline}
 					showOutline={showOutline}
-					onGoToPage={goToPage}
+					onGoToPage={handleGoToPage}
 				/>
 			)}
 			{!translationOnly && (
@@ -2010,9 +2249,9 @@ function PdfViewerInner({
 					onQueryChange={setFindQuery}
 					total={findTotal}
 					activeResultIndex={findActiveIndex}
-					onFindNext={findNext}
-					onFindPrev={findPrev}
-					onClose={closeFind}
+					onFindNext={handleFindNext}
+					onFindPrev={handleFindPrev}
+					onClose={handleCloseFind}
 				/>
 			)}
 			{!translationOnly && !plainViewer && (
@@ -2066,79 +2305,16 @@ function PdfViewerInner({
 
 			{!translationOnly && (
 				<PdfCardStack
-					selectionMenu={{
-						state: plainViewer ? null : selectionMenu,
-						onHighlight: handleHighlight,
-						onAsk: handleMenuAsk,
-						onAddToChat: handleMenuAddToChat,
-						onTranslate: handleMenuTranslate,
-						onCopy: handleMenuCopy,
-						showHighlight: !isRemotePaper && !plainViewer,
-						showTranslate:
-							!selectionMenu?.fromTranslation && !isRemotePaper && !plainViewer,
-					}}
-					citationPreview={{
-						state: citationPreview,
-						importMenu: citationImport
-							? {
-									folders: citationImport.folders,
-									lastImportParentDir: citationImport.lastImportParentDir,
-									importingId: citationImport.importingId,
-									onImport: citationImport.importCitation,
-									onOpenChange: (open) =>
-										open ? markCitationHoverEnter() : scheduleCitationHide(),
-									remotePaper: isRemotePaper,
-								}
-							: undefined,
-						onHoverEnter: markCitationHoverEnter,
-						onHoverLeave: scheduleCitationHide,
-					}}
-					crossrefPreview={{
-						state: crossrefPreview,
-						onHoverEnter: markCrossrefHoverEnter,
-						onHoverLeave: scheduleCrossrefHide,
-					}}
-					linkUrlTip={{
-						state: linkUrlTip,
-						onHoverEnter: markLinkUrlHoverEnter,
-						onHoverLeave: scheduleLinkUrlHide,
-					}}
+					selectionMenu={cardSelectionMenu}
+					citationPreview={cardCitationPreview}
+					crossrefPreview={cardCrossrefPreview}
+					linkUrlTip={cardLinkUrlTip}
 					cardScreen={cardScreen}
 					onCardHoverEnter={markCardHoverEnter}
 					onCardHoverLeave={scheduleHoverHide}
-					ask={{
-						thread: activeThread,
-						paperTitle,
-						paperLink,
-						streaming,
-						error: askError,
-						onSend: sendAskQuestion,
-						onResend: resendAskQuestion,
-						onHide: hideAskThread,
-						onDelete: deleteAskThread,
-						onStop: stopAskStreaming,
-					}}
-					translate={{
-						record: activeTranslate,
-						streaming: translateStreaming,
-						error: translateError,
-						onOpenSettings: openTranslateSettings,
-						onTogglePin:
-							paperAbsPath && activeTranslate?.rects.length
-								? () => {
-										if (activeTranslate) toggleTranslatePin(activeTranslate);
-									}
-								: undefined,
-						onHide: hideActiveCard,
-					}}
-					visual={{
-						trace: activeVisualTrace,
-						onHide: hideActiveCard,
-						onDelete: () => {
-							if (activeVisualTrace)
-								deleteVisualTraceById(activeVisualTrace.id);
-						},
-					}}
+					ask={cardAsk}
+					translate={cardTranslate}
+					visual={cardVisual}
 				/>
 			)}
 
@@ -2148,11 +2324,11 @@ function PdfViewerInner({
 					pageField={pageField}
 					onPageFieldChange={setPageField}
 					pageFocusedRef={pageFocusedRef}
-					onCommitPageField={commitPageField}
+					onCommitPageField={handleCommitPageField}
 					pdfTone={pdfTone}
 					onSetPdfTone={setPdfTone}
 					zoomLevel={zoomLevel}
-					onZoomChange={(next) => zoom?.requestZoom(next)}
+					onZoomChange={handleZoomSliderChange}
 					isRemotePaper={isRemotePaper}
 				/>
 			)}

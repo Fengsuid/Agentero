@@ -15,7 +15,7 @@ import {
 	MessageSquarePlus,
 	Trash2,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
@@ -896,10 +896,17 @@ export const CommentCardsLayer = memo(function CommentCardsLayer({
 	onHover,
 	onLeave,
 }: CommentCardsLayerProps) {
+	// Stacking depends only on items / page height / the edited card; hover
+	// re-renders (hoveredId flips) must not redo layout for the whole rail.
+	const laid = useMemo(
+		() => layoutCommentCards(items, pageHeightPx, editingId),
+		[items, pageHeightPx, editingId],
+	);
+	const byId = useMemo(
+		() => new Map(items.map((item) => [item.id, item])),
+		[items],
+	);
 	if (!items.length && !selectionDraft) return null;
-
-	const laid = layoutCommentCards(items, pageHeightPx, editingId);
-	const byId = new Map(items.map((item) => [item.id, item]));
 	const hoveredPlacement = hoveredId
 		? (laid.find((pos) => pos.id === hoveredId) ?? null)
 		: null;

@@ -232,10 +232,20 @@ export const commands = {
 	 */
 	vaultAllowFsScope: (path: string) => __TAURI_INVOKE<ApiResult<null>>("vault_allow_fs_scope", { path }),
 	/**
+	 *  Register this window as a holder of `vault`.
+	 * 
+	 *  Paired with [`vault_release`]: a window holds a vault for as long as its
+	 *  frontend `vault:opened` scope is live (hold in setup, release in teardown),
+	 *  so the vault-global release below only runs when the last window lets go.
+	 *  Idempotent per (vault, window).
+	 */
+	vaultHold: (path: string) => __TAURI_INVOKE<ApiResult<null>>("vault_hold", { path }),
+	/**
 	 *  Release Host-side resources held for a vault the app switched away from.
 	 * 
 	 *  Feature-specific cleanup remains owned by each feature; the app shell only
-	 *  orchestrates the cross-feature release sequence.
+	 *  orchestrates the cross-feature release sequence, and only once the calling
+	 *  window was the last holder of the vault (see [`VaultHolders`]).
 	 */
 	vaultRelease: (path: string) => __TAURI_INVOKE<ApiResult<null>>("vault_release", { path }),
 	/**  Build the whole vault file tree in one pass (single IPC). */
@@ -2360,6 +2370,75 @@ export type ConnectorStatus = {
 
 export type ConnectorStatusEvent = ConnectorStatus;
 
+/**  One piece of user-supplied location: a selection, the open paper, or an @ mention. */
+export type ContextAnchor = ContextAnchor_Serialize | ContextAnchor_Deserialize;
+
+/**  How an anchor entered the turn. */
+export type ContextAnchorKind = "selection" | "paper" | "mention";
+
+/**  One piece of user-supplied location: a selection, the open paper, or an @ mention. */
+export type ContextAnchor_Deserialize = {
+	kind: ContextAnchorKind,
+	paperPath?: string | null,
+	filePath?: string | null,
+	/**  1-based PDF page. */
+	page?: number | null,
+	section?: string | null,
+	quote?: string | null,
+	comment?: string | null,
+	lineFrom?: number | null,
+	lineTo?: number | null,
+	before?: string | null,
+	after?: string | null,
+	translation?: string | null,
+	/**  Composer annotation number, when the quote sits inline as `[Annotation N]`. */
+	annotation?: number | null,
+};
+
+/**  One piece of user-supplied location: a selection, the open paper, or an @ mention. */
+export type ContextAnchor_Serialize = {
+	kind: ContextAnchorKind,
+	paperPath?: string | null,
+	filePath?: string | null,
+	/**  1-based PDF page. */
+	page?: number | null,
+	section?: string | null,
+	quote?: string | null,
+	comment?: string | null,
+	lineFrom?: number | null,
+	lineTo?: number | null,
+	before?: string | null,
+	after?: string | null,
+	translation?: string | null,
+	/**  Composer annotation number, when the quote sits inline as `[Annotation N]`. */
+	annotation?: number | null,
+};
+
+/**  First phase is read-only. Write tools are not part of this grant. */
+export type ContextMode = "read_only";
+
+/**  What the host knows before it resolves a turn. */
+export type ContextRequest = ContextRequest_Serialize | ContextRequest_Deserialize;
+
+/**  What the host knows before it resolves a turn. */
+export type ContextRequest_Deserialize = {
+	surface: ContextSurface,
+	question?: string,
+	anchors?: ContextAnchor_Deserialize[],
+	mode?: ContextMode,
+};
+
+/**  What the host knows before it resolves a turn. */
+export type ContextRequest_Serialize = {
+	surface: ContextSurface,
+	question: string,
+	anchors: ContextAnchor_Serialize[],
+	mode: ContextMode,
+};
+
+/**  Where the turn started. Quick Chat and the sidebar share one resolver. */
+export type ContextSurface = "quick_chat" | "sidebar";
+
 export type CoolPapersImportArgs = {
 	vaultPath: string,
 	/**  Vault-relative destination, e.g. `papers` or `papers/nlp`. */
@@ -3160,6 +3239,16 @@ export type JobSnapshot = {
 	kind: JobKind,
 	lane: JobLane,
 	state: JobState,
+	/**
+	 *  Vault root as passed by the enqueuing caller, verbatim (lossy string).
+	 *  Frontend-initiated jobs carry the exact frontend `getVaultPath()`
+	 *  string, so consumers can filter by active vault; host-internal jobs
+	 *  (watcher / recognize helpers) carry the Host's own form, usually
+	 *  canonical (Windows: `\\?\` prefix). `vault_path` below stays the
+	 *  canonical path used for filesystem access and the dedupe key.
+	 */
+	vaultId: string,
+	/**  Canonical vault root: filesystem operations + dedupe identity. */
 	vaultPath: string,
 	paperPath: string | null,
 	fingerprint: string,
@@ -3188,6 +3277,13 @@ export type JobTerminalPayload = JobTerminalPayload_Serialize | JobTerminalPaylo
 export type JobTerminalPayload_Deserialize = {
 	jobId: string,
 	kind: JobKind,
+	/**
+	 *  Vault root as passed by the enqueuing caller (`JobSnapshot.vault_id`):
+	 *  frontend-initiated jobs carry the exact `getVaultPath()` string;
+	 *  host-internal jobs the Host's (usually canonical) form. See the
+	 *  已知限制 note in docs/development/lifecycle-events.md.
+	 */
+	vaultId: string,
 	paperId?: string | null,
 	timestamp: number,
 	error?: string | null,
@@ -3200,6 +3296,13 @@ export type JobTerminalPayload_Deserialize = {
 export type JobTerminalPayload_Serialize = {
 	jobId: string,
 	kind: JobKind,
+	/**
+	 *  Vault root as passed by the enqueuing caller (`JobSnapshot.vault_id`):
+	 *  frontend-initiated jobs carry the exact `getVaultPath()` string;
+	 *  host-internal jobs the Host's (usually canonical) form. See the
+	 *  已知限制 note in docs/development/lifecycle-events.md.
+	 */
+	vaultId: string,
 	paperId?: string | null,
 	timestamp: number,
 	error?: string | null,
@@ -3296,6 +3399,11 @@ export type LayoutProviderConfig = {
 	language?: string,
 	/**  MinerU force-OCR: run OCR on every page regardless of the PDF text layer. */
 	isOcr?: boolean,
+	/**
+	 *  Treat `base_url` as a self-hosted MinerU server (version-detected)
+	 *  instead of the official cloud API (which also covers relays).
+	 */
+	selfHosted?: boolean,
 };
 
 export type LayoutRemoteAnalyzePdfArgs = {
@@ -3852,6 +3960,7 @@ export type PaperMetaPatch = {
 	abstract: string | null,
 	pdfUrl: string | null,
 	htmlUrl: string | null,
+	codeRepo: string | null,
 };
 
 export type PaperMoveArgs = {
@@ -3990,6 +4099,8 @@ export type PaperRecord_Deserialize = {
 	pdf_url: string | null,
 	html_url: string | null,
 	source_url: string | null,
+	/**  Manually maintained code-repository link (no auto resolution yet). */
+	code_repo: string | null,
 	body_source: string | null,
 	body_quality: string | null,
 	bibtex_key: string | null,
@@ -4047,6 +4158,8 @@ export type PaperRecord_Serialize = {
 	pdf_url?: string | null,
 	html_url?: string | null,
 	source_url?: string | null,
+	/**  Manually maintained code-repository link (no auto resolution yet). */
+	code_repo?: string | null,
 	body_source?: string | null,
 	body_quality?: string | null,
 	bibtex_key?: string | null,
@@ -4556,6 +4669,19 @@ export type RunOnceRequest_Deserialize = {
 	 *  (paper-reader and other non-composer workflows).
 	 */
 	hideFromChatHistory?: boolean,
+	/**
+	 *  Selection, open paper, and @ mentions for this turn.
+	 *  The host resolver writes the minimum evidence into the prompt and, for a
+	 *  local session, attaches the session-scoped `agentero-context` MCP.
+	 *  Omit when the turn has no vault anchor.
+	 */
+	context?: ContextRequest_Deserialize | null,
+	/**
+	 *  Earlier on-screen turns. The host inserts them only when the context
+	 *  fingerprint refuses to resume `session_id`. Omit when the prompt already
+	 *  contains that transcript.
+	 */
+	resumeTranscript?: string | null,
 };
 
 export type RunOnceRequest_Serialize = {
@@ -4610,6 +4736,19 @@ export type RunOnceRequest_Serialize = {
 	 *  (paper-reader and other non-composer workflows).
 	 */
 	hideFromChatHistory: boolean,
+	/**
+	 *  Selection, open paper, and @ mentions for this turn.
+	 *  The host resolver writes the minimum evidence into the prompt and, for a
+	 *  local session, attaches the session-scoped `agentero-context` MCP.
+	 *  Omit when the turn has no vault anchor.
+	 */
+	context?: ContextRequest_Serialize | null,
+	/**
+	 *  Earlier on-screen turns. The host inserts them only when the context
+	 *  fingerprint refuses to resume `session_id`. Omit when the prompt already
+	 *  contains that transcript.
+	 */
+	resumeTranscript?: string | null,
 };
 
 export type ScratchClearResult = {
@@ -5007,6 +5146,11 @@ export type TrashEntry = {
 	rel: string,
 	/**  Basename for display. */
 	name: string,
+	/**
+	 *  Paper title when the item snapshots exactly one catalog row (a paper
+	 *  directory); `None` for plain files or folders holding several papers.
+	 */
+	title: string | null,
 	deletedAt: string,
 	isDir: boolean,
 };

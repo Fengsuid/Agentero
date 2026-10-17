@@ -36,6 +36,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { CardScreenPoint } from "@/components/viewer/pdf/types";
 import { disposeAgentRun, type PromptImage } from "@/lib/agent";
+import { pdfAskContextRequest } from "@/lib/agent/context-request";
 import {
 	createEmptyThread,
 	deletePdfAskThread,
@@ -230,6 +231,7 @@ export function usePdfAskThreads({
 				images,
 				vaultPath: vaultPath ?? undefined,
 				buildPrompt: buildPdfAskPrompt,
+				context: pdfAskContextRequest(thread),
 				upsertThread,
 				patchThread,
 				persist,

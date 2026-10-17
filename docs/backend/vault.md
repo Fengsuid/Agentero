@@ -34,9 +34,13 @@
   → 释放 vault:opened 作用域
   → 各 store 的 vault 级 clear（catalog 行、wiki 重命名流程、
      agent 会话、标注、layout 结果、相关弹窗）
-  → app::vault_session::vault_release：取消该 vault 的 JobCenter 任务、
-     清 paper caps cache、驱逐该 vault 的 catalog 连接缓存条目
+  → vault_release 解除本窗口持有（setup 时的 vault_hold 注册）；
+     仅当该 vault 不再被任何窗口持有时，app::vault_session 执行全局释放：
+     取消该 vault 的 JobCenter 任务、清 paper caps cache、驱逐该 vault 的
+     catalog 连接缓存条目
 ```
+
+同一 vault 可被多个窗口同时打开，释放序列因此按窗口持有计数收敛；窗口销毁由 `on_window_event(Destroyed)` 兜底清理该窗口的全部持有。
 
 文件监听不需要显式停止：`fs_watch_start` 会替换该窗口的既有 watcher，窗口销毁时由 `on_window_event(Destroyed)` 停止。
 
@@ -56,7 +60,7 @@
 | Command | 说明 |
 |---|---|
 | `path_trash` | 移入 `.agentero/.trash/`（含 catalog 快照） |
-| `path_list_trash` | 列表 |
+| `path_list_trash` | 列表（论文项带快照标题 `title`，UI 显示标题而非目录名 ID） |
 | `path_restore_item` | 恢复 |
 | `path_purge_item` / `path_purge_trash` | 永久删除 / 清空 |
 

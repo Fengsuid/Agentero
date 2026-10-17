@@ -18,7 +18,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { SiArxiv, SiModelscope } from "react-icons/si";
+import { SiArxiv, SiGithub, SiModelscope } from "react-icons/si";
 import { EditablePaperTag } from "@/components/library/editable-paper-tag";
 import { PaperTagRemoveButton } from "@/components/library/paper-tag-chip";
 import { TagColorPalette } from "@/components/library/tag-color-palette";
@@ -360,6 +360,11 @@ function TagsEditor({
 	);
 }
 
+/** `github.com/x/y` form is common when pasted; bare hosts need a scheme. */
+function repoHref(value: string) {
+	return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+
 const HEIGHT_STORAGE_KEY = "agentero.paperInfoHeight";
 const MIN_CONTENT_HEIGHT = 120;
 const DEFAULT_CONTENT_HEIGHT = 320;
@@ -465,6 +470,7 @@ export function PaperInfoPanel({
 	const alphaXivUrl = arxivId
 		? `https://www.alphaxiv.org/abs/${arxivId}`
 		: null;
+	const codeRepo = meta?.code_repo?.trim() || null;
 
 	const copyField = async (text: string | null | undefined, label: string) => {
 		const value = text?.trim();
@@ -624,7 +630,11 @@ export function PaperInfoPanel({
 									}}
 								/>
 							</MetaRow>
-							{meta.pdf_url || meta.arxiv_id || modelScopeUrl || alphaXivUrl ? (
+							{meta.pdf_url ||
+							meta.arxiv_id ||
+							modelScopeUrl ||
+							alphaXivUrl ||
+							codeRepo ? (
 								<div className="@container/paper-links flex flex-nowrap items-center gap-1.5 overflow-hidden px-3 pt-1.5">
 									{meta.pdf_url || meta.arxiv_id ? (
 										<LinkChip
@@ -658,6 +668,15 @@ export function PaperInfoPanel({
 											label={t("paperInfo.alphaXiv")}
 											icon={
 												<AlphaXivIcon className="size-3.5 shrink-0 text-[#B33131]" />
+											}
+										/>
+									) : null}
+									{codeRepo ? (
+										<ServiceLinkChip
+											href={repoHref(codeRepo)}
+											label={t("paperInfo.codeRepo")}
+											icon={
+												<SiGithub className="size-3.5 shrink-0" aria-hidden />
 											}
 										/>
 									) : null}

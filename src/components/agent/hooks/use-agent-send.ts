@@ -64,6 +64,7 @@ import {
 	stripInlineTokens,
 } from "@/lib/agent/composer-inline-tokens";
 import type { AgentComposerState } from "@/lib/agent/composer-state";
+import { sidebarContextRequest } from "@/lib/agent/context-request";
 import {
 	isPlazaMentionPath,
 	parseNeedFulltextIds,
@@ -427,6 +428,8 @@ export function useAgentSend({
 		modelId: string | undefined;
 		preferredEffort: string | null;
 		skillIds: string[];
+		context: ReturnType<typeof sidebarContextRequest>;
+		resumeTranscript?: string;
 	}) =>
 		runOnce({
 			agentId: turn.agentId,
@@ -453,6 +456,8 @@ export function useAgentSend({
 			fastMode: fastAvailable ? fastEnabled : undefined,
 			skillIds: turn.skillIds,
 			permissionMode: loadSettings().agentPermissionMode,
+			context: turn.context ?? undefined,
+			resumeTranscript: turn.resumeTranscript,
 		});
 
 	/**
@@ -603,10 +608,11 @@ export function useAgentSend({
 		// Inline @/$ markers stay in the draft; the user bubble / ACP body is plain.
 		const text = stripInlineTokens(textRaw).trim();
 		const draftSessionKey = activeVisualDraftSessionKey();
+		const annotationRefs = planAnnotationRefs(textRaw);
 		const resolvedVisualDrafts =
 			options?.visualDrafts ??
 			visualDraftsInAnnotationOrder(
-				planAnnotationRefs(textRaw),
+				annotationRefs,
 				visualDraftsForSession(draftSessionKey),
 			);
 		const hasVisualDrafts = resolvedVisualDrafts.length > 0;
@@ -678,24 +684,29 @@ export function useAgentSend({
 				assembleTurnPrompt({
 					text: textRaw,
 					contextPaths: resolvedContextPaths,
-					selections: resolvedSelections,
 					visualDrafts: resolvedVisualDrafts,
 					attachedImages,
 					isAcpCommand,
 					plazaScratchByPath,
 					t,
 				});
-			const transcript =
+			const attachTranscript =
 				!isAcpCommand &&
 				shouldAttachLocalTranscript({
 					resumeAllowed: target.resumeAllowed,
 					historyStatus: target.activeHistory?.status,
-				})
-					? buildLocalTranscriptPrompt(target.priorLines)
-					: "";
-			const promptWithHistory = transcript
-				? `${transcript}\n\n${prompt}`
-				: prompt;
+				});
+			const priorTranscript = isAcpCommand
+				? ""
+				: buildLocalTranscriptPrompt(target.priorLines);
+			const promptWithHistory =
+				attachTranscript && priorTranscript
+					? `${priorTranscript}\n\n${prompt}`
+					: prompt;
+			// Resume is decided before the host sees the context fingerprint.
+			// Hold the transcript aside so a refused resume can still show it.
+			const resumeTranscript =
+				!attachTranscript && priorTranscript ? priorTranscript : undefined;
 			const workflow = isAcpCommand ? undefined : options?.workflow;
 			const userLine: ChatLine = {
 				id: nextLineId("user"),
@@ -730,6 +741,20 @@ export function useAgentSend({
 				modelId: agent.modelId,
 				preferredEffort: agent.preferredEffort,
 				skillIds: resolvedSkillIds,
+				context: isAcpCommand
+					? null
+					: sidebarContextRequest({
+							contextPaths: resolvedContextPaths,
+							selections: resolvedSelections,
+							selectionAnnotations: new Map(
+								annotationRefs.flatMap((ref) =>
+									ref.kind === "selection"
+										? [[ref.selection.id, ref.n] as const]
+										: [],
+								),
+							),
+						}),
+				resumeTranscript,
 			});
 			if (
 				sessionContextGeneration !== sessionContextGenRef.current ||

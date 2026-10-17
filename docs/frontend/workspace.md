@@ -40,7 +40,7 @@ Library 始终位于所在标签条的第一位：禁止拖动 Library 及包含
 
 | 项 | 方案 |
 |---|---|
-| 路由 | `preferredModeForPath`：专用扩展名优先，`.md` 显式回 Markdown，`isUnderPapers` 拦截，其余一律 `text`（不设 `isTextOpenable` 白名单门槛——兜底查看器不做过滤） |
+| 路由 | `preferredModeForPath`（注册表 `matchesPath` 表序驱动，见「文档类型注册表」）：专用扩展名优先，`.md` 显式回 Markdown，`isUnderPapers` 拦截，其余一律 `text`（不设 `isTextOpenable` 白名单门槛——兜底查看器不做过滤） |
 | 高亮 | `textLanguageIdForPath`：`json` / `yaml(yml)` / `python(py,pyw)` / `tex(sty,cls)` / `bib`；`.txt` 与未知扩展名为纯文本 |
 | 语言实现 | `@codemirror/lang-json`、`@codemirror/lang-python`；TeX 走 `codemirror-lang-latex`（Overleaf Lezer 语法的社区包：精确高亮、环境自动闭合 / 缩进、preamble / 注释 / 小节折叠；`enableAutocomplete` 关闭——它默认装的 `autocompletion({override})` 层会吞掉其他补全源，补全统一经 `basicSetup` 的 autocompletion 调度语言数据；**lint 开启**——波浪线标未闭合环境 / 括号、重复 label、缺失引用等，悬停命令弹文档，`fileName` 让 linter 在 .sty/.cls 上放宽 document-env 规则）；yaml 走 `@codemirror/legacy-modes` StreamLanguage；`.bib` 用内置最小 BibTeX tokenizer（`%{}%` 注释、`@type`、字段、字符串） |
 | 代码提示 | TeX / BibTeX 自定义补全经 `language.data.of({ autocomplete })` 挂进语言数据（TeX 为语言包的命令 / 环境 / 数学符号补全 + 文件路径补全；BibTeX 为 `@` 后条目类型、条目内行首字段名）；JSON / Python 用语言包自带补全 |
@@ -59,6 +59,22 @@ Library 始终位于所在标签条的第一位：禁止拖动 Library 及包含
 
 Library · Trash · PDF · HTML · 图片 · Markdown · 论文 NOTES · 纯文本（CodeMirror）。
 
+## 文档类型注册表
+
+文档类型（`CenterViewMode`）及依赖它的全部分发行为收敛在单一注册表 `VIEWER_MODE_TABLE`（`src/lib/workspace/viewer/index.ts`）：`CenterViewMode` 联合类型从表推导，其余触点一律读表，不再维护散落的 mode 枚举副本。
+
+| 字段 | 驱动的触点 |
+|---|---|
+| `mode` | `CenterViewMode` 联合；持久化白名单 `isCenterViewMode`（`tabs/persist.ts` 不再自带 `VALID_MODES`） |
+| `matchesPath` | `preferredModeForPath` 的匹配优先级（表序即顺序）；`papers/` 域回退 Markdown、其余回退 `text` 仍在函数内显式表达 |
+| `renderer` | dockview panel renderer（`dock-workspace.tsx`）：`always` 保持未激活 panel 的 React 壳挂载，配合保活 LRU |
+| `keepAlive` | 保活 LRU 池归属（`workspace-host.tsx`）：`pdf` = PDF viewer LRU=2，`editor` = Markdown / 文本编辑器 LRU=4，null = 不保活 |
+| `props` | DocView 的域 props 比较器（`doc-view.tsx`）：按 mode 查表取域，替代原「镜像路由顺序」的手写比较列表 |
+| `resource` | `loadTabResources` 的资源解析策略（`tabs/resources.ts`）：按 mode 取 PDF 字节 / 图片 blob / Markdown / Excalidraw / 文本种子，取代重复的路径谓词判断；pdf 与 translation 共享 `pdf`（translation 由 `createTranslationSplitPane` 克隆源 pane 字节，磁盘刷新 `refreshPdfTab` / `applyDiskChange` 同判据） |
+| `restore` | 持久化会话恢复覆盖（`store.ts`）：translation 面板恢复为「已加载」的 paper 标签且不走磁盘 hydrate，其余为默认占位 |
+
+新增一种文档类型 = 注册表加一条目 + `doc-view.tsx` 加一个渲染分支；复用既有 `resource` 策略时，加载器 / 持久化 / renderer / LRU / props 比较器 / 恢复都不用改。PDF / Plate / CodeMirror / Excalidraw 引擎、选区与持久化模型是本质差异，仍各自独立——注册表只收敛类型层与分发层。表完整性与各字段取值由 `test/workspace-viewer-modes.test.ts` 反漂移钉住（renderer / keepAlive / resource / props 逐项与旧行为等价）。
+
 ## 代码
 
 | 路径 | 职责 |
@@ -74,6 +90,7 @@ Library · Trash · PDF · HTML · 图片 · Markdown · 论文 NOTES · 纯文�
 | `src/components/viewer/text-editor-language.ts` | 扩展名 → 语言 / 自定义补全映射 |
 | `src/lib/workspace/text-editor-flush.ts` | 编辑器防抖自动保存的 flush 注册表（编译按钮编译前落盘） |
 | `src/lib/workspace/store.ts` | tabs / active / dockLayout |
+| `src/lib/workspace/viewer/index.ts` | 文档类型注册表（`VIEWER_MODE_TABLE`）+ 路径谓词 / `preferredModeForPath` |
 | `src/lib/workspace/tabs/` | DocTab 模型、NOTES 分屏、持久化 |
 | `src/lib/workspace/dock-registry.ts` | 命令式 dockview 句柄 |
 | `src/lib/workspace/selection-overlay.ts` | 划词工具栏 / Ask 卡等浮动浮层的挂载计数；工作区据此在浮层打开时 `disableDnd`（#608） |

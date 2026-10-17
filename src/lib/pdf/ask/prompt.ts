@@ -12,13 +12,16 @@ export function rememberPairedAskTranslation(
 	else pairedAskTranslations.delete(threadId);
 }
 
+/** Translation captured for this ask thread, if the user selected a translation. */
+export function pairedAskTranslation(threadId: string): string | undefined {
+	return pairedAskTranslations.get(threadId);
+}
+
 /** Build a single-turn prompt for ACP (includes prior turns for multi-round). */
 export function buildPdfAskPrompt(
 	thread: PdfAskThread,
 	latestUserQuestion: string,
 ): string {
-	const quote = thread.anchor.quote?.trim();
-	const page = thread.anchor.page;
 	const history = thread.messages
 		.filter((m) => m.role === "user" || m.role === "assistant")
 		// exclude the just-appended user message if it matches latest
@@ -28,7 +31,7 @@ export function buildPdfAskPrompt(
 
 	const parts = [
 		"You are helping the user read a research paper PDF in Agentero.",
-		`Page: ${page}`,
+		"The paper ref, title, page, and quoted passage are in the research context above this question. Do not assume you can read the rest of the paper unless that context says the context tools are available.",
 	];
 	if (thread.anchor.visualKind === "formula") {
 		parts.push(
@@ -40,13 +43,6 @@ export function buildPdfAskPrompt(
 			"The user attached a crop containing a figure, chart, table, or other visual region.",
 			"Explain the visual structure, axes or legend when present, the main comparison, and the conclusion supported by the crop. Do not invent unreadable values.",
 		);
-	}
-	if (quote) {
-		parts.push("Quoted text from the PDF:", `> ${quote}`);
-	}
-	const translation = pairedAskTranslations.get(thread.id);
-	if (translation) {
-		parts.push("Translation of the quoted sentences:", translation);
 	}
 	if (history) {
 		parts.push("Earlier turns in this selection thread:", history);

@@ -53,6 +53,7 @@ import {
 	EMPTY_PINS,
 	PAGE_LAYER_STYLE,
 	PDF_BASE_LAYER_SCALE_CAP,
+	PDF_WORKER_SETTLE_MS,
 	pdfRasterDpr,
 	pdfTileDpr,
 } from "@/components/viewer/pdf/constants";
@@ -67,6 +68,7 @@ import { CommentCardsLayer } from "@/components/viewer/pdf/layers/comment-cards-
 import { HighlightAnnotationMenu } from "@/components/viewer/pdf/layers/highlight-annotation-menu";
 import { LayoutTranslateOverlay } from "@/components/viewer/pdf/layers/layout-translate-overlay";
 import { PASSIVE_LINK_RENDERER } from "@/components/viewer/pdf/layers/link-annotation";
+import { pageBitmapCache } from "@/components/viewer/pdf/layers/page-bitmap-cache";
 import { PdfTextSelectionLayer } from "@/components/viewer/pdf/layers/pdf-text-selection-layer";
 import { PdfRegionSelectLayer } from "@/components/viewer/pdf/layers/region-select-layer";
 import { SelectionGutter } from "@/components/viewer/pdf/layers/selection-gutter";
@@ -106,6 +108,7 @@ import {
 	type PointerOrigin,
 } from "@/lib/pdf/layout";
 import { translatedTextLinkKey } from "@/lib/pdf/layout/link-ink";
+import { translatedLinkHoverAction } from "@/lib/pdf/layout/translated-link-hover";
 import type {
 	PreservedLinkAssignment,
 	TranslateLinkBox,
@@ -324,8 +327,12 @@ function AgenteroRenderLayer({
 }: AgenteroRenderLayerProps) {
 	const { provides: renderProvides } = useRenderCapability();
 	const documentState = useDocumentState(documentId);
-	const [imageUrl, setImageUrl] = useState<string | null>(null);
-	const urlRef = useRef<string | null>(null);
+	const cacheId = `${documentId}:${pageIndex}`;
+	const [imageUrl, setImageUrl] = useState<string | null>(() =>
+		pageBitmapCache.retain(cacheId),
+	);
+	const pinnedId = useRef(cacheId);
+	const retiredRef = useRef<string[]>([]);
 	const refreshVersion = useMemo(() => {
 		if (!documentState) return 0;
 		return documentState.pageRefreshVersions[pageIndex] || 0;
@@ -344,8 +351,35 @@ function AgenteroRenderLayer({
 	);
 
 	useEffect(() => {
+		const id = `${documentId}:${pageIndex}`;
+		if (pinnedId.current !== id) {
+			pageBitmapCache.release(pinnedId.current);
+			pinnedId.current = id;
+			setImageUrl(pageBitmapCache.retain(id));
+		}
+		return () => {
+			pageBitmapCache.release(id);
+			pinnedId.current = "";
+		};
+	}, [documentId, pageIndex]);
+
+	useEffect(() => {
+		const retired = retiredRef.current;
+		if (retired.length === 0) return;
+		retiredRef.current = [];
+		for (const url of retired) {
+			if (url !== imageUrl) URL.revokeObjectURL(url);
+		}
+	}, [imageUrl]);
+
+	const renderKey = `${actualScale}|${actualDpr}|${rotation}|${refreshVersion}`;
+
+	useEffect(() => {
 		if (!renderProvides) return;
-		void refreshVersion;
+		const id = `${documentId}:${pageIndex}`;
+		if (pageBitmapCache.matches(id, renderKey)) return;
+		let settled = false;
+		let cancelled = false;
 		const task = renderProvides.forDocument(documentId).renderPage({
 			pageIndex,
 			options: {
@@ -355,16 +389,19 @@ function AgenteroRenderLayer({
 			},
 		});
 		task.wait((blob) => {
+			settled = true;
+			if (cancelled) return;
 			const url = URL.createObjectURL(blob);
+			retiredRef.current.push(
+				...pageBitmapCache
+					.store(id, url, renderKey)
+					.filter((old) => old !== url),
+			);
 			setImageUrl(url);
-			urlRef.current = url;
 		}, ignore);
 		return () => {
-			if (urlRef.current) {
-				URL.revokeObjectURL(urlRef.current);
-				urlRef.current = null;
-				return;
-			}
+			cancelled = true;
+			if (settled) return;
 			task.abort({
 				code: PdfErrorCode.Cancelled,
 				message: "canceled render task",
@@ -377,14 +414,8 @@ function AgenteroRenderLayer({
 		actualDpr,
 		rotation,
 		renderProvides,
-		refreshVersion,
+		renderKey,
 	]);
-
-	const handleImageLoad = () => {
-		if (!urlRef.current) return;
-		URL.revokeObjectURL(urlRef.current);
-		urlRef.current = null;
-	};
 
 	if (!imageUrl) return null;
 	return (
@@ -393,7 +424,6 @@ function AgenteroRenderLayer({
 			alt=""
 			aria-hidden="true"
 			draggable={false}
-			onLoad={handleImageLoad}
 			className={className}
 			style={{ width: "100%", height: "100%", ...style }}
 		/>
@@ -437,8 +467,15 @@ export type PdfPageMarksSlice = {
 	citationLinks: ReadonlyMap<number, PdfLinkAnnoObject[]>;
 	textLinks: ReadonlyMap<number, PdfTextLink[]>;
 	activeCardId: string | null;
-	/** Id of the comment-rail card currently being hovered; null when idle. */
-	hoveredCommentId: string | null;
+	/**
+	 * Id of the comment-rail card currently being hovered; null when idle.
+	 *
+	 * @deprecated Superseded by the per-page `hoveredCommentId` prop, which
+	 * the viewer gates to the owning page so a hover does not re-render every
+	 * mounted page through this shared bundle. Optional so the translation
+	 * pane's static slice keeps compiling; when set it is used as a fallback.
+	 */
+	hoveredCommentId?: string | null;
 	/**
 	 * Sticky text-selection comment chip (right rail). Null when idle or on a
 	 * read-only remote PDF.
@@ -601,6 +638,13 @@ export type PdfPageLayersProps = {
 	/** EmbedPDF capability from the owning viewer; null in panes without the annotation plugin. */
 	annotationCap: AnnotationCapabilityProvides;
 	marks: PdfPageMarksSlice;
+	/**
+	 * Id of the hovered comment-rail card, gated by the caller to the page
+	 * that owns the comment (null elsewhere): the emphasis overlay and the
+	 * rail highlight only exist on the owning page, so gating keeps every
+	 * other page's memo intact while the hover id flips.
+	 */
+	hoveredCommentId?: string | null;
 	layout: PdfPageLayoutSlice;
 	mode: PdfPageModeSlice;
 	handlers: PdfPageHandlers;
@@ -688,6 +732,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 	zoomRef,
 	annotationCap,
 	marks,
+	hoveredCommentId: hoveredCommentIdProp,
 	layout,
 	mode,
 	handlers,
@@ -730,27 +775,39 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 		if (!selectionArmed) setSelectionArmed(true);
 	};
 	/**
-	 * Prefetch selection geometry for pages the user can actually see, so the
-	 * page is already selectable by the time the pointer reaches it. Off-screen
-	 * scroller-buffer pages stay unloaded. The observer disconnects after the
-	 * first intersection; a page armed this way also fires after the page's own
-	 * raster effect, so the worker still renders the visible page first.
+	 * Prefetch selection geometry only after the page stays visible. Arming on
+	 * the first intersection queued `getPageGeometry` for every page a fling
+	 * crosses, and that extraction shares the single PDFium worker with the
+	 * raster. Pointer entry still arms immediately.
 	 */
 	useEffect(() => {
+		if (selectionArmed) return;
 		const el = pageShellRef.current;
 		if (!el) return;
 		if (typeof IntersectionObserver === "undefined") {
 			setSelectionArmed(true);
 			return;
 		}
+		let timer = 0;
 		const observer = new IntersectionObserver((entries) => {
-			if (!entries.some((entry) => entry.isIntersecting)) return;
-			observer.disconnect();
-			setSelectionArmed(true);
+			const visible = entries.some((entry) => entry.isIntersecting);
+			if (!visible) {
+				window.clearTimeout(timer);
+				timer = 0;
+				return;
+			}
+			if (timer) return;
+			timer = window.setTimeout(() => {
+				observer.disconnect();
+				setSelectionArmed(true);
+			}, PDF_WORKER_SETTLE_MS);
 		});
 		observer.observe(el);
-		return () => observer.disconnect();
-	}, []);
+		return () => {
+			window.clearTimeout(timer);
+			observer.disconnect();
+		};
+	}, [selectionArmed]);
 	/**
 	 * Pointer position at the last pointerdown on a layout hit target. A click
 	 * that travelled beyond the tolerance was a drag, not an activation.
@@ -781,6 +838,10 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 			: null;
 	const pins = marks.pinsByPage.get(pageNumber) ?? EMPTY_PINS;
 	const comments = marks.commentsByPage.get(pageNumber) ?? EMPTY_COMMENTS;
+	// Per-page gated prop wins; the translation pane still passes the id
+	// inside `marks`.
+	const hoveredCommentId =
+		hoveredCommentIdProp ?? marks.hoveredCommentId ?? null;
 	const selectionDraftOnPage =
 		marks.selectionCommentDraft?.page === pageNumber
 			? marks.selectionCommentDraft
@@ -820,7 +881,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 	const pageTranslateState = layout.layoutTranslatePageStateByPage.get(
 		pageIndex,
 	) ?? { active: false, running: false };
-	const emphasizedCommentId = marks.hoveredCommentId ?? marks.editingCommentId;
+	const emphasizedCommentId = hoveredCommentId ?? marks.editingCommentId;
 	const emphasizedComment = emphasizedCommentId
 		? (shownComments.find((c) => c.id === emphasizedCommentId) ?? null)
 		: null;
@@ -967,13 +1028,13 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 		armSelection();
 		if ((event.target as Element | null)?.closest("[data-pdf-chrome]")) return;
 		const comment = textCommentAtPoint(event.clientX, event.clientY);
-		if (comment?.id === marks.hoveredCommentId) return;
+		if (comment?.id === hoveredCommentId) return;
 		if (comment) handlers.onHoverComment(comment);
-		else if (marks.hoveredCommentId) handlers.onLeaveComment();
+		else if (hoveredCommentId) handlers.onLeaveComment();
 	};
 
 	const handlePagePointerLeave = () => {
-		if (marks.hoveredCommentId) handlers.onLeaveComment();
+		if (hoveredCommentId) handlers.onLeaveComment();
 	};
 
 	const handlePageClickCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -993,14 +1054,21 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 
 	const paperRaster = (
 		<div className="absolute inset-0 isolate">
-			<AgenteroRenderLayer
-				documentId={docId}
-				pageIndex={pageIndex}
-				scale={Math.min(zoomRef.current, PDF_BASE_LAYER_SCALE_CAP)}
-				dpr={pdfRasterDpr()}
-				className={pdfDark ? PDF_PAGE_RASTER_DARK_CLASS : undefined}
-				style={PAGE_LAYER_STYLE}
-			/>
+			{/*
+			 * Dual-pane translation already paints tiles, and the whole-page base
+			 * coat is a second PDFium job on the shared worker. The page shell
+			 * covers the gap until those tiles arrive.
+			 */}
+			{mode.translationOnly ? null : (
+				<AgenteroRenderLayer
+					documentId={docId}
+					pageIndex={pageIndex}
+					scale={Math.min(zoomRef.current, PDF_BASE_LAYER_SCALE_CAP)}
+					dpr={pdfRasterDpr()}
+					className={pdfDark ? PDF_PAGE_RASTER_DARK_CLASS : undefined}
+					style={PAGE_LAYER_STYLE}
+				/>
+			)}
 			<TilingLayer
 				documentId={docId}
 				pageIndex={pageIndex}
@@ -1108,16 +1176,21 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 			assignment: PreservedLinkAssignment | null,
 			point: { x: number; y: number; top: number; bottom: number } | null,
 		) => {
-			if (!assignment?.key) {
+			const link = assignment?.key
+				? citationById.get(assignment.key)
+				: undefined;
+			const action = translatedLinkHoverAction(assignment, link);
+			if (action.kind === "url") {
 				handlers.onCitationHover(null);
+				handlers.onLinkUrlHover?.(action.url, point);
 				return;
 			}
-			const link = citationById.get(assignment.key);
-			if (!link || linkAnnotationUri(link)) {
-				handlers.onCitationHover(null);
+			handlers.onLinkUrlHover?.(null);
+			if (action.kind === "citation") {
+				handlers.onCitationHover(action.link, point ?? undefined);
 				return;
 			}
-			handlers.onCitationHover(link, point ?? undefined);
+			handlers.onCitationHover(null);
 		},
 		[citationById, handlers],
 	);
@@ -1674,7 +1747,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 						pageHeightPx={height}
 						editingId={marks.editingCommentId}
 						wikiTarget={marks.commentWikiTarget}
-						hoveredId={marks.hoveredCommentId}
+						hoveredId={hoveredCommentId}
 						selectionDraft={selectionDraftOnPage}
 						onCommitSelectionComment={handlers.onCommitSelectionComment}
 						onSelectionCommentActiveChange={

@@ -1,4 +1,5 @@
 import type { PdfBookmarkObject } from "@embedpdf/models";
+import { memo } from "react";
 import { OutlineTree } from "@/components/viewer/pdf/chrome/outline-tree";
 import { PDF_SIDE_PANEL } from "@/components/viewer/pdf/chrome/pdf-chrome-surface";
 import { cn } from "@/lib/core/utils";
@@ -11,7 +12,7 @@ type PdfOutlinePanelProps = {
 };
 
 /** Collapsible bookmark sidebar. The toggle button lives in PdfLeftToolbar. */
-export function PdfOutlinePanel({
+export const PdfOutlinePanel = memo(function PdfOutlinePanel({
 	outline,
 	showOutline,
 	onGoToPage,
@@ -25,4 +26,4 @@ export function PdfOutlinePanel({
 			</div>
 		</aside>
 	);
-}
+});

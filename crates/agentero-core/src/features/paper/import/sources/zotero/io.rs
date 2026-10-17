@@ -424,6 +424,7 @@ mod tests {
             pdf_url: Some("https://arxiv.org/pdf/1706.03762".into()),
             html_url: Some("https://arxiv.org/html/1706.03762".into()),
             source_url: Some("https://arxiv.org/abs/1706.03762".into()),
+            code_repo: None,
             body_source: None,
             body_quality: None,
             bibtex_key: Some("1706.03762".into()),

@@ -1,4 +1,9 @@
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import {
+	Compartment,
+	EditorState,
+	type Extension,
+	type Text,
+} from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
@@ -98,7 +103,10 @@ export function TextEditor({
 	const languageCompartment = useRef(new Compartment());
 	const fontSizeCompartment = useRef(new Compartment());
 	const lastSavedRef = useRef(seed);
-	const pendingContentRef = useRef<string | null>(null);
+	// PERF: pending edits are kept as the CodeMirror `Text` doc (a persistent
+	// structure shared with the editor, zero-copy) — the string is
+	// materialized once inside the debounced flush, not per keystroke.
+	const pendingContentRef = useRef<Text | null>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const dirtyRef = useRef(false);
 
@@ -122,9 +130,10 @@ export function TextEditor({
 	// True when disk is current after the flush (nothing pending, or the save
 	// landed); false when the save was refused (conflict guard / write error).
 	const flush = useCallback(async (): Promise<boolean> => {
-		const content = pendingContentRef.current;
-		if (content == null) return true;
+		const doc = pendingContentRef.current;
+		if (doc == null) return true;
 		pendingContentRef.current = null;
+		const content = doc.toString();
 		const ok = await onPersist(path, content, lastSavedRef.current);
 		if (ok) {
 			lastSavedRef.current = content;
@@ -135,8 +144,8 @@ export function TextEditor({
 	}, [onPersist, path]);
 
 	const schedulePersist = useCallback(
-		(content: string) => {
-			pendingContentRef.current = content;
+		(doc: Text) => {
+			pendingContentRef.current = doc;
 			if (debounceRef.current) clearTimeout(debounceRef.current);
 			debounceRef.current = setTimeout(() => {
 				debounceRef.current = null;
@@ -230,7 +239,7 @@ export function TextEditor({
 					dirtyRef.current = true;
 					onDirtyChangeRef.current(true);
 				}
-				schedulePersistRef.current(update.state.doc.toString());
+				schedulePersistRef.current(update.state.doc);
 			}),
 		];
 		const view = new EditorView({

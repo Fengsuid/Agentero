@@ -45,6 +45,15 @@ export function pdfTileDpr(): number {
  */
 export const PDF_BASE_LAYER_SCALE_CAP = 1.5;
 
+/**
+ * A page must stay in view this long before glyph extraction is queued.
+ * The raster, the tile, `getPageGeometry`, and `getPageTextRects` share one
+ * PDFium worker. A fling moves a page through the viewport faster than this,
+ * so those pages never join the glyph queue. Pointer entry still arms
+ * selection immediately.
+ */
+export const PDF_WORKER_SETTLE_MS = 180;
+
 export const EMPTY_LAYOUT_REGIONS_BY_PAGE: ReadonlyMap<
 	number,
 	PdfLayoutRegion[]

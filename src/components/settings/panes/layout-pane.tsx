@@ -90,6 +90,7 @@ const EMPTY_PROVIDER_CONFIG: LayoutProviderConfig = {
 	prompt: "",
 	language: DEFAULT_MINERU_LANGUAGE,
 	isOcr: false,
+	selfHosted: false,
 };
 
 const PROBE_LABEL_KEYS = {
@@ -462,6 +463,8 @@ function ProviderConfigCard({
 			? draft.language
 			: stored.language || DEFAULT_MINERU_LANGUAGE;
 	const displayIsOcr = draft.isOcr !== undefined ? draft.isOcr : stored.isOcr;
+	const displaySelfHosted =
+		draft.selfHosted !== undefined ? draft.selfHosted : stored.selfHosted;
 	const configured = displayApiKey.trim().length > 0;
 
 	const runProbe = useCallback(
@@ -495,7 +498,18 @@ function ProviderConfigCard({
 			const prompt = provider.supportsPrompt ? displayPrompt.trim() : "";
 			const language = provider.supportsLanguage ? displayLanguage : "";
 			const isOcr = provider.supportsOcr ? displayIsOcr : false;
-			const config = { apiKey, baseUrl, model, prompt, language, isOcr };
+			const selfHosted = provider.supportsSelfHosted
+				? displaySelfHosted
+				: false;
+			const config = {
+				apiKey,
+				baseUrl,
+				model,
+				prompt,
+				language,
+				isOcr,
+				selfHosted,
+			};
 
 			if (!apiKey) {
 				// Optimistic UI: hide from backend selects before Host round-trip.
@@ -536,6 +550,7 @@ function ProviderConfigCard({
 			displayPrompt,
 			displayLanguage,
 			displayIsOcr,
+			displaySelfHosted,
 			layout,
 			patch,
 			provider,
@@ -646,7 +661,16 @@ function ProviderConfigCard({
 				) : null}
 				{provider.supportsBaseUrl ? (
 					<ProviderFieldRow
-						label={t("layout.providerConfig.baseUrl.label")}
+						label={
+							provider.supportsSelfHosted ? (
+								<HelpLabel
+									label={t("layout.providerConfig.baseUrl.label")}
+									help={t("layout.providerConfig.selfHostedHelp")}
+								/>
+							) : (
+								t("layout.providerConfig.baseUrl.label")
+							)
+						}
 						htmlFor={`layout-provider-${provider.id}-base-url`}
 					>
 						<Input
@@ -707,7 +731,9 @@ function ProviderConfigCard({
 						/>
 					</ProviderFieldRow>
 				) : null}
-				{provider.supportsLanguage || provider.supportsOcr ? (
+				{provider.supportsLanguage ||
+				provider.supportsOcr ||
+				provider.supportsSelfHosted ? (
 					<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
 						<CollapsibleTrigger asChild>
 							<button
@@ -778,6 +804,29 @@ function ProviderConfigCard({
 											setDraft((prev) => ({
 												...prev,
 												isOcr: checked === true,
+											}))
+										}
+									/>
+								</ProviderFieldRow>
+							) : null}
+							{provider.supportsSelfHosted ? (
+								<ProviderFieldRow
+									label={
+										<HelpLabel
+											label={t("layout.providerConfig.selfHosted.label")}
+											help={t("layout.providerConfig.selfHosted.help")}
+										/>
+									}
+									htmlFor={`layout-provider-${provider.id}-self-hosted`}
+								>
+									<Switch
+										id={`layout-provider-${provider.id}-self-hosted`}
+										size="sm"
+										checked={displaySelfHosted}
+										onCheckedChange={(checked) =>
+											setDraft((prev) => ({
+												...prev,
+												selfHosted: checked === true,
 											}))
 										}
 									/>

@@ -25,7 +25,25 @@ export function initSettingsStore(): void {
 	subscribeSettings((next) => {
 		const prev = settingsStore.getState();
 		if (JSON.stringify(prev) === JSON.stringify(next)) return;
-		settingsStore.setState(next, true);
+		// Merge only top-level fields whose content actually changed: the
+		// broadcast snapshot carries fresh identities for every nested
+		// object/array (cloneSettings on the sender side), and a wholesale
+		// replace would re-render subscribers of untouched domains (e.g.
+		// libraryColumns → the whole Library panel). Settings are small and
+		// cross-window sync is rare, so JSON content comparison per field is
+		// cheap; unchanged fields keep their old references so selectors bail.
+		const changed: Partial<AppSettings> = {};
+		const sink = changed as Record<string, unknown>;
+		for (const key of Object.keys(next) as (keyof AppSettings)[]) {
+			const before = prev[key];
+			const after = next[key];
+			const differs =
+				after !== null && typeof after === "object"
+					? JSON.stringify(before) !== JSON.stringify(after)
+					: before !== after;
+			if (differs) sink[key] = after;
+		}
+		settingsStore.setState({ ...prev, ...changed }, true);
 	});
 }
 

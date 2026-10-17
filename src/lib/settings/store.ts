@@ -795,6 +795,7 @@ function normalizeLayoutProviderConfigs(
 			prompt?: unknown;
 			language?: unknown;
 			isOcr?: unknown;
+			selfHosted?: unknown;
 		};
 		const language =
 			typeof cfg.language === "string" ? cfg.language.trim() : "";
@@ -805,6 +806,7 @@ function normalizeLayoutProviderConfigs(
 			prompt: typeof cfg.prompt === "string" ? cfg.prompt.trim() : "",
 			language: isMineruLanguage(language) ? language : DEFAULT_MINERU_LANGUAGE,
 			isOcr: cfg.isOcr === true,
+			selfHosted: cfg.selfHosted === true,
 		};
 	}
 	return out;

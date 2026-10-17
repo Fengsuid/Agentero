@@ -37,14 +37,9 @@ import {
 	type DocTab,
 	loadTabResources,
 	patchFromTabResources,
-	refreshExcalidrawTab,
-	refreshPdfTab,
-	refreshTextTab,
-	reseedMarkdownTab,
-	reseedNotesTab,
 	syncTabSeedsForPath,
 } from "@/lib/workspace/tabs";
-import type { CenterViewMode } from "@/lib/workspace/viewer";
+import { isCenterViewMode } from "@/lib/workspace/viewer";
 
 // DocView's memo compares domain objects by identity; the popout never shows
 // Library / PDF-chrome surfaces, so constant no-op stubs keep it that way.
@@ -123,7 +118,10 @@ export function DocWindowRoot() {
 			}
 			if (cancelled) return;
 
-			const preferMode = (params.mode as CenterViewMode | null) ?? undefined;
+			// Unregistered URL modes are ignored (viewerModeSpec throws otherwise).
+			const preferMode = isCenterViewMode(params.mode)
+				? params.mode
+				: undefined;
 			const placeholder = createPlaceholderTab(path, preferMode);
 			setTab(placeholder);
 
@@ -176,35 +174,10 @@ export function DocWindowRoot() {
 	const diskChangeSink = useMemo(
 		() => ({
 			getTabs: () => (tabRef.current ? [tabRef.current] : []),
-			refreshNotes: (paperDir: string, content: string) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return reseedNotesTab([prev], paperDir, content)[0] ?? prev;
-				});
-			},
-			refreshMarkdown: (absPath: string, content: string) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return reseedMarkdownTab([prev], absPath, content)[0] ?? prev;
-				});
-			},
-			refreshExcalidraw: (absPath: string, content: string) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return refreshExcalidrawTab([prev], absPath, content)[0] ?? prev;
-				});
-			},
-			refreshText: (absPath: string, content: string) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return refreshTextTab([prev], absPath, content)[0] ?? prev;
-				});
-			},
-			refreshPdf: (absPath: string, bytes: ArrayBuffer) => {
-				setTab((prev) => {
-					if (!prev) return prev;
-					return refreshPdfTab([prev], absPath, bytes)[0] ?? prev;
-				});
+			// Single-tab window: run the shared tab-list transforms over the
+			// local React tab and keep the patched tab.
+			updateTabs: (update: (prev: DocTab[]) => DocTab[]) => {
+				setTab((prev) => (prev ? (update([prev])[0] ?? prev) : prev));
 			},
 		}),
 		[],

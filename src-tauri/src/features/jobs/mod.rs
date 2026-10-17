@@ -162,6 +162,14 @@ pub struct JobSnapshot {
     pub kind: JobKind,
     pub lane: JobLane,
     pub state: JobState,
+    /// Vault root as passed by the enqueuing caller, verbatim (lossy string).
+    /// Frontend-initiated jobs carry the exact frontend `getVaultPath()`
+    /// string, so consumers can filter by active vault; host-internal jobs
+    /// (watcher / recognize helpers) carry the Host's own form, usually
+    /// canonical (Windows: `\\?\` prefix). `vault_path` below stays the
+    /// canonical path used for filesystem access and the dedupe key.
+    pub vault_id: String,
+    /// Canonical vault root: filesystem operations + dedupe identity.
     pub vault_path: String,
     pub paper_path: Option<String>,
     pub fingerprint: String,
@@ -189,6 +197,9 @@ impl JobSnapshot {
             kind,
             lane,
             state: JobState::Skipped,
+            // Skipped snapshots never register or touch the filesystem, so no
+            // canonicalization happens: both fields carry the caller's string.
+            vault_id: vault_path.clone(),
             vault_path,
             paper_path,
             fingerprint: kind.fingerprint(false, None),
@@ -282,7 +293,10 @@ struct Job {
     id: JobId,
     kind: JobKind,
     lane: JobLane,
+    /// Canonical vault root: filesystem operations + dedupe key.
     vault_path: PathBuf,
+    /// Vault root as passed by the enqueuing caller (see `JobSnapshot.vault_id`).
+    vault_id: String,
     paper_path: Option<String>,
     fingerprint: String,
     depends_on: Vec<JobId>,
@@ -305,6 +319,7 @@ impl Job {
             kind: self.kind,
             lane: self.lane,
             state: self.state,
+            vault_id: self.vault_id.clone(),
             vault_path: self.vault_path.to_string_lossy().to_string(),
             paper_path: self.paper_path.clone(),
             fingerprint: self.fingerprint.clone(),
@@ -923,6 +938,11 @@ impl JobCenter {
         // error fall back to the raw path, mirroring `canonicalize_best_effort`'s
         // own `unwrap_or` fallback.
         let raw_vault = vault.into();
+        // `vault_id` keeps the caller's string verbatim: the frontend's own
+        // `getVaultPath()` string for frontend-initiated jobs, the Host's form
+        // for internal enqueues. Only `vault_path` below is canonicalized
+        // (filesystem operations + the `JobKey` dedupe identity).
+        let vault_id = raw_vault.to_string_lossy().to_string();
         let vault_for_blocking = raw_vault.clone();
         let vault_path = match tokio::task::spawn_blocking(move || {
             canonicalize_best_effort(&vault_for_blocking)
@@ -954,6 +974,7 @@ impl JobCenter {
             kind,
             lane,
             vault_path,
+            vault_id,
             paper_path: Some(paper_path),
             fingerprint,
             depends_on: Vec::new(),
@@ -1547,6 +1568,7 @@ impl JobCenter {
             kind,
             lane: JobLane::Normal,
             vault_path: canonicalize_best_effort(&vault),
+            vault_id: vault.to_string_lossy().to_string(),
             paper_path: Some(path.to_string()),
             fingerprint: format!("test:{}", id.0),
             depends_on,
@@ -1794,6 +1816,32 @@ mod tests {
 
         assert_eq!(first.id, duplicate.id);
         assert_eq!(center.list(None, None).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn snapshot_keeps_the_raw_caller_vault_as_vault_id() {
+        // A real directory so canonicalization actually rewrites the input
+        // (drops the trailing separator; macOS resolves the temp symlink, and
+        // Windows additionally adds the `\\?\` prefix). `vault_id` must keep
+        // the caller's string verbatim — frontend filtering compares it with
+        // `getVaultPath()`.
+        let dir = std::env::temp_dir().join("agentero-job-vault-id-test");
+        std::fs::create_dir_all(&dir).expect("create temp vault dir");
+        let raw = format!("{}{}", dir.display(), std::path::MAIN_SEPARATOR);
+        let center = JobCenter::new();
+        let first = center
+            .enqueue_parse_refs(PathBuf::from(&raw), "papers/a", JobLane::Normal, false)
+            .await;
+        assert_eq!(first.vault_id, raw);
+        assert_ne!(first.vault_path, raw);
+
+        // Dedupe still keys on the canonical path: re-enqueueing with the
+        // other spelling returns the same job.
+        let second = center
+            .enqueue_parse_refs(dir.clone(), "papers/a", JobLane::Normal, false)
+            .await;
+        assert_eq!(first.id, second.id);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

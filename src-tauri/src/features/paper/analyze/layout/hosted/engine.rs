@@ -29,6 +29,9 @@ pub struct HostedProviderCredentials {
     pub language: Option<String>,
     /// MinerU force-OCR: OCR every page regardless of the PDF text layer.
     pub is_ocr: bool,
+    /// MinerU: treat `base_url` as a self-hosted deployment (dialect detected
+    /// from its health endpoint) instead of the official cloud API.
+    pub self_hosted: bool,
 }
 
 /// Everything one whole-document analyze run needs: the base64 PDF (in

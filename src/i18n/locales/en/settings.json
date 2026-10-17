@@ -577,6 +577,11 @@
 			"baseUrl": {
 				"label": "Base URL"
 			},
+			"selfHostedHelp": "Official cloud API base, or a relay address.",
+			"selfHosted": {
+				"label": "Self-hosted API",
+				"help": "Enable only when using a self-hosted server."
+			},
 			"model": {
 				"label": "Model"
 			},
@@ -586,7 +591,7 @@
 			},
 			"language": {
 				"label": "Language",
-				"help": "Specify the document language",
+				"help": "OCR language pack; ignored by self-hosted 4.0.",
 				"options": {
 					"ch": "Chinese–English",
 					"en": "Pure English"
@@ -594,7 +599,7 @@
 			},
 			"forceOcr": {
 				"label": "Force OCR",
-				"help": "Enable OCR for all pages."
+				"help": "OCR every page regardless of the text layer."
 			},
 			"probeIdle": "Not checked yet",
 			"probeOk": "Available",

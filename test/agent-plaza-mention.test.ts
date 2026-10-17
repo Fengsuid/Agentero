@@ -205,19 +205,19 @@ describe("plaza mention arxiv ids", () => {
 });
 
 describe("assembleTurnPrompt with plaza mentions", () => {
-	it("splits vault bullets from the plaza block", () => {
+	it("keeps the plaza block and leaves vault paths to the context resolver", () => {
 		registerPlazaMentionEntries([recEntry]);
 		const { prompt } = assembleTurnPrompt({
 			text: "compare these",
 			contextPaths: ["papers/a", recEntry.path],
-			selections: [],
 			visualDrafts: [],
 			attachedImages: [],
 			isAcpCommand: false,
 			t,
 		});
 		expect(prompt).toContain("compare these");
-		expect(prompt).toContain("- papers/a");
+		expect(prompt).not.toContain("- papers/a");
+		expect(prompt).not.toContain("composer.contextInstruction");
 		expect(prompt).not.toContain(`- ${recEntry.path}`);
 		expect(prompt).toContain(`### ${recEntry.title}`);
 		registerPlazaMentionEntries([]);
@@ -228,7 +228,6 @@ describe("assembleTurnPrompt with plaza mentions", () => {
 		const { prompt } = assembleTurnPrompt({
 			text: "summarize",
 			contextPaths: [recEntry.path],
-			selections: [],
 			visualDrafts: [],
 			attachedImages: [],
 			isAcpCommand: false,
@@ -245,7 +244,6 @@ describe("assembleTurnPrompt with plaza mentions", () => {
 		const { prompt } = assembleTurnPrompt({
 			text: "summarize",
 			contextPaths: [recEntry.path],
-			selections: [],
 			visualDrafts: [],
 			attachedImages: [],
 			isAcpCommand: false,

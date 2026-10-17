@@ -35,7 +35,7 @@ use crate::integration::mcp::tunnel::McpTunnelController;
 use crate::integration::mcp::McpController;
 #[cfg(not(target_os = "ios"))]
 use crate::integration::remote::RemoteRegistry;
-#[cfg(not(target_os = "ios"))]
+// Used on every platform: the exit handler shuts down the agent warm pool.
 use std::sync::Arc;
 #[cfg(not(target_os = "ios"))]
 use tauri::Emitter;
@@ -126,6 +126,7 @@ pub fn run() {
                 .with_import_concurrency(import_concurrency),
         )
         .manage(crate::features::paper::catalog::CapsCache::new())
+        .manage(crate::app::vault_session::VaultHolders::new())
         .manage(WikiIndexState::new())
         .manage(crate::features::vault::doctor::DoctorDirtyPathsState::default())
         .manage(ExternalRenameRepairStore::new())
@@ -483,6 +484,25 @@ pub fn run() {
         builder = builder.on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 window.state::<FsWatchController>().stop(window.label());
+                // The window is gone, so it must not keep pinning any vault's
+                // Host resources (see `VaultHolders`). The global release
+                // sequence is async; spawn it so this synchronous event
+                // callback never blocks the event loop.
+                let drained = window
+                    .state::<vault_session::VaultHolders>()
+                    .drain_window(window.label());
+                if !drained.is_empty() {
+                    let app = window.app_handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        for vault in drained {
+                            vault_session::lifecycle::release_vault_resources(
+                                &app,
+                                std::path::Path::new(&vault),
+                            )
+                            .await;
+                        }
+                    });
+                }
                 if window.label() == crate::app::window::commands::SETTINGS_WINDOW_LABEL {
                     crate::app::window::commands::emit_window_closed(
                         window.app_handle(),
@@ -524,7 +544,6 @@ pub fn run() {
             ) {
                 app.state::<Arc<crate::features::agent::session::pool::AgentWarmPool>>()
                     .shutdown();
-                crate::features::agent::acp::process::shutdown();
                 #[cfg(not(target_os = "ios"))]
                 app.state::<Arc<ConnectorController>>().stop();
                 // The MCP HTTP listener and the ChatGPT tunnel child are both

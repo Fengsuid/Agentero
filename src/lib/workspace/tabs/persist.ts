@@ -11,23 +11,9 @@ import type {
 	PersistedTab,
 	PersistedTabs,
 } from "@/lib/workspace/tabs/types";
-import type { CenterViewMode } from "@/lib/workspace/viewer";
+import { isCenterViewMode } from "@/lib/workspace/viewer";
 
 const TABS_STORAGE_KEY = "agentero-open-tabs";
-
-const VALID_MODES = new Set<CenterViewMode>([
-	"markdown",
-	"pdf",
-	"html",
-	"image",
-	"translation",
-	"excalidraw",
-	"text",
-]);
-
-function isCenterViewMode(v: unknown): v is CenterViewMode {
-	return typeof v === "string" && VALID_MODES.has(v as CenterViewMode);
-}
 
 export function panelPersistParams(tab: DocTab): PanelPersistParams {
 	return {

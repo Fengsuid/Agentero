@@ -417,6 +417,10 @@ pub struct LayoutProviderConfig {
     /// MinerU force-OCR: run OCR on every page regardless of the PDF text layer.
     #[serde(default)]
     pub is_ocr: bool,
+    /// Treat `base_url` as a self-hosted MinerU server (version-detected)
+    /// instead of the official cloud API (which also covers relays).
+    #[serde(default)]
+    pub self_hosted: bool,
 }
 
 impl Default for AppSettings {
@@ -891,6 +895,22 @@ impl AppSettingsStore {
                         .provider_configs
                         .get(key)
                         .is_some_and(|cfg| cfg.is_ocr)
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    /// Resolve the MinerU self-hosted switch (default false). Only the MinerU
+    /// engine reads it; other providers return false.
+    pub fn layout_self_hosted(&self, provider: &str) -> bool {
+        layout_provider_settings_key(provider)
+            .and_then(|key| {
+                self.inner.lock().ok().map(|guard| {
+                    guard
+                        .layout
+                        .provider_configs
+                        .get(key)
+                        .is_some_and(|cfg| cfg.self_hosted)
                 })
             })
             .unwrap_or(false)

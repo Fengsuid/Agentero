@@ -432,6 +432,17 @@ pub struct RunOnceRequest {
     /// (paper-reader and other non-composer workflows).
     #[serde(default)]
     pub hide_from_chat_history: bool,
+    /// Selection, open paper, and @ mentions for this turn.
+    /// The host resolver writes the minimum evidence into the prompt and, for a
+    /// local session, attaches the session-scoped `agentero-context` MCP.
+    /// Omit when the turn has no vault anchor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<agentero_core::features::context::ContextRequest>,
+    /// Earlier on-screen turns. The host inserts them only when the context
+    /// fingerprint refuses to resume `session_id`. Omit when the prompt already
+    /// contains that transcript.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_transcript: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]

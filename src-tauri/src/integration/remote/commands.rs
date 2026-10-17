@@ -8,8 +8,11 @@ use crate::core::error::{map_err, ApiResult, AppError};
 use crate::core::fs::{FsDirEntry, WriteOpts};
 use crate::core::log_util::{trunc, OpTimer};
 use crate::features::paper::catalog::papers::{self, PaperRecord};
+use crate::features::paper::catalog::service;
 use crate::features::vault::CreateVaultResult;
-use crate::integration::remote::{ensure_remote_vault_skills, RemoteRegistry, RemoteSessionInfo};
+use crate::integration::remote::{
+    ensure_remote_vault_skills, RemoteRegistry, RemoteSession, RemoteSessionInfo,
+};
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
@@ -278,25 +281,13 @@ pub async fn remote_paper_get(
     args: RemotePaperGetArgs,
 ) -> Result<ApiResult<PaperRecord>, String> {
     let session = try_session!(registry, &args.session_id);
-    let work = session.work_root.clone();
-    let result = if let Some(path) = args
-        .path
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        let path = path.trim_matches('/').replace('\\', "/");
-        papers::get_by_path(&work, &path)
-    } else if let Some(id) = args.id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        papers::get_by_id(&work, id)
-    } else {
-        return Ok(map_err(AppError::message("path or id is required")));
-    };
-    match result {
-        Ok(Some(row)) => Ok(ApiResult::ok(row)),
-        Ok(None) => Ok(map_err(AppError::message("paper not found in catalog"))),
-        Err(e) => Ok(map_err(e)),
-    }
+    // Same unified entry as local `paper_get` (validated in
+    // `features::paper::catalog::service`), run against the session work root.
+    Ok(service::get_paper(
+        &session.work_root,
+        args.path.as_deref(),
+        args.id.as_deref(),
+    ))
 }
 
 #[tauri::command]
@@ -306,6 +297,10 @@ pub async fn remote_paper_list(
     args: RemoteSessionArgs,
 ) -> Result<ApiResult<Vec<PaperRecord>>, String> {
     let session = try_session!(registry, &args.session_id);
+    // Refresh from the remote authority first, holding the mirror lock
+    // through the read (unchanged lock scope). The projection intentionally
+    // differs from local `paper_list` (raw rows, no has_pdf probe, no id
+    // dedupe) — known drift kept for wire stability; see docs/backend/remote.md.
     let mut catalog = session.catalog.lock().await;
     if let Err(e) = catalog.refresh(session.fs.clone()).await {
         return Ok(map_err(e));
@@ -313,6 +308,24 @@ pub async fn remote_paper_list(
     let work = session.work_root.clone();
     match papers::list_all(&work) {
         Ok(rows) => Ok(ApiResult::ok(rows)),
+        Err(e) => Ok(map_err(e)),
+    }
+}
+
+/// Commit a shared paper write use case: the result ran against the session
+/// work mirror, so publish the catalog to the remote authority on success
+/// (failed use cases are returned as-is, never pushed). The remote half of
+/// the unified entry — session lookup in the command via `try_session!`,
+/// push here, both out of the use case bodies.
+async fn commit_paper_write<T: Serialize>(
+    session: &RemoteSession,
+    result: ApiResult<T>,
+) -> Result<ApiResult<T>, String> {
+    if !result.ok {
+        return Ok(result);
+    }
+    match session.push_catalog().await {
+        Ok(()) => Ok(result),
         Err(e) => Ok(map_err(e)),
     }
 }
@@ -332,21 +345,11 @@ pub async fn remote_paper_set_tags(
     args: RemotePaperSetTagsArgs,
 ) -> Result<ApiResult<PaperRecord>, String> {
     let session = try_session!(registry, &args.session_id);
-    let path = args.path.trim().trim_matches('/').replace('\\', "/");
-    if path.is_empty() {
-        return Ok(map_err(AppError::message("path is required")));
-    }
-    let row = match papers::set_tags(&session.work_root, &path, &args.tags) {
-        Ok(r) => r,
-        Err(e) => return Ok(map_err(e)),
-    };
-    {
-        let mut cat = session.catalog.lock().await;
-        if let Err(e) = cat.push(session.fs.clone()).await {
-            return Ok(map_err(e));
-        }
-    }
-    Ok(ApiResult::ok(row))
+    commit_paper_write(
+        &session,
+        service::set_tags(&session.work_root, &args.path, &args.tags),
+    )
+    .await
 }
 
 #[derive(Debug, Deserialize, specta::Type)]
@@ -364,21 +367,11 @@ pub async fn remote_paper_set_is_read(
     args: RemotePaperSetIsReadArgs,
 ) -> Result<ApiResult<PaperRecord>, String> {
     let session = try_session!(registry, &args.session_id);
-    let path = args.path.trim().trim_matches('/').replace('\\', "/");
-    if path.is_empty() {
-        return Ok(map_err(AppError::message("path is required")));
-    }
-    let row = match papers::set_is_read(&session.work_root, &path, args.is_read) {
-        Ok(r) => r,
-        Err(e) => return Ok(map_err(e)),
-    };
-    {
-        let mut cat = session.catalog.lock().await;
-        if let Err(e) = cat.push(session.fs.clone()).await {
-            return Ok(map_err(e));
-        }
-    }
-    Ok(ApiResult::ok(row))
+    commit_paper_write(
+        &session,
+        service::set_is_read(&session.work_root, &args.path, args.is_read),
+    )
+    .await
 }
 
 /// Ensure a remote PDF (or other file) is cached under the session blob dir; return local path.
@@ -515,15 +508,19 @@ pub async fn remote_paper_rescan(
     args: RemoteSessionArgs,
 ) -> Result<ApiResult<RemotePaperRescanResult>, String> {
     let session = try_session!(registry, &args.session_id);
-    match remote_rescan_impl(&session).await {
-        Ok(r) => Ok(ApiResult::ok(r)),
-        Err(e) => Ok(map_err(e)),
-    }
+    let result = match remote_rescan_impl(&session).await {
+        Ok(r) => ApiResult::ok(r),
+        Err(e) => map_err(e),
+    };
+    commit_paper_write(&session, result).await
 }
 
-async fn remote_rescan_impl(
-    session: &crate::integration::remote::RemoteSession,
-) -> Result<RemotePaperRescanResult, AppError> {
+/// Remote-only rescan: walk `papers/` over the session FS (local rescan uses
+/// `papers::rebuild_from_disk` on `std::fs`), backfill marker folders with a
+/// NOTES.md title and a `remote_rescan` fallback row, then report the count.
+/// The catalog push stays in [`commit_paper_write`] for both rescan and the
+/// other remote writes.
+async fn remote_rescan_impl(session: &RemoteSession) -> Result<RemotePaperRescanResult, AppError> {
     use papers::PaperRecord;
 
     let mut count = 0usize;
@@ -576,11 +573,6 @@ async fn remote_rescan_impl(
                 stack.push(e.path);
             }
         }
-    }
-
-    {
-        let mut cat = session.catalog.lock().await;
-        cat.push(session.fs.clone()).await?;
     }
 
     Ok(RemotePaperRescanResult { count })

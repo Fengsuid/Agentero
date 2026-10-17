@@ -2,6 +2,7 @@
 
 use crate::error::AppError;
 use crate::paths;
+use crate::sqlite::MigrationStep;
 use rusqlite::Connection;
 use std::fs;
 use std::path::Path;
@@ -73,75 +74,59 @@ pub fn ensure_feeds_at(db_path: &Path) -> Result<Connection, AppError> {
     Ok(conn)
 }
 
+/// Migration ladder, applied by [`crate::sqlite::run_migrations`] (per-step
+/// version re-read, stamping, `newer than app` guard).
+const MIGRATION_STEPS: [MigrationStep; 4] = [
+    MigrationStep::batch(1, DDL_V1),
+    // SQLite ADD COLUMN is not fully batch-safe across existing cols; run
+    // one-by-one ignore dupes.
+    MigrationStep::script_tolerant(2, MIGRATE_V1_TO_V2),
+    MigrationStep::custom(3, migrate_v3),
+    // Article→Markdown math conversion changed (env unwrapping, HTML
+    // artifact cleanup, placeholder restore fix); cached bodies from
+    // older versions may show broken math. Re-resolve on next open.
+    MigrationStep::batch(4, "UPDATE items SET body_markdown = NULL"),
+];
+
 fn migrate(conn: &Connection) -> Result<(), AppError> {
-    let version = schema_version(conn).unwrap_or(0);
-    if version > SCHEMA_VERSION {
-        return Err(AppError::message(format!(
-            "feeds schema version {version} is newer than this app supports ({SCHEMA_VERSION})"
-        )));
-    }
-    if version < 1 {
-        conn.execute_batch(DDL_V1)
-            .map_err(|e| AppError::message(format!("feeds migrate v1: {e}")))?;
-        set_schema_version(conn, 1)?;
-    }
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 2 {
-        for stmt in MIGRATE_V1_TO_V2.split(';') {
-            let s = stmt.trim();
-            if s.is_empty() {
-                continue;
-            }
-            match conn.execute_batch(&format!("{s};")) {
-                Ok(()) => {}
-                Err(e) => {
-                    let msg = e.to_string();
-                    if msg.contains("duplicate column name") {
-                        continue;
-                    }
-                    return Err(AppError::message(format!("feeds migrate v2: {e}")));
-                }
-            }
-        }
-        set_schema_version(conn, 2)?;
-    }
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 3 {
-        // Data-only: rewrite legacy timestamp values to canonical millis form.
-        // Idempotent — canonical values pass through, unparseable ones are kept.
-        let tx = conn
-            .unchecked_transaction()
-            .map_err(|e| AppError::message(format!("feeds migrate v3 tx: {e}")))?;
-        crate::time::normalize_timestamp_columns(
-            &tx,
-            "subscriptions",
-            "id",
-            &["added_at", "pinned_at", "last_fetched_at"],
-        )
-        .map_err(|e| AppError::message(format!("feeds migrate v3 subs: {e}")))?;
-        crate::time::normalize_timestamp_columns(
-            &tx,
-            "items",
-            "id",
-            &["first_seen_at", "imported_at", "published_at"],
-        )
-        .map_err(|e| AppError::message(format!("feeds migrate v3 items: {e}")))?;
-        tx.commit()
-            .map_err(|e| AppError::message(format!("feeds migrate v3 commit: {e}")))?;
-        set_schema_version(conn, 3)?;
-    }
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 4 {
-        // Article→Markdown math conversion changed (env unwrapping, HTML
-        // artifact cleanup, placeholder restore fix); cached bodies from
-        // older versions may show broken math. Re-resolve on next open.
-        conn.execute("UPDATE items SET body_markdown = NULL", [])
-            .map_err(|e| AppError::message(format!("feeds migrate v4: {e}")))?;
-        set_schema_version(conn, 4)?;
-    }
+    crate::sqlite::run_migrations(
+        conn,
+        crate::sqlite::DbMsgs::FEEDS,
+        SCHEMA_VERSION,
+        &MIGRATION_STEPS,
+        set_schema_version,
+    )
+}
+
+/// v3: data-only migration inside one transaction — rewrite legacy timestamp
+/// values to canonical millis form. Idempotent: canonical values pass through,
+/// unparseable ones are kept.
+fn migrate_v3(conn: &Connection) -> Result<(), AppError> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::message(format!("feeds migrate v3 tx: {e}")))?;
+    crate::time::normalize_timestamp_columns(
+        &tx,
+        "subscriptions",
+        "id",
+        &["added_at", "pinned_at", "last_fetched_at"],
+    )
+    .map_err(|e| AppError::message(format!("feeds migrate v3 subs: {e}")))?;
+    crate::time::normalize_timestamp_columns(
+        &tx,
+        "items",
+        "id",
+        &["first_seen_at", "imported_at", "published_at"],
+    )
+    .map_err(|e| AppError::message(format!("feeds migrate v3 items: {e}")))?;
+    tx.commit()
+        .map_err(|e| AppError::message(format!("feeds migrate v3 commit: {e}")))?;
     Ok(())
 }
 
+/// Test-only accessor: the ladder reads the version through
+/// [`crate::sqlite::run_migrations`] itself.
+#[cfg(test)]
 fn schema_version(conn: &Connection) -> Result<i32, AppError> {
     crate::sqlite::read_schema_version(conn, crate::sqlite::DbMsgs::FEEDS)
 }

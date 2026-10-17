@@ -15,7 +15,7 @@
 
 ## 命名规范
 
-1. **格式**：`domain:event-name`，全 kebab-case，单冒号分隔；域名用单个单词（`job:`，不用 `job-center:`）。
+1. **格式**：`domain:event-name`，全 kebab-case，单冒号分隔；域名用单个单词（`job:`，不用 `job-center:`）。（例外：进度事件 `agent-lifecycle:progress`、`layout-remote:progress` 属既有豁免，多词域名保留不改。）
 2. **按语义分三类**：
    - **事实事件**（生命周期核心，动词过去式）：`paper:imported`、`vault:opened` —— "某事已发生"，唯一的 hook 挂载点
    - **进度流**：`xxx:progress` —— 仅 UI 反馈，不是 hook 点
@@ -35,21 +35,21 @@
 
 ## 事件清单
 
-⭐ = 第一批（有明确消费者，现有硬编码链可迁移）；○ = 预留，有需求再加。
+⭐ = 有明确消费者（现有硬编码链可迁移）；○ = 预留/预埋，有需求再加。"预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过）" = 发射侧先落地，消费侧等第一个真实需求。
 
 ### app / window
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `app:ready` | 前端 bootstrap 完成（store 已在 `boot()` 种子化、restored vault 校验 settle 后）。已预埋 emit、暂无消费者 |
+| ○ `app:ready` | 前端 bootstrap 完成（store 已在 `boot()` 种子化、restored vault 校验 settle 后）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
 | ⏸ `app:will-quit` | **延后**。从 `RunEvent::Exit` 发前端事件修不了真实需求（退出前 flush debounce 写盘）：那时 webview 已销毁，写盘是异步 invoke。正确做法是 `WindowEvent::CloseRequested` → `api.prevent_close()` → emit → 等前端 ack → `window.destroy()`，属独立特性。Rust 侧 teardown 已直接放在 run closure 里 |
-| ⭐ `window:closed` | 子窗口销毁（Host `on_window_event(Destroyed)`）。payload `{ kind: "settings" \| "feature", view? }`。消费者：settings 回写 ui store、feature popout 清 `featurePoppedOut` |
+| ⭐ `window:closed` | 子窗口销毁（Host `on_window_event(Destroyed)`）。payload `{ kind: "settings" \| "feature", view? }`。消费者：settings 回写 ui store、feature popout 清 `featurePoppedOut`（`register.ts`） |
 
 ### vault
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `vault:opened` | **scoped**。打开/切换 vault（refreshTree、refreshLibrary、seedVaultSkills、job reconcile 挂载点）；其 teardown 负责各 store 的 vault 级清理与 `vault_release` |
+| ⭐ `vault:opened` | **scoped**。打开/切换 vault（refreshTree、refreshLibrary、seedVaultSkills、job/ingest reconcile、arXiv 预热挂载点）；setup 里 `vault_hold` 注册本窗口对该 vault 的持有，teardown 负责各 store 的 vault 级清理（library / wiki / agent / annotations / layout / ui）与 `vault_release`（remote vault 跳过）。Host 侧释放是 **vault 全局**语义，按窗口持有计数：仅最后一个持有该 vault 的窗口触发（详见下文「生命期作用域」） |
 | ○ `vault:created` | 新建 vault |
 | ✅ ~~`vault:closed`~~ | **不再需要**，由 `vault:opened` 的作用域 teardown 承担 |
 | 保留 `vault:file-changed` | watcher 文件变更（已符合规范） |
@@ -58,8 +58,8 @@
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `paper:imported` | `paper_commit` 成功（catalog 已写入、NOTES 已建）。四条导入路径（魔棒 / 本地 PDF / Zotero / Connector）统一发；`paper_download_assets` 为孤儿文件夹补建 catalog 行时也发 |
-| ⭐ `paper:assets-ready` | PDF 下载 / LaTeX 解压 / PAPER.md 生成完成（异步，与 imported 分离） |
+| ⭐ `paper:imported` | `paper_commit` 成功（catalog 已写入、NOTES 已建）。四条导入路径（魔棒 / 本地 PDF / Zotero / Connector）统一发；`paper_download_assets` 为孤儿文件夹补建 catalog 行时也发。消费者：`register.ts`（树/库/双链刷新、tab 资源重解析） |
+| ○ `paper:assets-ready` | PDF 下载 / LaTeX 解压 / PAPER.md 生成完成（异步，与 imported 分离）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
 | ⭐ `paper:renamed` | 后台元数据识别落地：占位目录改名为规范 id（`outcome=renamed`，含 wiki 链接重写清单）或并入已有条目（`outcome=merged`）。前端 handler 抑制 watcher 外部 rename 修复、remap 打开 tab、定向刷新树/库 |
 | ○ `paper:deleted` / `paper:moved` / `paper:tags-changed` / `paper:metadata-updated` | 对象变更 |
 
@@ -67,7 +67,7 @@
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `paper:opened` | openPaper/openTab 完成（layout enqueue、activity 打点挂载点）。已预埋 emit、暂无消费者 |
+| ○ `paper:opened` | openPaper/openTab 完成（layout enqueue、activity 打点挂载点）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
 | ○ `paper:closed` | 关 tab |
 | ○ `mark:created` / `mark:deleted` | 标注增删 |
 | ○ `translation:completed` | 翻译完成 |
@@ -83,7 +83,16 @@
 
 | 事件 | 时机 |
 |---|---|
-| ⭐ `job:completed` / `job:failed` | 由 `job:changed` 状态机单点派生，payload 带 `JobKind`（ParseRefs / ParseBody / LayoutAnalyze / LayoutTranslate / DownloadAssets / PageCount / WikiReindex）。已预埋 emit、暂无消费者 |
+| ○ `job:completed` / `job:failed` | 由 `job:changed` 状态机单点派生（`emit_job_terminal`），payload 为共享的终端字段（`jobId` / `kind` / `vaultId` / `paperId` / `timestamp` / `error`，后两者缺省省略；`vaultId` = `JobSnapshot.vault_id`，**发起方传入的 vault 路径串**，拼写随来源而异 —— 见下节已知限制；供消费者按当前 vault 过滤），带生成的 `JobKind` 联合（16 种，见 `src/lib/core/bindings.ts`）。预埋：emit 已就位、暂无消费者（无回放，晚挂载者会错过） |
+
+#### 已知限制（vaultId 的拼写）
+
+fact 事件的 `vaultId` 是**发起方传入的 vault 路径串**，拼写随来源而异：
+
+- 前端直连发起的流程（以 `getVaultPath()` 调用命令，如下载 / 补资源 / reconcile）：与前端 `getVaultPath()` 逐字一致，可直接比较。
+- 经 job-executor 中继或 Host 内部发起的流程：传入/持有的是 Host 形式（通常 canonical）—— Windows 上带 `\\?\` 前缀，软链接根路径同理，与前端拾取串不逐字相等；个别后台流程沿用触发方原串。例：`tasks.ts` 的 offer 回传（lookup 导入及其补发的 layout / DownloadAssets 子 job）、后台识别落地的 `paper:renamed`。
+
+消费端按当前 vault 过滤时需容忍上述差异（比较前两侧都做 best-effort 归一，如 `canonicalize_best_effort` 语义）。系统性统一（激活时 canonicalize vault 身份并全链路使用同一形式）留作后续工作。
 
 ### 已符合规范、直接纳入
 
@@ -92,16 +101,16 @@
 ## 架构设计
 
 ```text
-Rust 关键节点 ──emit──▶ Tauri wire 事件 ──┐
-                                          ├──▶ src/lib/lifecycle/（typed bus）──▶ 注册 handler
-前端本地动作（openTab 等）──emit──────────┘
+Rust 关键节点 ──emit──▶ Tauri wire 事件 ──▶ tauri-bridge.ts（listen/forward）─┐
+                                                                              ├──▶ typed bus ──▶ 注册 handler
+前端本地动作（bootstrap / openTab）──lifecycle.emit / emitScoped──────────────┘
 ```
 
 - **`src/lib/lifecycle/`**：
-  - `events.ts`：`LifecycleEventMap` 类型定义（事件名 → payload 类型），以及 `ScopedLifecycleEvent` / `FactLifecycleEvent` 的划分
+  - `events.ts`：`LifecycleEventMap` 类型定义（事件名 → payload 类型），以及 `ScopedLifecycleEvent` / `FactLifecycleEvent` 的划分。被桥接事件的字段类型与 wire 对齐（可空字段、`JobKind` 等），由 `tauri-bridge.ts` 的 `forward` 在编译期校验
   - `bus.ts`：极简 typed emitter（`on` / `emit` / `emitScoped`，无第三方依赖）
   - `tauri-bridge.ts`：集中 `listen()` wire 事件并转发进 bus；在 bootstrap 初始化一次
-  - `register.ts`：**唯一**的 handler 注册处
+  - `register.ts`：跨模块 handler 的集中注册处；组件本地的消费在自己的 hook 里 `lifecycle.on`（如 Agent 面板的 `agent:registry-changed`）
 - **Rust 端不做 observer 抽象**：仅在关键节点（`paper_commit` 后、jobs 状态机单点、assets 完成后）直接 emit 语义事件；当前只有前端一个消费者，不过度设计。
 - **顺序约束显式化**：handler 按注册顺序串行 await，不引入优先级系统，靠注册文件内的显式顺序表达。（注：openPaper 直接用导入结果里的绝对路径打开，不依赖 refreshLibrary 完成。）
 
@@ -121,9 +130,20 @@ Rust 关键节点 ──emit──▶ Tauri wire 事件 ──┐
 
 - teardown 按**注册逆序**执行（栈式，与 React 一致）
 - scoped 事件的 setup/teardown **按事件串行化**：setup 是异步的，快速连切两次 vault 否则会让旧作用域的 teardown 与新作用域的 setup 交错
-- 作用域在 setup 排到队之前就被 release（StrictMode 挂载即卸载）时**直接跳过 setup**，而不是做完再撤销
+- 作用域在 setup 排到队之前就被 release（StrictMode 挂载即卸载）时**直接跳过 setup**；setup 循环中途 release 同理：已完成且返回 teardown 的立即撤销，尚未开始的 handler 直接跳过——而不是做完一轮再撤销
 - 注册项以记录对象为身份，同一个 handler 注册两次可独立注销
 - handler 与 teardown 抛错只记日志，不中断其余项
+
+#### 窗口级持有计数（vault_hold / vault_release）
+
+Vault 在前端按窗口 session 隔离（两窗口可同时打开同一 vault），但 `vault_release` 的释放序列是 **vault 全局**语义（取消该 vault 所有在途 job、清 caps cache、驱逐 catalog 连接）。因此 Host 维护 `VaultHolders`（vault → 窗口 label 集合）：
+
+- `vault:opened` setup 调 `vault_hold(path)` 注册持有（窗口 label 由 Tauri 注入，前端签名只有 `path`）；teardown 调 `vault_release(path)` 解除。
+- `vault_release` 仅当该 vault 持有集变空时才执行全局释放序列；仍有其他窗口持有则不做任何全局释放（如窗口 A 切库不再取消窗口 B 该 vault 的在途 job）。
+- 无持有记录时仍执行释放：刻意保留的单窗口兼容回退（漏注册不回归旧行为）。hold 调用失败被吞时（前端 fire & forget，仅记日志）同样落在这条路径：`vault_release` 走「无 entry 回退」照常执行全局释放。
+- 窗口销毁兜底：Host `on_window_event(Destroyed)` 清理该 label 全部持有，变为空的 vault 用 `tauri::async_runtime::spawn` 异步执行释放（不阻塞事件循环）。
+- 同一窗口重复激活（StrictMode remount）因 Set 语义幂等；hold / release 的先后由前端单线程发送决定（命令按运行时调度，本身无 FIFO 保证），理论乱序留下的陈旧持有条目由窗口 Destroyed drain 兜底。
+- 路径身份按 `canonicalize_best_effort` 归一（与 job 去重 key / catalog 连接缓存同一身份；目录已删时回退原串，查不到 entry 则走上面的回退释放），Windows 上 `D:\v` 与 `\\?\D:\v` 归一到同一键；`CapsCache::clear()` 保持全局语义，只在完整释放时执行（有意减少全局清频率，不做按 vault 清）。
 
 ### 订阅 Tauri 事件的约定
 
@@ -139,10 +159,11 @@ Rust 关键节点 ──emit──▶ Tauri wire 事件 ──┐
    - bus 支持返回 cleanup 的 scoped handler + `emitScoped`
    - `listenSafe` / `useTauriEvent`，替掉全部 20 处 leaky 订阅
    - bootstrap：store 种子移入 `boot()`（不再在 render 期做副作用）、JobCenter 订阅补 disposer、`app:ready` 等校验 settle、`window:closed` 收进 bus
-   - 各 store 的 vault 级 clear + `vault_release`（驱逐 Host catalog 连接）
+   - 各 store 的 vault 级 clear + `vault_release`（驱逐 Host catalog 连接；窗口级持有计数 `vault_hold`，多窗口同 vault 时仅最后持有者触发全局释放）
    - 退出时 `BridgeController::stop()`
-   - ACP 退出清理已接入 `ExitRequested` / `Exit`：同步关闭 warm 池、终止 Windows ACP Job；
-     warm setup 超时/替换通过取消 token 回收，Windows 崩溃兜底由 Job kill-on-close 完成。
+   - ACP 退出清理已接入 `ExitRequested` / `Exit`：同步关闭 warm 池；warm setup 超时/替换
+     通过取消 token 回收。Windows 已回退 SDK 启动，完整进程树与崩溃清理仍为
+     [已知限制 #774](https://github.com/poco-ai/Agentero/issues/774)，等待评估 SDK 能力。
      实现与边界见 [`../backend/agent.md`](../backend/agent.md)，无需新增前端退出事件。
 6. 后续（本稿不含）：hook 表用户可配置（settings / `.agentero/`），动作接 JobCenter 执行
 

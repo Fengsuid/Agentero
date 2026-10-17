@@ -100,6 +100,7 @@ export function LayoutStep({
 				prompt: stored?.prompt ?? "",
 				language: stored?.language ?? DEFAULT_MINERU_LANGUAGE,
 				isOcr: stored?.isOcr ?? false,
+				selfHosted: stored?.selfHosted ?? false,
 			},
 			backend: provider.id,
 		});

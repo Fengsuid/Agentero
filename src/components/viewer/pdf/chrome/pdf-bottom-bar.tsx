@@ -1,6 +1,6 @@
 import { Palette } from "lucide-react";
 import type { RefObject } from "react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SiArxiv } from "react-icons/si";
 import { Button } from "@/components/ui/button";
@@ -48,7 +48,7 @@ type PdfBottomBarProps = {
 };
 
 /** Bottom bar: page nav + zoom slider + PDF paper tone. */
-export function PdfBottomBar({
+export const PdfBottomBar = memo(function PdfBottomBar({
 	totalPages,
 	pageField,
 	onPageFieldChange,
@@ -208,4 +208,4 @@ export function PdfBottomBar({
 			</TooltipProvider>
 		</div>
 	);
-}
+});

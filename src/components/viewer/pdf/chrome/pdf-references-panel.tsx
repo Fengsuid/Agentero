@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { ReferencesPanel } from "@/components/viewer/panels/references-panel";
 import { PDF_SIDE_PANEL } from "@/components/viewer/pdf/chrome/pdf-chrome-surface";
 import { cn } from "@/lib/core/utils";
@@ -9,7 +10,7 @@ type PdfReferencesPanelProps = {
 };
 
 /** Left-side citation panel. The toggle button lives in PdfLeftToolbar. */
-export function PdfReferencesPanel({
+export const PdfReferencesPanel = memo(function PdfReferencesPanel({
 	vaultPath,
 	paperPath,
 	showReferences,
@@ -26,4 +27,4 @@ export function PdfReferencesPanel({
 			/>
 		</aside>
 	);
-}
+});

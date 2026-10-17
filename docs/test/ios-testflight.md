@@ -3,12 +3,16 @@
 ## GitHub Actions (recommended)
 
 `.github/workflows/ios-testflight.yml` builds a signed IPA and uploads it to
-App Store Connect. It runs on `v*` tag pushes (alongside the desktop Release
-workflow) and can be triggered manually from the Actions tab.
+App Store Connect. It is triggered on demand (`workflow_dispatch`) from the
+Actions tab or `gh workflow run`; desktop tag pushes do not build iOS.
 
-When the signing secrets are not configured, an automatic tag run exits
-successfully with a warning and skips the iOS build. A manually triggered run
-still fails during preflight so missing release configuration is explicit.
+> Status (2026-10-16): iOS publishing is frozen. No TestFlight builds are
+> produced automatically; run the workflow manually when an iOS build is
+> needed. To resume automatic publishing, add `push.tags: ["v*"]` back to the
+> workflow trigger.
+
+When the signing secrets are not configured, a manual run fails during
+preflight so missing release configuration is explicit.
 
 Required secrets (org or repo level):
 

@@ -64,8 +64,8 @@ Host 通过 Tauri event 向前端推送事件。文件系统、任务和菜单�
 | `job:progress` | 下载/解析任务字节与计数进度（`taskId` = JobCenter job id，投影行消费） | `{ taskId, phase, downloadedBytes, totalBytes?, progress?, currentCount?, totalCount? }`；PDF 与 TeX 并发下载，Host 把两条流的字节合并成**一个**总体进度后再 emit（两条流同时跑时 `phase` = `assets`，只有一条时为 `pdf` / `tex`），前端只做 clamp 不再按阶段加权；任一流仍在下载且 `Content-Length` 未知时 `totalBytes` / `progress` 为空（面板转不确定态），解析阶段显示为处理中，任务完成时为 100%。Host 对字节级进度做节流：百分比变化 ≥1 个点或距上次 emit ≥100ms 才发事件，流结束时必发最终值 |
 | `paper:imported`（已实现） | `paper_commit` 成功（catalog 已写入、NOTES 已建）；本地与远程导入路径统一发；`paper_download_assets` 为孤儿文件夹补建 catalog 行时也发 | `{ vaultId, paperId, timestamp }`（`vaultId` 为 vault 根路径，远程为 `remote:<sessionId>`） |
 | `paper:assets-ready`（已实现） | 论文资产就绪：同步下载完成 / 本地 PDF 拷贝完成 / `DownloadAssets` job 成功 | `{ vaultId, paperId, timestamp }` |
-| `job:completed`（已实现） | job 状态机真实迁移到 `Succeeded` 时由 `job:changed` 单点派生 | `{ jobId, kind, paperId?, timestamp }` |
-| `job:failed`（已实现） | job 状态机真实迁移到 `Failed` 时由 `job:changed` 单点派生 | `{ jobId, kind, paperId?, error?, timestamp }` |
+| `job:completed`（已实现） | job 状态机真实迁移到 `Succeeded` 时由 `job:changed` 单点派生 | `{ jobId, kind, vaultId, paperId?, timestamp }`（`vaultId` = `JobSnapshot.vault_id`：**发起方传入的 vault 路径串**。前端直连的流程与 `getVaultPath()` 逐字一致；经 offer 中继或 Host 内部发起的流程为 Host 持有的形式（通常 canonical）—— Windows 上带 `\\?\` 前缀，消费端比较需容忍两种拼写，见 [../development/lifecycle-events.md](../development/lifecycle-events.md) 已知限制） |
+| `job:failed`（已实现） | job 状态机真实迁移到 `Failed` 时由 `job:changed` 单点派生 | `{ jobId, kind, vaultId, paperId?, error?, timestamp }`（`vaultId` 同上） |
 | `window:closed`（已实现） | 子窗口销毁（`on_window_event(Destroyed)`）。经 lifecycle bridge 转发进前端 bus，消费者集中在 `lifecycle/register.ts` | `{ kind: 'settings' \| 'feature', view? }`（无 `timestamp`） |
 
 #### `agent_warm`
@@ -311,7 +311,7 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
 
 回收站浏览：中间栏 `RecycleBinView`（虚拟 tab `agentero:trash`）用这些命令列出 / 恢复 / 永久删除已删项。
 
-- **`path_list_trash`**（`{ vaultPath }` → `ApiResult<TrashEntry[]>`）：展平所有批次为逐项条目 `{ id, batchId, stored, rel, name, deletedAt, isDir }`，按删除时间倒序。
+- **`path_list_trash`**（`{ vaultPath }` → `ApiResult<TrashEntry[]>`）：展平所有批次为逐项条目 `{ id, batchId, stored, rel, name, title, deletedAt, isDir }`，按删除时间倒序。`title` 来自删除时快照的 catalog 行（恰为一行论文记录时取其标题，供 UI 主行显示；普通文件 / 多论文文件夹为 `null`，回退 `name`），本地与远程（`trash_bridge`）共用 `snapshot_title`。
 - **`path_restore_item`**（`{ vaultPath, batchId, stored }` → `ApiResult<{ rel: string }>`）：把单项移回原位并 `upsert` 恢复其 catalog 行；原路径已占用则报错；批次清空后删除批次目录。
 - **`path_purge_item`**（`{ vaultPath, batchId, stored }` → `ApiResult<null>`）：永久删除单项（不可恢复）。
 - **`path_purge_trash`**（`{ vaultPath }` → `ApiResult<null>`）：清空整个回收站（不可恢复）。
@@ -447,13 +447,21 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
   - 文件监听由前端打开 Vault 后调用 `fs_watch_start`（已落地；见上），非本命令内隐式启动。
   - 返回完整文件树。
 
+#### `vault_hold`
+
+注册当前窗口对某个 vault 的持有（窗口 label 由 Host 注入，前端签名只有 `path`）。前端在 `vault:opened` 作用域 setup 时调用（remote handle 跳过），与 `vault_release` 成对。
+
+- **参数**：`{ path: string }`
+- **返回**：`{ ok: true; data: null }`
+- **行为**：把窗口 label 加入 `VaultHolders`（vault 键 → 窗口集合，幂等）。键在命令里经 `canonicalize_best_effort` 归一（目录已删时回退原串），同一 vault 以 `D:\v` 与 `\\?\D:\v` 两种形式被不同窗口持有时归一到同一键。同一 vault 可被多个窗口同时打开，持有计数让 `vault_release` 知道全局释放是否可以执行。
+
 #### `vault_release`
 
 释放 Host 侧为某个 vault 持有的资源。前端在释放 `vault:opened` 作用域时调用（remote handle 跳过）。
 
 - **参数**：`{ path: string }`
 - **返回**：`{ ok: true; data: null }`
-- **行为**：驱逐该 vault 的 catalog 连接缓存条目。该缓存是进程级、按 vault 根路径索引的，此前唯一的驱逐路径是 `with_catalog` 发现数据库文件消失，因此一次会话中访问过的每个 vault 都会把 SQLite 句柄与 WAL 留到进程退出。对正在进行的 catalog 操作安全：它们持有连接的 `Arc` 克隆，这里只移除缓存条目。
+- **行为**：先解除当前窗口的持有（键归一同 `vault_hold`）；仅当该 vault 不再被任何窗口持有时执行释放序列（取消该 vault 的 JobCenter 任务并 drain、清 paper caps cache、驱逐 catalog 连接缓存条目）。catalog 连接缓存是进程级、按 vault 根路径索引的，驱逐对正在进行的操作安全（它们持有连接的 `Arc` 克隆，这里只移除缓存条目）。**无持有记录时仍执行释放**：刻意保留的单窗口兼容回退（漏注册 `vault_hold`、或目录已删导致 canonicalize 回退原串而查不到 entry 时都不回归旧行为）。窗口销毁时 Host 的 `on_window_event(Destroyed)` 兜底清理该窗口的全部持有，对变为空的 vault 异步执行同一释放序列。
 - **不负责**：文件监听。`fs_watch_start` 本身就会替换该窗口的既有 watcher，窗口销毁时由 Host 的 `on_window_event(Destroyed)` 停止。
 - **没有 `vault:close` 命令**：vault 的生命期由前端 `vault:opened` 作用域的 teardown 表达，见 [../development/lifecycle-events.md](../development/lifecycle-events.md)。
 
@@ -2264,7 +2272,7 @@ Windows：未设 `XDG_CONFIG_HOME` 时回退 `%APPDATA%/agentero/`。旧版 macO
     "parserBackend": "local", // PAPER.md 正文解析引擎："local" | "paddle" | "mineru" | "openaiCompatible" | "agentero"（内置）。默认取构建是否注入内置 provider key：注入则 "agentero"，否则 "local"
     "providerConfigs": {
       "paddle": { "apiKey": "***", "baseUrl": "", "model": "", "prompt": "", "language": "", "isOcr": false },
-      "mineru": { "apiKey": "***", "baseUrl": "", "model": "", "prompt": "", "language": "ch", "isOcr": false }, // baseUrl 空 → 官方 https://mineru.net
+      "mineru": { "apiKey": "***", "baseUrl": "", "model": "", "prompt": "", "language": "ch", "isOcr": false, "selfHosted": false }, // selfHosted false → 官方云（baseUrl 空即 https://mineru.net）；true → 自建服务
       "openaiCompatible": { "apiKey": "***", "baseUrl": "", "model": "", "prompt": "", "language": "", "isOcr": false } // baseUrl 空 → https://api.siliconflow.cn/v1
     }
   }
@@ -2274,13 +2282,14 @@ Windows：未设 `XDG_CONFIG_HOME` 时回退 `%APPDATA%/agentero/`。旧版 macO
 - **`agentero` 没有 `providerConfigs` 条目**：它的 endpoint / key / model 由 `layout_api_key` / `layout_base_url` / `layout_model` 在 getter 层解析到构建期凭证；`normalize_layout_provider_configs` 的 `PROVIDERS` 白名单（`paddle` / `mineru` / `openaiCompatible`）会在每次保存时丢掉任何 `agentero` 卡片，所以编译进去的 key 不可能落盘。`prompt` / `language` / `isOcr` 对它不特判（分别是 model id 推导与 MinerU 专用）。
 - **`backend` 与 `parserBackend` 的白名单不对称**：`LAYOUT_BACKENDS` 不含 `agentero`（把它写进 `backend` 会在下次保存时被重置为 `local`），`PARSER_BACKENDS` 含它。版面分析跑随包离线 ONNX，切云端只会让每个 PDF 都产生费用；理由见 [builtin-provider.md](builtin-provider.md) §版面分析不走内置。
 - `apiKey` 与翻译 BYOK 同一套掩码机制：`settings_get` 返回 `*` 掩码，`settings_set` 收到掩码时保留已存密钥。Paddle key 在 AI Studio 访问令牌页获取；MinerU token 在 mineru.net API 管理页获取；OpenAI 兼容 key 在服务商控制台获取（如硅基流动，前端 `LAYOUT_PROVIDER_DOCS_URLS`）。
-- `baseUrl` 为可选端点覆盖：paddle 端点固定（不支持覆盖）；mineru 支持覆盖且强制 https（loopback `http://localhost` 等除外）；openaiCompatible 默认硅基流动。
+- `baseUrl` 为可选端点覆盖：paddle 端点固定（不支持覆盖）；openaiCompatible 默认硅基流动；mineru 的 baseUrl 默认 `https://mineru.net`。**地址与协议正交**：`selfHosted` 开关决定协议，不看域名 —— `false`（默认）走官方云批量 API，因此填中转站地址也保持官方协议；`true` 时按自建服务处理（http/https 均可，适合局域网），并按健康端点自动识别版本：`GET /v1/health` 通 → 4.0 V1 API（上传 → 解析任务 → 产物），否则 `GET /health` 通 → 3.x `/file_parse`+`/tasks`；两者都不通则报错。
 - `model` 供正文解析引擎使用：openaiCompatible 预设 `PaddlePaddle/PaddleOCR-VL-1.5` / `deepseek-ai/DeepSeek-OCR`（空 → 前者）；paddle 正文预设 `PaddleOCR-VL-1.6` / `PaddleOCR-VL-1.5`（空 → 前者；版面分析固定用 `PP-StructureV3`，不读该字段）。
 - `prompt` 仅 openaiCompatible 使用：OCR 提示词覆盖，空 → 按 model id 自动选择。注意 `PaddleOCR-VL` 只接受固定任务提示词，自定义提示词请配指令型 VLM（详见 [paper-import.md](paper-import.md) § 正文解析引擎）。
-- `language` 仅 mineru 使用：OCR 语言包（API `language` 参数，顶层字段）。白名单校验（`ch` / `en` / `japan` / `korean` 等 16 个语言包，含仅 Host 侧保留的 `ch_server`），未知值回落 `ch`；UI 只提供「中英文」（`ch`，默认，涵盖简体/繁体/混排）与「纯英文」（`en`）。
-- `isOcr` 仅 mineru 使用：强制对所有页面执行 OCR（API `files[].is_ocr`）。默认 `false`，由 MinerU 按文本层自动判断；扫描件文本层缺失/乱码时开启。
+- `language` 仅 mineru 使用：OCR 语言包（云端 API `language` 顶层字段；自建 3.x 作为 `lang_list` 表单字段，4.0 已移除该参数）。白名单校验（`ch` / `en` / `japan` / `korean` 等 16 个语言包，含仅 Host 侧保留的 `ch_server`），未知值回落 `ch`；UI 只提供「中英文」（`ch`，默认，涵盖简体/繁体/混排）与「纯英文」（`en`）。
+- `isOcr` 仅 mineru 使用：强制对所有页面执行 OCR。云端映射 `files[].is_ocr`，自建 4.0 映射 `ocr_mode: "ocr"`（关闭为 `auto`），3.x 映射 `parse_method: "ocr"`（关闭为 `auto`）。默认 `false`，由 MinerU 按文本层自动判断；扫描件文本层缺失/乱码时开启。
+- `selfHosted` 仅 mineru 使用：布尔开关，官方云 API 与自建服务的分界（见上一条 `baseUrl`）；自建侧的服务端参数（如 4.0 解析档位、3.x 后端）由 MinerU 服务端自行配置，不随请求发送。
 - `parserBackend` 与版面 `backend` 独立选择；`paddle` / `mineru` / `openaiCompatible` 共用 `providerConfigs` 凭据池，内置 `agentero` 的凭据来自构建期注入、不进凭据池。正文引擎详见 [paper-import.md](paper-import.md) § 正文解析引擎。
-- 设置 UI：Settings →「版面解析 / Layout」（版面后端由前端 `LAYOUT_PROVIDERS`、正文引擎由 `PARSER_PROVIDERS` 注册表驱动；所有远程 provider 平铺为配置卡，`mergeProviderCards` 按 provider 合并、按 `requiresApiKey` / `supportsBaseUrl` / `supportsModel` / `supportsPrompt` / `supportsLanguage` / `supportsOcr` 显隐 API Key / Base URL / Model / Prompt / 语言 / 强制 OCR 输入 + 连通性测试；Model / Base URL 空值时预填引擎默认值，语言预填 `ch`（中英文）。两个 backend 选择只提供本地 + 已配置（apiKey 非空）的 provider；`local` 与内置 `agentero` 豁免这条过滤（后者没有 apiKey，不豁免就会整个从 `parserBackend` 下拉里消失），内置的描述符 `requiresApiKey` / `supports*` 全 false，因此不渲染任何凭证输入或连通性测试；可选项 ≤1 时保留 Select 外观但 disabled（不弹出下拉，避免换成纯文本导致布局抖动）。清空 API Key 输入框会立即落盘清除密钥（无需点确认）；若当前 `backend` / `parserBackend` 指向该 provider 则回退 `local`，下拉随之移除该项）。
+- 设置 UI：Settings →「版面解析 / Layout」（版面后端由前端 `LAYOUT_PROVIDERS`、正文引擎由 `PARSER_PROVIDERS` 注册表驱动；所有远程 provider 平铺为配置卡，`mergeProviderCards` 按 provider 合并、按 `requiresApiKey` / `supportsBaseUrl` / `supportsModel` / `supportsPrompt` / `supportsLanguage` / `supportsOcr` / `supportsSelfHosted` 显隐 API Key / Base URL / Model / Prompt / 「高级」区（语言 / 强制 OCR / 自建 API 开关）输入 + 连通性测试；Model / Base URL 空值时预填引擎默认值，语言预填 `ch`（中英文）。两个 backend 选择只提供本地 + 已配置（apiKey 非空）的 provider；`local` 与内置 `agentero` 豁免这条过滤（后者没有 apiKey，不豁免就会整个从 `parserBackend` 下拉里消失），内置的描述符 `requiresApiKey` / `supports*` 全 false，因此不渲染任何凭证输入或连通性测试；可选项 ≤1 时保留 Select 外观但 disabled（不弹出下拉，避免换成纯文本导致布局抖动）。清空 API Key 输入框会立即落盘清除密钥（无需点确认）；若当前 `backend` / `parserBackend` 指向该 provider 则回退 `local`，下拉随之移除该项）。
 
 #### `layout_remote_analyze_pdf`（已实现）
 
@@ -2291,7 +2300,8 @@ Windows：未设 `XDG_CONFIG_HOME` 时回退 `%APPDATA%/agentero/`。旧版 macO
   - `apiKey` 为空 / 掩码时由 Host 从设置注入（WebView 不持有明文）；`baseUrl` 一律由 Host 从设置读取。
   - `requestId` 用于并行任务把 `layout-remote:progress` 对回调用方。
 - **Paddle 流程**：multipart 提交任务 `POST /api/v2/ocr/jobs`（`model: PP-StructureV3`，`Authorization: bearer <token>`，端点固定 `https://paddleocr.aistudio-app.com`）→ 每 3s 轮询 `GET /api/v2/ocr/jobs/{jobId}`（总时限 10 分钟）→ 完成后下载 `resultUrl.jsonUrl`（JSONL）并提取每页 `prunedResult.layout_det_res.boxes`。
-- **MinerU 流程**：`POST {base}/api/v4/file-urls/batch` 申请预签名上传 URL → `PUT` 上传 PDF 字节 → 每 3s 轮询 `GET {base}/api/v4/extract-results/batch/{batchId}`（总时限 10 分钟）→ 下载结果 zip，解析 `*content_list.json`（bbox 为 0–1000 归一化，Host 换算回页面像素）+ 中间结果（每页尺寸；条目名按候选匹配：旧版 `*middle.json` / `middle.json`，云端 v4 为 `layout.json`），label 映射到与 PP-DocLayoutV3 统一的词表。不受信 zip 设下载（256 MB）与单条目解压（128 MB）上限；候选条目缺失时报错并列出 zip 实际 entries。
+- **MinerU 流程（官方云）**：`POST {base}/api/v4/file-urls/batch` 申请预签名上传 URL → `PUT` 上传 PDF 字节 → 每 3s 轮询 `GET {base}/api/v4/extract-results/batch/{batchId}`（总时限 10 分钟）→ 下载结果 zip，解析 `*content_list.json`（bbox 为 0–1000 归一化，Host 换算回页面像素）+ 中间结果（每页尺寸；条目名按候选匹配：旧版 `*middle.json` / `middle.json`，云端 v4 为 `layout.json`），label 映射到与 PP-DocLayoutV3 统一的词表。不受信 zip 设下载（256 MB）与单条目解压（128 MB）上限；候选条目缺失时报错并列出 zip 实际 entries。
+- **MinerU 流程（自建）**：4.0 走 `POST /v1/uploads`（相对上传地址按 base 解析，同源上传才附 Bearer）→ `PUT` 字节 → `POST /v1/uploads/{id}/complete` → `POST /v1/parse/jobs`（`output_formats: ["zip"]` / `ocr_mode`）→ 轮询 `GET /v1/parse/jobs/{jobId}`（`progress.completed/total` 报进度，`partial` 视作成功）→ 按 `files[].output_files.zip.file_id` 下载 `GET /v1/files/{id}/content`；3.x 走 multipart `POST /tasks`（`response_format_zip=true`）→ 轮询 `GET /tasks/{id}` → 下载 `GET /tasks/{id}/result`。两个自建 zip 复用同一套解包/上限，正文解析读其中的 Markdown（`markdown.md` / `<stem>.md`）与 `images/`，版面分析读 `middle_json.json`（4.0 `docvortex.middle`，bbox 为 0–1 页相对坐标 + `extensions.docvortex_layout` 页尺寸）或 `*content_list.json` + `*middle.json`（3.x）。
 - **进度**：轮询期间 emit `layout-remote:progress`，payload `{ phase, extractedPages, totalPages, requestId? }`（phase：`uploading` / `pending` / `running` / `downloading` / `done`）。
 - **并发**：`settings.layout.backend` 为远程 provider 时 JobCenter `layoutAnalyze` **无并发上限**（远端排队）；本地 ONNX 仍 cap=1。
 - **返回**：`{ pages: [{ boxes: [{ clsId, label, score, coordinate }], widthPx, heightPx }] }`；渲染像素尺寸优先取服务端报告（Paddle：`dataInfo` / `inputImage` JPEG 头；MinerU：中间结果 `middle.json` / `layout.json` 页尺寸），缺失为 `null`（前端按 200 DPI 估算）。
@@ -2301,7 +2311,7 @@ Windows：未设 `XDG_CONFIG_HOME` 时回退 `%APPDATA%/agentero/`。旧版 macO
 #### `layout_remote_probe`（已实现）
 
 - **参数**：`{ args: { provider?, imageBase64, apiKey? } }`（`provider` 缺省 `"paddle"`）
-- **行为**：按 provider 走各自最小请求验证端点 + token（paddle 提交一张小图任务返回 `{ jobId }`；mineru 调 `file-urls/batch` 空列表验证鉴权；openaiCompatible 调 `GET {base}/models` 验证 key）。走 Host（无 WebView CORS 限制、遵循代理），供设置页 / Onboarding「测试连接」使用。
+- **行为**：按 provider 走各自最小请求验证端点 + token（paddle 提交一张小图任务返回 `{ jobId }`；mineru 调 `file-urls/batch` 空列表验证鉴权，自建则读 `/v1/health` 或 `/health` 的 `version` 并用 `GET /v1/parse/jobs` 验证 token（4.0 health 匿名，单靠它会把无效 key 判成可用）；openaiCompatible 调 `GET {base}/models` 验证 key）。走 Host（无 WebView CORS 限制、遵循代理），供设置页 / Onboarding「测试连接」使用。
 
 #### `settings_get`（已实现）
 

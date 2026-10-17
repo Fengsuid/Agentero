@@ -1,0 +1,24 @@
+--- a/dist/react/index.js
++++ b/dist/react/index.js
+@@ -36,7 +36,20 @@
+   useEffect(() => {
+     if (!scrollPlugin || !documentId) return;
+     const unsubscribe = scrollPlugin.onScrollerData(documentId, (newLayout) => {
+-      setLayoutData({ layout: newLayout, docId: documentId });
++      setLayoutData((prev) => {
++        const hooks = globalThis.__agenteroPdfScroll;
++        // Scrolling inside the mounted window emits a fresh layout object every
++        // frame. Skip setState while spacing, totals, and page boxes are unchanged.
++        if (
++          prev.docId === documentId &&
++          hooks &&
++          typeof hooks.sameScrollerLayout === "function" &&
++          hooks.sameScrollerLayout(prev.layout, newLayout)
++        ) {
++          return prev;
++        }
++        return { layout: newLayout, docId: documentId };
++      });
+     });
+     return () => {
+       unsubscribe();

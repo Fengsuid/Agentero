@@ -23,9 +23,17 @@ import {
 	useRef,
 	useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
+import { PdfCitationPreview } from "@/components/viewer/pdf/cards/citation-preview";
+import { PdfCrossrefPreview } from "@/components/viewer/pdf/cards/crossref-preview";
+import { PdfLinkUrlTip } from "@/components/viewer/pdf/cards/link-url-tip";
 import { EMPTY_LAYOUT_REGIONS_BY_PAGE } from "@/components/viewer/pdf/constants";
+import { usePdfEngineContext } from "@/components/viewer/pdf/engine-provider";
+import { usePdfCitations } from "@/components/viewer/pdf/hooks/use-pdf-citations";
+import { usePdfCrossrefPreview } from "@/components/viewer/pdf/hooks/use-pdf-crossref-preview";
 import { usePdfLayoutRegions } from "@/components/viewer/pdf/hooks/use-pdf-layout-regions";
 import { usePdfLayoutTranslate } from "@/components/viewer/pdf/hooks/use-pdf-layout-translate";
+import { usePdfLinkUrlTip } from "@/components/viewer/pdf/hooks/use-pdf-link-url-tip";
 import { usePdfPaperTone } from "@/components/viewer/pdf/hooks/use-pdf-paper-tone";
 import { usePdfReadingMode } from "@/components/viewer/pdf/hooks/use-pdf-reading-mode";
 import { usePdfScrollSync } from "@/components/viewer/pdf/hooks/use-pdf-scroll-sync";
@@ -38,7 +46,10 @@ import {
 	type PdfPageMarksSlice,
 	type PdfPageModeSlice,
 } from "@/components/viewer/pdf/layers/page-layers";
-import type { PdfViewerInnerProps } from "@/components/viewer/pdf/types";
+import type {
+	PdfViewerInnerProps,
+	ScreenPoint,
+} from "@/components/viewer/pdf/types";
 import { DockviewViewport } from "@/components/viewer/pdf/viewport/dockview-viewport";
 import { PanDragHandler } from "@/components/viewer/pdf/viewport/pan-handler";
 import { WheelZoomHandler } from "@/components/viewer/pdf/viewport/wheel-zoom-handler";
@@ -119,6 +130,9 @@ export function PdfTranslationViewerInner({
 	paperAbsPath = null,
 	paperRelPath = null,
 	vaultPath = null,
+	sourceBytes = null,
+	isRemotePaper = false,
+	importIdentifier,
 	isActive = true,
 	onHandle,
 }: PdfViewerInnerProps) {
@@ -138,6 +152,9 @@ export function PdfTranslationViewerInner({
 	const zoomLevel = zoomState.currentZoomLevel || 1;
 	const { zoomRef } = usePdfZoomControls(zoomLevel);
 	const hostRef = useRef<HTMLDivElement>(null);
+	const { engine } = usePdfEngineContext();
+	const engineRef = useRef(engine);
+	engineRef.current = engine;
 	const { pdfTone } = usePdfPaperTone();
 	const paperKey = paperRelPath || paperAbsPath || null;
 
@@ -294,14 +311,121 @@ export function PdfTranslationViewerInner({
 		[docId, linkSource.pageOrigins],
 	);
 
+	// Sibling clears so citation, crossref, and URL tips dismiss each other.
+	const clearCrossrefPreviewRef = useRef<() => void>(() => {});
+	const clearCitationPreviewRef = useRef<() => void>(() => {});
+	const clearLinkUrlTipRef = useRef<() => void>(() => {});
+
+	const {
+		citationPreview,
+		scheduleCitationHide,
+		markCitationHoverEnter,
+		clearCitationPreview,
+		handleCitationLinkHover,
+		hasCitationMatch,
+		citationImport,
+	} = usePdfCitations({
+		docId,
+		annotationCap: null,
+		hostRef,
+		zoomRef,
+		vaultPath,
+		paperPath: paperRelPath,
+		paperAbsPath,
+		sourceBytes,
+		isRemotePaper,
+		importIdentifier,
+		onPreviewShow: () => {
+			clearCrossrefPreviewRef.current();
+			clearLinkUrlTipRef.current();
+		},
+	});
+
+	const {
+		crossrefPreview,
+		scheduleCrossrefHide,
+		markCrossrefHoverEnter,
+		clearCrossrefPreview,
+		handleCrossrefLinkHover,
+	} = usePdfCrossrefPreview({
+		docId,
+		hostRef,
+		zoomRef,
+		paperAbsPath,
+		sourceBytes,
+		engineRef,
+		docCapRef,
+		onPreviewShow: () => {
+			clearCitationPreviewRef.current();
+			clearLinkUrlTipRef.current();
+		},
+		hasCitationMatch,
+	});
+
+	const {
+		linkUrlTip,
+		scheduleLinkUrlHide,
+		markLinkUrlHoverEnter,
+		clearLinkUrlTip,
+		handleLinkUrlHover: hoverLinkUrl,
+	} = usePdfLinkUrlTip();
+
+	clearCitationPreviewRef.current = clearCitationPreview;
+	clearCrossrefPreviewRef.current = clearCrossrefPreview;
+	clearLinkUrlTipRef.current = clearLinkUrlTip;
+
+	const handleLinkHover = useCallback(
+		(link: PdfLinkAnnoObject | null, point?: ScreenPoint | null) => {
+			handleCitationLinkHover(link, point);
+			handleCrossrefLinkHover(link, point);
+		},
+		[handleCitationLinkHover, handleCrossrefLinkHover],
+	);
+
+	const handleLinkUrlHover = useCallback(
+		(url: string | null, point?: ScreenPoint | null) => {
+			hoverLinkUrl(url, point);
+		},
+		[hoverLinkUrl],
+	);
+
+	const handleCitationImportOpenChange = useCallback(
+		(open: boolean) => {
+			if (open) markCitationHoverEnter();
+			else scheduleCitationHide();
+		},
+		[markCitationHoverEnter, scheduleCitationHide],
+	);
+	const citationImportMenu = useMemo(
+		() =>
+			citationImport
+				? {
+						folders: citationImport.folders,
+						lastImportParentDir: citationImport.lastImportParentDir,
+						importingId: citationImport.importingId,
+						onImport: citationImport.importCitation,
+						onOpenChange: handleCitationImportOpenChange,
+						remotePaper: isRemotePaper,
+					}
+				: undefined,
+		[citationImport, handleCitationImportOpenChange, isRemotePaper],
+	);
+
 	const pageHandlers = useMemo<PdfPageHandlers>(
 		() => ({
 			...EMPTY_HANDLERS,
 			onTogglePageLayoutTranslate: togglePageLayoutTranslate,
 			onCitationActivate: activateCitation,
 			onTextLinkActivate: openExternalUrl,
+			onCitationHover: handleLinkHover,
+			onLinkUrlHover: handleLinkUrlHover,
 		}),
-		[togglePageLayoutTranslate, activateCitation],
+		[
+			togglePageLayoutTranslate,
+			activateCitation,
+			handleLinkHover,
+			handleLinkUrlHover,
+		],
 	);
 
 	const renderPage = useCallback(
@@ -346,6 +470,41 @@ export function PdfTranslationViewerInner({
 					</GlobalPointerProvider>
 				</ZoomGestureWrapper>
 			</DockviewViewport>
+			{typeof document !== "undefined"
+				? createPortal(
+						<>
+							{citationPreview ? (
+								<PdfCitationPreview
+									screen={citationPreview.screen}
+									matched={citationPreview.matched}
+									importMenu={citationImportMenu}
+									onPointerEnter={markCitationHoverEnter}
+									onPointerLeave={scheduleCitationHide}
+								/>
+							) : null}
+							{crossrefPreview ? (
+								<PdfCrossrefPreview
+									screen={crossrefPreview.screen}
+									kind={crossrefPreview.kind}
+									page={crossrefPreview.page}
+									image={crossrefPreview.image}
+									targetSize={crossrefPreview.targetSize}
+									onPointerEnter={markCrossrefHoverEnter}
+									onPointerLeave={scheduleCrossrefHide}
+								/>
+							) : null}
+							{linkUrlTip ? (
+								<PdfLinkUrlTip
+									url={linkUrlTip.url}
+									screen={linkUrlTip.screen}
+									onPointerEnter={markLinkUrlHoverEnter}
+									onPointerLeave={scheduleLinkUrlHide}
+								/>
+							) : null}
+						</>,
+						document.body,
+					)
+				: null}
 		</div>
 	);
 }

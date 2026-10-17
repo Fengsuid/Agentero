@@ -11,8 +11,10 @@
 //! - v8: multi-row discovery runs (`discovery_runs`) keyed by
 //!   source/model/categories/top_n, superseding the single-row
 //!   `arxiv_rec_state` (kept for old DBs; no longer written)
+//! - v9: manually maintained `code_repo` link (no auto resolution yet)
 
 use crate::error::AppError;
+use crate::sqlite::MigrationStep;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::fs;
@@ -20,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Current catalog schema version written to `schema_meta`.
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 const DDL_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -147,6 +149,11 @@ CREATE TABLE IF NOT EXISTS discovery_runs (
 CREATE INDEX IF NOT EXISTS idx_discovery_runs_computed_at ON discovery_runs(computed_at DESC);
 "#;
 
+/// Schema v9: manually maintained code-repository link.
+const MIGRATE_V8_TO_V9: &str = r#"
+ALTER TABLE papers ADD COLUMN code_repo TEXT;
+"#;
+
 /// Absolute path to `{vault}/.agentero/catalog.sqlite`.
 pub fn catalog_db_path(vault_root: &Path) -> std::path::PathBuf {
     vault_root.join(".agentero").join("catalog.sqlite")
@@ -251,149 +258,47 @@ pub fn with_catalog<T>(
     result
 }
 
+/// Migration ladder, applied by [`crate::sqlite::run_migrations`] (per-step
+/// version re-read, stamping, `newer than app` guard).
+const MIGRATION_STEPS: [MigrationStep; 9] = [
+    MigrationStep::batch(1, DDL_V1),
+    // SQLite ADD COLUMN is not fully batch-safe across existing cols; the
+    // v2–v4 entries run one-by-one and ignore duplicate-column errors.
+    MigrationStep::script_tolerant(2, MIGRATE_V1_TO_V2),
+    MigrationStep::script_tolerant(3, MIGRATE_V2_TO_V3),
+    MigrationStep::script_tolerant(4, MIGRATE_V3_TO_V4),
+    MigrationStep::script(5, MIGRATE_V4_TO_V5),
+    MigrationStep::script(6, MIGRATE_V5_TO_V6),
+    MigrationStep::custom(7, migrate_v7),
+    MigrationStep::script(8, MIGRATE_V7_TO_V8),
+    MigrationStep::script_tolerant(9, MIGRATE_V8_TO_V9),
+];
+
 fn migrate(conn: &Connection) -> Result<(), AppError> {
-    let version = schema_version(conn).unwrap_or(0);
+    crate::sqlite::run_migrations(
+        conn,
+        crate::sqlite::DbMsgs::CATALOG,
+        SCHEMA_VERSION,
+        &MIGRATION_STEPS,
+        set_schema_version,
+    )
+}
 
-    if version > SCHEMA_VERSION {
-        return Err(AppError::message(format!(
-            "catalog schema version {version} is newer than this app supports ({SCHEMA_VERSION}); upgrade Agentero"
-        )));
-    }
-
-    if version < 1 {
-        conn.execute_batch(DDL_V1)
-            .map_err(|e| AppError::message(format!("catalog migrate v1: {e}")))?;
-        set_schema_version(conn, 1)?;
-    }
-
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 2 {
-        // SQLite ADD COLUMN is not fully batch-safe across existing cols; run one-by-one ignore dupes
-        for stmt in MIGRATE_V1_TO_V2.split(';') {
-            let s = stmt.trim();
-            if s.is_empty() {
-                continue;
-            }
-            match conn.execute_batch(&format!("{s};")) {
-                Ok(()) => {}
-                Err(e) => {
-                    let msg = e.to_string();
-                    // Idempotent re-run / partial migrate
-                    if msg.contains("duplicate column name") {
-                        continue;
-                    }
-                    return Err(AppError::message(format!("catalog migrate v2: {e}")));
-                }
-            }
-        }
-        set_schema_version(conn, 2)?;
-    }
-
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 3 {
-        for stmt in MIGRATE_V2_TO_V3.split(';') {
-            let s = stmt.trim();
-            if s.is_empty() {
-                continue;
-            }
-            match conn.execute_batch(&format!("{s};")) {
-                Ok(()) => {}
-                Err(e) => {
-                    let msg = e.to_string();
-                    if msg.contains("duplicate column name") {
-                        continue;
-                    }
-                    return Err(AppError::message(format!("catalog migrate v3: {e}")));
-                }
-            }
-        }
-        set_schema_version(conn, 3)?;
-    }
-
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 4 {
-        for stmt in MIGRATE_V3_TO_V4.split(';') {
-            let s = stmt.trim();
-            if s.is_empty() {
-                continue;
-            }
-            match conn.execute_batch(&format!("{s};")) {
-                Ok(()) => {}
-                Err(e) => {
-                    let msg = e.to_string();
-                    if msg.contains("duplicate column name") {
-                        continue;
-                    }
-                    return Err(AppError::message(format!("catalog migrate v4: {e}")));
-                }
-            }
-        }
-        set_schema_version(conn, 4)?;
-    }
-
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 5 {
-        for stmt in MIGRATE_V4_TO_V5.split(';') {
-            let s = stmt.trim();
-            if s.is_empty() {
-                continue;
-            }
-            conn.execute_batch(&format!("{s};"))
-                .map_err(|e| AppError::message(format!("catalog migrate v5: {e}")))?;
-        }
-        set_schema_version(conn, 5)?;
-    }
-
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 6 {
-        for stmt in MIGRATE_V5_TO_V6.split(';') {
-            let s = stmt.trim();
-            if s.is_empty() {
-                continue;
-            }
-            conn.execute_batch(&format!("{s};"))
-                .map_err(|e| AppError::message(format!("catalog migrate v6: {e}")))?;
-        }
-        set_schema_version(conn, 6)?;
-    }
-
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 7 {
-        // Data-only migration: legacy writers emitted second precision
-        // (`…:00Z`) and bare `to_rfc3339()` (`…+00:00`, variable fractions);
-        // those do not string-sort against the canonical millis form
-        // (`'+' < '.' < 'Z'`). Rewrite to canonical form; already-canonical
-        // and unparseable values pass through untouched (idempotent).
-        let tx = conn
-            .unchecked_transaction()
-            .map_err(|e| AppError::message(format!("catalog migrate v7 tx: {e}")))?;
-        crate::time::normalize_timestamp_columns(
-            &tx,
-            "papers",
-            "path",
-            &["updated_at", "added_at"],
-        )
+/// v7: data-only migration inside one transaction. Legacy writers emitted
+/// second precision (`…:00Z`) and bare `to_rfc3339()` (`…+00:00`, variable
+/// fractions); those do not string-sort against the canonical millis form
+/// (`'+' < '.' < 'Z'`). Rewrite to canonical form; already-canonical and
+/// unparseable values pass through untouched (idempotent).
+fn migrate_v7(conn: &Connection) -> Result<(), AppError> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::message(format!("catalog migrate v7 tx: {e}")))?;
+    crate::time::normalize_timestamp_columns(&tx, "papers", "path", &["updated_at", "added_at"])
         .map_err(|e| AppError::message(format!("catalog migrate v7 papers: {e}")))?;
-        crate::time::normalize_timestamp_columns(&tx, "arxiv_rec_state", "id", &["computed_at"])
-            .map_err(|e| AppError::message(format!("catalog migrate v7 rec state: {e}")))?;
-        tx.commit()
-            .map_err(|e| AppError::message(format!("catalog migrate v7 commit: {e}")))?;
-        set_schema_version(conn, 7)?;
-    }
-
-    let version = schema_version(conn).unwrap_or(0);
-    if version < 8 {
-        for stmt in MIGRATE_V7_TO_V8.split(';') {
-            let s = stmt.trim();
-            if s.is_empty() {
-                continue;
-            }
-            conn.execute_batch(&format!("{s};"))
-                .map_err(|e| AppError::message(format!("catalog migrate v8: {e}")))?;
-        }
-        set_schema_version(conn, 8)?;
-    }
-
+    crate::time::normalize_timestamp_columns(&tx, "arxiv_rec_state", "id", &["computed_at"])
+        .map_err(|e| AppError::message(format!("catalog migrate v7 rec state: {e}")))?;
+    tx.commit()
+        .map_err(|e| AppError::message(format!("catalog migrate v7 commit: {e}")))?;
     Ok(())
 }
 
@@ -461,6 +366,16 @@ mod tests {
             .unwrap();
         assert_eq!(has_zotero, 2);
 
+        // v9 manual code-repo column exists
+        let has_code_repo: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('papers') WHERE name = 'code_repo'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_code_repo, 1);
+
         // v6 recommendation caches + v8 multi-row discovery runs exist
         let has_rec_tables: i64 = conn
             .query_row(
@@ -484,6 +399,99 @@ mod tests {
         drop(conn);
         let conn2 = ensure_catalog(&dir).expect("reopen");
         assert_eq!(schema_version(&conn2).unwrap(), SCHEMA_VERSION);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// v1 databases predate the whole migration ladder: build one by hand
+    /// (v1 DDL + version stamp + legacy-shaped row) and walk it through every
+    /// step — v2…v9 must all land.
+    #[test]
+    fn migrates_v1_to_v9_through_full_ladder() {
+        let dir = env::temp_dir().join(format!(
+            "agentero-catalog-v1-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join(".agentero")).unwrap();
+
+        {
+            let conn = Connection::open(catalog_db_path(&dir)).unwrap();
+            conn.execute_batch(DDL_V1).unwrap();
+            conn.execute(
+                "INSERT INTO schema_meta(key, value) VALUES('schema_version', '1')",
+                [],
+            )
+            .unwrap();
+            // Legacy row: v1 column shape, legacy timestamp spellings (secs
+            // precision + bare to_rfc3339) that v7 must normalize.
+            conn.execute_batch(
+                "INSERT INTO papers (path, id, type, title, added_at, updated_at) VALUES
+                 ('papers/1706.03762', '1706.03762', 'article', 'Attention Is All You Need',
+                  '2026-08-20T09:00:00Z', '2026-08-21T10:00:00.123456+00:00');",
+            )
+            .unwrap();
+        }
+
+        let conn = ensure_catalog(&dir).expect("migrate v1 to v9");
+        assert_eq!(schema_version(&conn).unwrap(), SCHEMA_VERSION);
+
+        // v2 Translator columns exist (spot-check a few of the 16).
+        let has_v2: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('papers')
+                 WHERE name IN ('creators_json', 'publication', 'volume', 'meta_source')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_v2, 4);
+        // v3 read flag + v4 Zotero linkage + v9 manual code-repo link.
+        let has_v3_v4_v9: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('papers')
+                 WHERE name IN ('is_read', 'zotero_item_id', 'zotero_last_synced', 'code_repo')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_v3_v4_v9, 4);
+        // v5 page-count cache + v6 recommendation caches + v8 discovery runs.
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN
+                 ('pdf_page_counts', 'embed_cache', 'arxiv_rec_state', 'discovery_runs')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 4);
+
+        // v7 normalized the legacy timestamps in place; the row itself and its
+        // legacy `type` spelling survive the data-only migration.
+        let (added, updated, title): (String, String, String) = conn
+            .query_row(
+                "SELECT added_at, updated_at, title FROM papers WHERE path = 'papers/1706.03762'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(added, "2026-08-20T09:00:00.000Z");
+        assert_eq!(updated, "2026-08-21T10:00:00.123Z");
+        assert_eq!(title, "Attention Is All You Need");
+
+        // Both stamps: current version plus the agentero_app marker.
+        let app: String = conn
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'agentero_app'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(app, "agentero");
 
         let _ = fs::remove_dir_all(&dir);
     }

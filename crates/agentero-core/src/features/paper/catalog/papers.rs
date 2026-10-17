@@ -21,7 +21,7 @@ const PAPER_COLUMNS: &str = "\
     added_at, updated_at, \
     creators_json, date, isbn, issn, pmid, publication, volume, issue, pages, \
     publisher, place, series, language, zotero_item_type, meta_source, extra, \
-    is_read, zotero_item_id, zotero_last_synced";
+    is_read, zotero_item_id, zotero_last_synced, code_repo";
 
 /// Prefix for Connector provenance tags (hidden from user-facing tag UI).
 pub const ZOTERO_INTERNAL_TAG_PREFIX: &str = "@zotero:";
@@ -297,6 +297,9 @@ pub struct PaperRecord {
     pub html_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_url: Option<String>,
+    /// Manually maintained code-repository link (no auto resolution yet).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_repo: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -363,6 +366,7 @@ impl PaperRecord {
             pdf_url: None,
             html_url: None,
             source_url: None,
+            code_repo: None,
             body_source: None,
             body_quality: None,
             bibtex_key: None,
@@ -1034,6 +1038,7 @@ pub struct PaperMetaPatch {
     pub abstract_text: Option<String>,
     pub pdf_url: Option<String>,
     pub html_url: Option<String>,
+    pub code_repo: Option<String>,
 }
 
 /// Apply a manual metadata patch; returns the updated row.
@@ -1115,6 +1120,9 @@ pub fn update_meta(
         }
         if let Some(v) = patch.html_url.as_deref() {
             row.html_url = norm(v);
+        }
+        if let Some(v) = patch.code_repo.as_deref() {
+            row.code_repo = norm(v);
         }
 
         row.meta_source = Some("manual".to_string());
@@ -1472,7 +1480,7 @@ fn upsert_conn(conn: &Connection, r: &PaperRecord) -> Result<PaperRecord, AppErr
             ?20, ?21,
             ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30,
             ?31, ?32, ?33, ?34, ?35, ?36, ?37,
-            ?38, ?39, ?40
+            ?38, ?39, ?40, ?41
         )
         ON CONFLICT(path) DO UPDATE SET
             id = excluded.id,
@@ -1512,7 +1520,8 @@ fn upsert_conn(conn: &Connection, r: &PaperRecord) -> Result<PaperRecord, AppErr
             extra = excluded.extra,
             is_read = excluded.is_read,
             zotero_item_id = excluded.zotero_item_id,
-            zotero_last_synced = excluded.zotero_last_synced
+            zotero_last_synced = excluded.zotero_last_synced,
+            code_repo = excluded.code_repo
         "#,
         ),
         params![
@@ -1556,6 +1565,7 @@ fn upsert_conn(conn: &Connection, r: &PaperRecord) -> Result<PaperRecord, AppErr
             if r.is_read { 1i32 } else { 0i32 },
             r.zotero_item_id,
             r.zotero_last_synced,
+            r.code_repo,
         ],
     )
     .map_err(AppError::from)?;
@@ -1569,6 +1579,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PaperRecord> {
     let is_read_i: i32 = row.get(37)?;
     let zotero_item_id: Option<i64> = row.get(38)?;
     let zotero_last_synced: Option<String> = row.get(39)?;
+    let code_repo: Option<String> = row.get(40)?;
     Ok(PaperRecord {
         path: row.get(0)?,
         id: row.get(1)?,
@@ -1612,6 +1623,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PaperRecord> {
         is_read: is_read_i != 0,
         zotero_item_id,
         zotero_last_synced,
+        code_repo,
     })
 }
 
@@ -1891,6 +1903,7 @@ mod tests {
                 authors: Some(vec![" A ".into(), "".into(), "B".into()]),
                 date: Some("2024-06-12".into()),
                 publication: Some("NeurIPS".into()),
+                code_repo: Some("https://github.com/foo/bar".into()),
                 ..Default::default()
             },
         )
@@ -1902,6 +1915,7 @@ mod tests {
         assert_eq!(row.year, Some(2024));
         assert_eq!(row.publication.as_deref(), Some("NeurIPS"));
         assert_eq!(row.doi.as_deref(), Some("10.1/old")); // untouched
+        assert_eq!(row.code_repo.as_deref(), Some("https://github.com/foo/bar"));
         assert_eq!(row.meta_source.as_deref(), Some("manual"));
 
         // New title appended to aliases; old alias kept.
@@ -1939,6 +1953,7 @@ mod tests {
             &PaperMetaPatch {
                 doi: Some("  ".into()),
                 date: Some("".into()),
+                code_repo: Some("  ".into()),
                 ..Default::default()
             },
         )
@@ -1946,6 +1961,7 @@ mod tests {
         assert_eq!(row.doi, None);
         assert_eq!(row.date, None);
         assert_eq!(row.year, None);
+        assert_eq!(row.code_repo, None);
 
         // Validation errors.
         assert!(update_meta(
@@ -2072,6 +2088,7 @@ mod tests {
             pdf_url: None,
             html_url: None,
             source_url: None,
+            code_repo: None,
             body_source: None,
             body_quality: None,
             bibtex_key: None,
@@ -2128,6 +2145,7 @@ mod tests {
             pdf_url: None,
             html_url: None,
             source_url: None,
+            code_repo: None,
             body_source: None,
             body_quality: None,
             bibtex_key: None,
@@ -2201,6 +2219,7 @@ mod tests {
             pdf_url: None,
             html_url: None,
             source_url: None,
+            code_repo: None,
             body_source: None,
             body_quality: None,
             bibtex_key: None,

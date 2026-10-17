@@ -12,13 +12,9 @@ import {
 	type DocTab,
 	loadPersistedTabs,
 	patchTab,
-	refreshExcalidrawTab,
-	refreshPdfTab,
-	refreshTextTab,
-	reseedMarkdownTab,
-	reseedNotesTab,
+	seedTabs,
 } from "@/lib/workspace/tabs";
-import type { CenterViewMode } from "@/lib/workspace/viewer";
+import { type CenterViewMode, viewerModeSpec } from "@/lib/workspace/viewer";
 
 /** Closed panel remembered for ⇧⌘T (reopen), newest last. */
 export type ClosedTab = {
@@ -65,12 +61,15 @@ export function initWorkspaceStore(): void {
 	if (!persisted?.tabs.length) return;
 	workspaceStore.setState({
 		tabs: persisted.tabs.map((pt) => {
-			if (pt.mode === "translation") {
+			// Registry-declared restore override (translation panes are clones of
+			// a source paper pane: loaded paper-kind tabs, never hydrated from disk).
+			const restore = viewerModeSpec(pt.mode).restore;
+			if (restore) {
 				return {
-					...createPlaceholderTab(pt.path, "translation", pt.id),
-					kind: "paper",
-					title: pt.title || "Translation",
-					loaded: true,
+					...createPlaceholderTab(pt.path, pt.mode, pt.id),
+					kind: restore.kind,
+					title: pt.title || restore.fallbackTitle,
+					loaded: restore.loaded,
 				};
 			}
 			const tab = createPlaceholderTab(pt.path, pt.mode, pt.id);
@@ -187,25 +186,5 @@ export function toggleTabHtmlMode(id: string): void {
 
 /** Reseed an open paper tab's NOTES after the reader / download writes it. */
 export function refreshTabNotes(paperDir: string, content: string): void {
-	setTabs((prev) => reseedNotesTab(prev, paperDir, content));
-}
-
-/** Reseed an open plain-Markdown tab after an external/Agent write. */
-export function refreshTabMarkdown(absPath: string, content: string): void {
-	setTabs((prev) => reseedMarkdownTab(prev, absPath, content));
-}
-
-/** Reseed an open Excalidraw tab after an external/Agent write. */
-export function refreshTabExcalidraw(absPath: string, content: string): void {
-	setTabs((prev) => refreshExcalidrawTab(prev, absPath, content));
-}
-
-/** Reseed an open plain-text tab after an external/Agent write. */
-export function refreshTabText(absPath: string, content: string): void {
-	setTabs((prev) => refreshTextTab(prev, absPath, content));
-}
-
-/** Reload an open PDF pane after its file changed on disk (compile / external). */
-export function refreshTabPdf(absPath: string, bytes: ArrayBuffer): void {
-	setTabs((prev) => refreshPdfTab(prev, absPath, bytes));
+	setTabs((prev) => seedTabs(prev, paperDir, content, "notes"));
 }

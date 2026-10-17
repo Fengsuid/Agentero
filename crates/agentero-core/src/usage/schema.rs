@@ -3,6 +3,7 @@
 //! First shipped shape: vaults + typed events + daily rollup + reserved memories.
 
 use crate::error::AppError;
+use crate::sqlite::MigrationStep;
 use rusqlite::Connection;
 use std::fs;
 use std::path::Path;
@@ -89,24 +90,24 @@ pub fn schema_version(conn: &Connection) -> Result<i32, AppError> {
     crate::sqlite::read_schema_version(conn, crate::sqlite::DbMsgs::USAGE)
 }
 
+/// Migration ladder, applied by [`crate::sqlite::run_migrations`] (per-step
+/// version re-read, stamping, `newer than app` guard).
+const MIGRATION_STEPS: [MigrationStep; 1] = [MigrationStep::batch(1, DDL_V1)];
+
 fn migrate(conn: &Connection) -> Result<(), AppError> {
-    let version = schema_version(conn).unwrap_or(0);
-    // Dev builds briefly stamped this same table shape as 2. Relabel only.
-    if version == 2 {
+    // Dev builds briefly stamped this same table shape as 2. Relabel only
+    // (checked before the ladder's `newer than app` guard, matching history).
+    if schema_version(conn).unwrap_or(0) == 2 {
         set_schema_version(conn, SCHEMA_VERSION)?;
         return Ok(());
     }
-    if version > SCHEMA_VERSION {
-        return Err(AppError::message(format!(
-            "usage schema version {version} is newer than this app supports ({SCHEMA_VERSION}); upgrade Agentero"
-        )));
-    }
-    if version < 1 {
-        conn.execute_batch(DDL_V1)
-            .map_err(|e| AppError::message(format!("usage migrate v1: {e}")))?;
-        set_schema_version(conn, SCHEMA_VERSION)?;
-    }
-    Ok(())
+    crate::sqlite::run_migrations(
+        conn,
+        crate::sqlite::DbMsgs::USAGE,
+        SCHEMA_VERSION,
+        &MIGRATION_STEPS,
+        set_schema_version,
+    )
 }
 
 fn set_schema_version(conn: &Connection, version: i32) -> Result<(), AppError> {
@@ -193,6 +194,33 @@ mod tests {
         drop(conn);
         let conn2 = ensure_usage_at(&db).expect("reopen");
         assert_eq!(schema_version(&conn2).unwrap(), SCHEMA_VERSION);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn migrate_relabels_dev_version_two() {
+        let dir = temp_dir();
+        let db = dir.join("usage.sqlite");
+        {
+            let conn = ensure_usage_at(&db).expect("ensure");
+            conn.execute(
+                "UPDATE schema_meta SET value = '2' WHERE key = 'schema_version'",
+                [],
+            )
+            .unwrap();
+        }
+        // Relabel only: tables stay intact, version drops back to SCHEMA_VERSION.
+        let conn = ensure_usage_at(&db).expect("relabel");
+        assert_eq!(schema_version(&conn).unwrap(), SCHEMA_VERSION);
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'
+                 AND name IN ('usage_events','usage_daily','usage_vaults','usage_memories')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 4);
         let _ = fs::remove_dir_all(&dir);
     }
 }

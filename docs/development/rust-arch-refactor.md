@@ -127,6 +127,7 @@
   - 统一主进程启动、cwd、terminal executor 和 ACP capabilities；远端终端执行在远端，未支持时明确拒绝。
   - 验收：本地/远端主进程与终端位置一致；Windows 子进程选项保留；不静默回退到本机执行。
   - 当前边界（#570）：Unix 已统一启动 cwd，Dsh 自管 launcher；Windows 仅保留旧 Pi / Custom 包装，探针直启。本项仍需补齐原生 cwd、UNC 与进程树终止，不能把本次防回归当成统一执行上下文已完成。
+  - Windows 自定义 Job transport 已因启动兼容回归撤回，恢复 ACP SDK；预热取消和退出关闭 warm 池保留。完整进程树回收由 [#774](https://github.com/poco-ai/Agentero/issues/774) 跟踪，后续评估 SDK 能力，当前不重新实现宿主级 Job 管理。
 - [ ] **F3 收回命令编排并统一连接装配**（依赖 F1/F2）
   - warm/probe/lifecycle 进入现有 Agent service；probe/warm/run/history 共用连接装配，保留各模式权限和恢复策略。
   - 验收：commands 仅转换参数与结果；provider session ID、恢复回放抑制和取消的 wire 行为不回归。runtime 可留在 desktop crate，不立即拆独立 ACP crate。
@@ -198,7 +199,7 @@
 | V1 | **远端 catalog 发布绕开 WAL 一致快照**：`push` 裸读主文件，而写入连接启用 WAL 且长期缓存，可能遗漏尚未 checkpoint 的已提交修改。09-08 静态复核确认路径；不沿用“首次修改必丢”的绝对结论 | `crates/agentero-core/src/sqlite.rs:16`、`catalog/schema.rs` 的连接缓存、`src-tauri/src/integration/remote/catalog_mirror.rs:105`；需用活跃连接 roundtrip 测试验证 |
 | V2 | VaultFs 双轨制：`dyn VaultFs` 13 处全在 `integration/remote/**`，features 0 使用；`LocalFs` 生产实例仅 1 处（local-sim） | `core/fs/mod.rs:27`、`remote/session.rs:120` |
 | V3 | remote 分支共 **28 处 / 10 文件**（23 处 `parse_remote_handle` 调用 + 5 处裸 `"remote:"` 比较） | 分布：trash×5、import×4、connector×11、jobs×1、zotero×1、launch×1、mcp×1、sync×1 |
-| V4 | `remote_*` 命令 21 个（remote/commands.rs 18 + agent 3），其中**真孪生 5 个**：`remote_paper_{get,list,set_tags,set_is_read,rescan}` ↔ `paper_*` | `app/handlers.rs:155-175` |
+| V4 | `remote_*` 命令 21 个（remote/commands.rs 18 + agent 3），其中**真孪生 5 个**：`remote_paper_{get,list,set_tags,set_is_read,rescan}` ↔ `paper_*`（2026-10 状态：命令名/参数/返回类型含 list 投影差异全部保留，实现体已收敛到共享入口 `features/paper/catalog/service.rs` + `RemoteSession::push_catalog`，见 [backend/remote.md](../backend/remote.md)） | `app/handlers.rs:155-175` |
 | V5 | 3 个 `Remote*Ops` trait 无本地实现，调用点 `if remote { ops } else { 直调 }` | `RemoteImportOps`（features/paper/import/remote_ops.rs:22）、`RemoteTrashOps`（features/vault/trash/remote_ops.rs:17）、`RemoteAgentHosts`（features/agent/remote_host.rs:57） |
 | V6 | trash 整体复制分叉：结构体、校验函数、5 个操作全部重写，仅共享结果类型与 catalog 行助手 | core `vault/trash/mod.rs` vs `remote/trash_bridge.rs`（自带头注释"Semantics match local"） |
 | V7 | CLI move 只动文件与 SQL；桌面和 Connector 已共用包含双链更新的移动事务，但服务仍放在 `commands.rs`。09-08 确认：需要统一完整用例，不能把 Connector 本地移动报告为另一分叉 | `catalog/mod.rs:66`、`src-tauri/src/features/paper/catalog/commands.rs:550`、`integration/connector/state.rs:766`、`cli/src/commands/paper.rs:689` |
@@ -218,7 +219,7 @@
 | V21 | 取消=Ok+字符串：run.rs 恰 9 处 `select!`，取消返回 `Ok` + `stop_reason:"cancelled"` 硬编码 | `session/run.rs:502-768`、`acp/client.rs:266` |
 | V22 | `is_ssh()`/`is_local_sim()` flag 泄漏 4 处（比原报告多 2 处） | `remote_host.rs:23,25`、`acp/client.rs:169`、`registry/remote.rs:121,158,211`、`commands/remote.rs:137`、`remote/launch.rs:75` |
 | V23 | IPC 包络三态 95 / 94 / **7**（`set_locale` 曾被漏计）；成因是 State-borrow 变通，文档自认 | `integration/remote/commands.rs:1-4`；前端 3 个 unwrap helper（`src/lib/core/ipc.ts`） |
-| V24 | fs scope 由渲染层授予：`vault_allow_fs_scope` 命令对任意非空路径 `allow_directory(&p, true)` 递归授予，无 canonicalize/白名单/活跃 vault 校验（host 侧 `handle_open_dir` 反而会先 canonicalize） | `app/vault_session/fs_scope.rs:30`、`vault_session/mod.rs:6-14` |
+| V24 | fs scope 由渲染层授予：`vault_allow_fs_scope` 命令对任意非空路径 `allow_directory(&p, true)` 递归授予，无 canonicalize/白名单/活跃 vault 校验（host 侧 `handle_open_dir` 反而会先 canonicalize） | `app/vault_session/fs_scope.rs:30`、`vault_session/mod.rs:118-126` |
 | V25 | 注册表双份：handlers.rs 191 vs bindings_test.rs 191 手工对齐；`bridge_status` 桌面/iOS 同名不同签名 → iOS 5 个命令整体排除在 bindings.ts 外（cfg 互斥故无运行时遮蔽） | `app/bindings_test.rs:11-13` |
 | V26 | `events_contract.rs` 1248 行 + 手写 Rust 源码扫描器；42 事件（`:360` 的"43"注释过期）；57 个 emit 点 | `app/events_contract.rs:905-915` |
 | V27 | OpTimer 覆盖 50/196 命令；jobs 全部 20 个命令、agent、feeds、catalog 大部无计时 | `core/log_util.rs` |

@@ -34,6 +34,7 @@ import { copyTextToClipboard } from "@/lib/core/clipboard";
 import { errorText } from "@/lib/core/error";
 import { notifyError } from "@/lib/core/notify";
 import { isTauri } from "@/lib/core/tauri";
+import { toSafeDisposer } from "@/lib/core/tauri-events";
 import {
 	isRemoteVaultHandle,
 	remoteCacheClear,
@@ -81,18 +82,22 @@ export function RemoteAccessPane({ vaultPath }: { vaultPath: string | null }) {
 	useEffect(() => {
 		if (!isTauri()) return;
 		void refresh().catch((error) => notifyError(errorText(error)));
-		const unlisten: Array<() => void> = [];
-		void listenPairingRequest((request) => {
-			setPending((current) => [
-				...current.filter((item) => item.requestId !== request.requestId),
-				request,
-			]);
-		}).then((off) => unlisten.push(off));
-		void listenHostStatus(() => {
-			void refresh().catch(() => undefined);
-		}).then((off) => unlisten.push(off));
+		const disposePairing = toSafeDisposer(
+			listenPairingRequest((request) => {
+				setPending((current) => [
+					...current.filter((item) => item.requestId !== request.requestId),
+					request,
+				]);
+			}),
+		);
+		const disposeStatus = toSafeDisposer(
+			listenHostStatus(() => {
+				void refresh().catch(() => undefined);
+			}),
+		);
 		return () => {
-			for (const off of unlisten) off();
+			disposePairing();
+			disposeStatus();
 		};
 	}, [refresh]);
 

@@ -15,7 +15,7 @@ import type { LibraryColumnPref } from "@/lib/settings";
 import { isMarkdownPath, paperRelFromNotes } from "@/lib/vault";
 import type { WikiRenameHeadingRequest } from "@/lib/wiki";
 import { type DocTab, tabIsPaperNotes } from "@/lib/workspace/tabs";
-import { isPlainPdfPath } from "@/lib/workspace/viewer";
+import { isPlainPdfPath, viewerModeSpec } from "@/lib/workspace/viewer";
 
 // Heavyweight viewers are lazy-loaded so the EmbedPDF (PDFium) and Plate
 // editor bundles stay out of the initial chunk and are fetched on first use.
@@ -191,7 +191,10 @@ function TexCompilingPlaceholder() {
  * DocView routes by tab kind/mode and only reads the matching domain props.
  * Compare just the fields the active branch consumes so a change in one
  * domain (e.g. library query keystrokes) does not re-render PDF / editor
- * panes. Must mirror the routing order below.
+ * panes. The mode → props-domain mapping comes from the viewer registry
+ * (`props` in viewer/index.ts) — a hand-written mirror of the render switch
+ * below whose correspondence is pinned by
+ * test/workspace-viewer-modes.test.ts, not enforced structurally.
  */
 function docViewPropsEqual(prev: DocViewProps, next: DocViewProps): boolean {
 	if (
@@ -212,12 +215,18 @@ function docViewPropsEqual(prev: DocViewProps, next: DocViewProps): boolean {
 		);
 	}
 	if (tab.kind === "plaza") return true;
-	if (tab.mode === "markdown") return prev.editor === next.editor;
-	if (tab.mode === "excalidraw") return prev.excalidraw === next.excalidraw;
-	if (tab.mode === "text") return prev.text === next.text;
-	if (tab.mode === "pdf" || tab.mode === "translation")
-		return prev.pdf === next.pdf;
-	return true;
+	switch (viewerModeSpec(tab.mode).props) {
+		case "editor":
+			return prev.editor === next.editor;
+		case "excalidraw":
+			return prev.excalidraw === next.excalidraw;
+		case "text":
+			return prev.text === next.text;
+		case "pdf":
+			return prev.pdf === next.pdf;
+		case "none":
+			return true;
+	}
 }
 
 /** Document content router by tab.kind / mode (library, trash, editor, PDF, image, HTML). */

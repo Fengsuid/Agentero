@@ -85,6 +85,41 @@ function deriveFromTree(
 	};
 }
 
+/**
+ * Content equality for tree-derived lists: watcher refreshes usually rebuild
+ * identical lists, and always-new references would re-render every
+ * derived-list subscriber (wiki nav, agent chips) for nothing.
+ */
+function sameStringArrays(a: string[], b: string[]): boolean {
+	if (a === b) return true;
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] !== b[i]) return false;
+	}
+	return true;
+}
+
+/**
+ * `deriveFromTree` with reference stability: lists with identical content
+ * keep their previous reference so array-identity subscribers bail out.
+ */
+function deriveGuarded(
+	tree: FileNode[],
+	vaultPath: string | null,
+	prev: VaultStore,
+): VaultTreeDerived {
+	const next = deriveFromTree(tree, vaultPath);
+	const keep = (key: keyof VaultTreeDerived): string[] =>
+		sameStringArrays(next[key], prev[key]) ? prev[key] : next[key];
+	return {
+		vaultMdFiles: keep("vaultMdFiles"),
+		vaultWikiTargetFiles: keep("vaultWikiTargetFiles"),
+		vaultDirPaths: keep("vaultDirPaths"),
+		paperFolders: keep("paperFolders"),
+		vaultPaperPaths: keep("vaultPaperPaths"),
+	};
+}
+
 export const vaultStore = createStore<VaultStore>(() => ({
 	vaultPath: null,
 	tree: [],
@@ -120,17 +155,26 @@ export function getVaultPath(): string | null {
 }
 
 export function setVaultPath(path: string | null): void {
-	const { tree } = vaultStore.getState();
-	vaultStore.setState({
-		vaultPath: path,
-		cutPaths: [],
-		...deriveFromTree(tree, path),
-	});
+	const prev = vaultStore.getState();
+	const derived = deriveGuarded(prev.tree, path, prev);
+	// Same vault, nothing staged, identical lists: skip the notification.
+	if (
+		path === prev.vaultPath &&
+		prev.cutPaths.length === 0 &&
+		derived.vaultMdFiles === prev.vaultMdFiles &&
+		derived.vaultWikiTargetFiles === prev.vaultWikiTargetFiles &&
+		derived.vaultDirPaths === prev.vaultDirPaths &&
+		derived.paperFolders === prev.paperFolders &&
+		derived.vaultPaperPaths === prev.vaultPaperPaths
+	) {
+		return;
+	}
+	vaultStore.setState({ vaultPath: path, cutPaths: [], ...derived });
 }
 
 export function setTree(tree: FileNode[]): void {
-	const { vaultPath } = vaultStore.getState();
-	vaultStore.setState({ tree, ...deriveFromTree(tree, vaultPath) });
+	const prev = vaultStore.getState();
+	vaultStore.setState({ tree, ...deriveGuarded(tree, prev.vaultPath, prev) });
 }
 
 export function setTreeLoading(loading: boolean): void {

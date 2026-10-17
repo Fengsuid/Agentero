@@ -20,7 +20,7 @@ pub async fn probe_agent(
     let agent_id = desc.id.clone();
     // Unix probes use scratch (or the remote vault) instead of inheriting `/`
     // from LaunchServices. Windows probes keep their original direct launch:
-    // no cwd wrapper is needed (process-tree ownership lives in acp/process).
+    // no cwd wrapper is added; launcher descendants may outlive SDK cleanup.
     let cwd = if cfg!(windows) {
         Ok(None)
     } else {

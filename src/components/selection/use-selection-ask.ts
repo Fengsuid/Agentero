@@ -18,6 +18,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { disposeAgentRun } from "@/lib/agent";
+import type { ContextRequest } from "@/lib/agent/context-request";
 import { createEmptyThread } from "@/lib/pdf/ask";
 import {
 	dispatchAskTurn,
@@ -49,10 +50,13 @@ export function createSelectionAskThread(
 
 export function useSelectionAsk<S>({
 	buildPrompt,
+	context,
 	activeSessionRef,
 }: {
 	/** Surface context (title / URL / wording) stamped around the thread. */
 	buildPrompt: (thread: PdfAskThread, latestUserQuestion: string) => string;
+	/** Vault text asks. Web and plaza items leave this unset. */
+	context?: (thread: PdfAskThread) => ContextRequest | null;
 	/**
 	 * Single in-flight agent run per surface, shared with the translate
 	 * cluster; parent-owned so either can cancel the other's session token.
@@ -125,6 +129,7 @@ export function useSelectionAsk<S>({
 				baseMessages,
 				vaultPath: getVaultPath() ?? undefined,
 				buildPrompt,
+				context: context?.(thread) ?? undefined,
 				upsertThread: upsertAskThread,
 				patchThread: patchAskThread,
 				setAskError,
@@ -135,7 +140,14 @@ export function useSelectionAsk<S>({
 				sessionRef: askSessionRef,
 				activeSessionRef,
 			}),
-		[buildPrompt, upsertAskThread, patchAskThread, activeSessionRef, t],
+		[
+			buildPrompt,
+			context,
+			upsertAskThread,
+			patchAskThread,
+			activeSessionRef,
+			t,
+		],
 	);
 
 	const resolveAgent = useCallback(

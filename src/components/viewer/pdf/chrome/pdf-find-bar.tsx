@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import type { RefObject } from "react";
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +27,7 @@ type PdfFindBarProps = {
 };
 
 /** ⌘F find bar: query input, match counter, prev / next / close. */
-export function PdfFindBar({
+export const PdfFindBar = memo(function PdfFindBar({
 	open,
 	inputRef,
 	query,
@@ -124,4 +125,4 @@ export function PdfFindBar({
 			</div>
 		</TooltipProvider>
 	);
-}
+});

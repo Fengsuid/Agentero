@@ -10,7 +10,7 @@
 
 | 节点 | 路径常量 | 行为 |
 |---|---|---|
-| Recycle Bin | `agentero:trash` | 打开回收站视图；右键清空 |
+| Recycle Bin | `agentero:trash` | 打开回收站视图（论文项主行显示快照标题，经 `MathText`；普通文件显示文件名；副行原路径 + 删除时间）；右键清空 |
 | 广场 | `agentero:plaza` | 单击只切换展开/收起（纯虚拟文件夹，无广场首页）；`Globe` 图标。子来源含 Cool Papers、ModelScope 论文、Skill 推荐与 **订阅**；右键父节点列出全部来源逐条勾选显隐（`plazaHiddenSources`） |
 
 ## 建树
@@ -19,6 +19,7 @@
 - 远程：`remote_list` 前端递归。
 - **全量递归**：`papers/`、`notes/`、`.agents/`；论文内 `source/` **懒加载**（`childrenPending` → `vault_tree_children`）。
 - 论文默认仍是叶子。若 `{paper}/attachments/` 内有文件，行上出现 chevron；展开后只列出该目录的子项（不显示 `attachments` 桶本身，也不显示 `source/` / `marks/` / `NOTES.md` 等内部文件）。
+- **应用自产 sidecar 不入树**：`{paper}/source/` 下的 `agentero-cite.json`、`agentero-figures.json` 与 `layout.json` / `layout-index.json` / `layout-translate.json` 都是可重建的应用资产，树永不列出。因此即便某文件夹没有被识别成论文单元（论文被移出 `papers/`、从外部拷贝进来、组织夹里残留等），只要其 `source/` 只装这些文件，整个 `source/` 目录也不会出现（#747）。
 - 其它根目录（包括旧 Vault 中可能存在的 `plans/`）只 list 一层，展开再 list。
 - **缺失目录**：本地 `read_dir` 失败返回空列表；远程 list 的 `NoSuchFile` 同样按空处理（`isPathMissingError`），避免删除后刷新把整棵树清空。删除成功后会先 `removeTreeNode` 乐观剪枝，再 `refreshTree`。
 - 忽略：`.git`、`.venv`、`node_modules` 等（`TREE_IGNORE_NAMES`）。
@@ -62,6 +63,8 @@
 | 折叠 | `⌘←` 选中夹；`⇧⌘←` 折叠至默认 |
 | 定位 | 激活文档变化时展开祖先并 `scrollToIndex`（VS Code `List.reveal` 语义：`align: "auto"` 最小滚动，行已可见则不滚，从不居中）；同一目标只定位一次，导入后台阶段引起的树刷新不再重复滚动；用户折叠包含当前选中的目录后不会被自动定位立即重新展开（#576） |
 | 刷新 | File → Refresh（`⌘R`）；watcher 局部刷新 |
+
+树内新建与重命名共用 `tree-inputs.tsx` 中的命名输入组件，统一名称校验、提交、取消与失焦处理。两者及移动面板的新文件夹输入复用 `useImeGuard`：输入法组字期间 Enter 只确认候选词、Escape 只取消候选词；同时覆盖 `keyCode 229` 与组字结束后确认按键的时序差异。组字结束后再次按 Enter 才提交；移动面板也不会因候选词的 Escape 提前关闭（#746）。树内输入失焦时读取最终输入值，并防止 Enter 与失焦重复提交。
 
 ### 拖拽的平台差异
 
