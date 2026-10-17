@@ -9,12 +9,12 @@
 //! NotImplemented (e.g. Aliyun OSS PutObject) are detected and degraded to
 //! plain PUTs, trading strict concurrency safety for availability.
 
-use crate::core::error::AppError;
-use crate::core::http;
-use crate::integration::sync::config::SyncBackendConfig;
-use crate::integration::sync::store::{
+use crate::error::AppError;
+use crate::features::sync::config::SyncBackendConfig;
+use crate::features::sync::store::{
     check, etag_of, send_with_retries, PutCondition, PutOutcome, RemoteStore,
 };
+use crate::http;
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};

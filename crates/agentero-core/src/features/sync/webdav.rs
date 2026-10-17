@@ -12,12 +12,12 @@
 //! content-addressed blobs make that idempotent, and convergence comes from
 //! the engine's merge retries.
 
-use crate::core::error::AppError;
-use crate::core::http;
-use crate::integration::sync::config::{normalize_webdav_url, SyncBackendConfig};
-use crate::integration::sync::store::{
+use crate::error::AppError;
+use crate::features::sync::config::{normalize_webdav_url, SyncBackendConfig};
+use crate::features::sync::store::{
     check, etag_of, send_with_retries, PutCondition, PutOutcome, RemoteStore,
 };
+use crate::http;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -384,7 +384,7 @@ mod tests {
 
     fn client(url: &str) -> WebdavClient {
         WebdavClient::new(&SyncBackendConfig {
-            backend: crate::integration::sync::config::SyncBackendKind::Webdav,
+            backend: crate::features::sync::config::SyncBackendKind::Webdav,
             webdav_url: url.into(),
             webdav_username: "u".into(),
             webdav_password: "p".into(),

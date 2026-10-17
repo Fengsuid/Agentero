@@ -82,7 +82,7 @@ impl SyncService {
             let result = tauri::async_runtime::block_on(async {
                 tokio::time::timeout(
                     Duration::from_secs(EXIT_FLUSH_TIMEOUT_SECS),
-                    super::engine::sync_vault(&dir, &cfg, &|_, _, _| {}),
+                    super::engine::sync_vault_locked(&dir, &cfg, &|_, _, _| {}),
                 )
                 .await
             });

@@ -225,7 +225,7 @@ pub async fn perform_sync(
             },
         );
     };
-    let result = engine::sync_vault(&dir, &cfg, &progress).await;
+    let result = engine::sync_vault_locked(&dir, &cfg, &progress).await;
     // Terminal event consumers immediately re-read status; release first.
     drop(lease);
     match result {

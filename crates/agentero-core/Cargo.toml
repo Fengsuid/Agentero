@@ -49,6 +49,9 @@ url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 # Used by lookup batch import (all platforms).
 futures-util = "0.3.33"
+# Cross-process sync-pass lock in `features::sync::lock` (desktop Host + CLI
+# on the same vault). flock / LockFileEx; no stale-lock recovery needed.
+fs2 = "0.4"
 
 [dev-dependencies]
 tempfile = { workspace = true }

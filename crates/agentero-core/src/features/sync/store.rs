@@ -8,10 +8,10 @@
 //! conditional `put` carry the whole CAS protocol; `ensure_root` and the
 //! conditional-write probe exist for `sync_configure`'s connection test.
 
-use crate::core::error::AppError;
-use crate::integration::sync::config::{SyncBackendConfig, SyncBackendKind};
-use crate::integration::sync::s3::S3Client;
-use crate::integration::sync::webdav::WebdavClient;
+use crate::error::AppError;
+use crate::features::sync::config::{SyncBackendConfig, SyncBackendKind};
+use crate::features::sync::s3::S3Client;
+use crate::features::sync::webdav::WebdavClient;
 use std::future::Future;
 
 pub enum PutCondition {

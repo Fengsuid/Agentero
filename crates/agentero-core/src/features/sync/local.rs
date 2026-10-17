@@ -6,8 +6,8 @@
 //! - `.agentero/sync/state.json` — last sync time / version for status UI
 //! - `.agentero/sync/pushed.jsonl` — blobs uploaded but not yet published
 
-use crate::core::error::AppError;
-use crate::integration::sync::snapshot::Manifest;
+use crate::error::AppError;
+use crate::features::sync::snapshot::Manifest;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
@@ -28,6 +28,20 @@ pub struct SyncMeta {
     pub last_sync_at: Option<String>,
     #[serde(default)]
     pub last_version: u64,
+    /// Last failed pass's error message; cleared by the next success.
+    /// Surfaced by the CLI `sync status` (the desktop reports it live via
+    /// `sync:state` events instead).
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+
+/// Record a failed pass on top of the existing meta (keeps last_sync_at /
+/// last_version from the last success). Best-effort: a broken state.json
+/// must not mask the sync error itself.
+pub fn record_error(vault: &Path, error: &str) {
+    let mut meta = read_meta(vault);
+    meta.last_error = Some(error.to_string());
+    let _ = write_meta(vault, &meta);
 }
 
 fn identity_path(vault: &Path) -> PathBuf {
@@ -42,7 +56,7 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    crate::core::fs::json_store(path, value)
+    crate::fs::json_store(path, value)
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
@@ -59,7 +73,7 @@ pub fn ensure_vault_id(vault: &Path) -> Result<String, AppError> {
     }
     let identity = VaultIdentity {
         id: uuid::Uuid::new_v4().to_string(),
-        created_at: crate::core::time::now_rfc3339_millis(),
+        created_at: crate::time::now_rfc3339_millis(),
     };
     write_json(&identity_path(vault), &identity)?;
     Ok(identity.id)
@@ -71,7 +85,7 @@ pub fn set_vault_id(vault: &Path, id: &str) -> Result<(), AppError> {
         &identity_path(vault),
         &VaultIdentity {
             id: id.to_string(),
-            created_at: crate::core::time::now_rfc3339_millis(),
+            created_at: crate::time::now_rfc3339_millis(),
         },
     )
 }

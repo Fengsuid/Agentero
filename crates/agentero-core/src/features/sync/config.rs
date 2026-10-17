@@ -4,10 +4,9 @@
 //! The secret key is masked with `*` on the way to the WebView, mirroring the
 //! translate API-key convention.
 
-use crate::core::error::AppError;
-use crate::core::paths;
-use crate::features::system::settings::{is_translate_api_key_mask, mask_translate_api_key};
-use crate::integration::sync::snapshot::SyncScope;
+use crate::error::AppError;
+use crate::features::sync::snapshot::SyncScope;
+use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -87,6 +86,23 @@ fn default_interval_minutes() -> u32 {
 /// Interval choices offered by the settings UI; anything else snaps to 30.
 pub const INTERVAL_CHOICES: &[u32] = &[15, 30, 60];
 
+/// Replace a non-empty secret with the same number of `*` characters (same
+/// convention as the desktop translate API-key mask).
+fn mask_secret(secret: &str) -> String {
+    let n = secret.trim().chars().count();
+    if n == 0 {
+        String::new()
+    } else {
+        "*".repeat(n)
+    }
+}
+
+/// True when a value came back from [`SyncBackendConfig::masked`] (all `*`).
+fn is_masked_secret(value: &str) -> bool {
+    let t = value.trim();
+    !t.is_empty() && t.chars().all(|c| c == '*')
+}
+
 impl SyncBackendConfig {
     pub fn validate(&self) -> Result<(), AppError> {
         match self.backend {
@@ -138,17 +154,17 @@ impl SyncBackendConfig {
     /// Copy with the secrets replaced by a same-length `*` mask.
     pub fn masked(&self) -> Self {
         let mut out = self.clone();
-        out.secret_key = mask_translate_api_key(&out.secret_key);
-        out.webdav_password = mask_translate_api_key(&out.webdav_password);
+        out.secret_key = mask_secret(&out.secret_key);
+        out.webdav_password = mask_secret(&out.webdav_password);
         out
     }
 
     /// Restore the previous secret when the UI echoes the mask back.
     pub fn merge_mask(&mut self, previous: Option<&Self>) {
-        if is_translate_api_key_mask(&self.secret_key) {
+        if is_masked_secret(&self.secret_key) {
             self.secret_key = previous.map(|p| p.secret_key.clone()).unwrap_or_default();
         }
-        if is_translate_api_key_mask(&self.webdav_password) {
+        if is_masked_secret(&self.webdav_password) {
             self.webdav_password = previous
                 .map(|p| p.webdav_password.clone())
                 .unwrap_or_default();
@@ -249,10 +265,10 @@ fn write_all(vaults: HashMap<String, SyncBackendConfig>) -> Result<(), AppError>
         fs::create_dir_all(parent)?;
     }
     // Owner-only (0o600 on Unix): this file holds S3 credentials.
-    crate::core::fs::json_store_with(
+    crate::fs::json_store_with(
         &path,
         &SyncConfigFile { vaults },
-        &crate::core::fs::AtomicOpts::OWNER_ONLY,
+        &crate::fs::AtomicOpts::OWNER_ONLY,
     )
 }
 

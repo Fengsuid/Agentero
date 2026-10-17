@@ -1,24 +1,21 @@
-//! Vault cloud sync over S3-compatible object storage or WebDAV.
-//!
-//! Design doc: `docs/development/cloud-sync-s3.md`. The engine is
-//! state-based: content-addressed blobs + immutable manifests + a CAS `HEAD`
-//! pointer. Credentials live in XDG `sync.json` (never inside the vault).
+//! Desktop shell around the shared sync engine in
+//! `agentero_core::features::sync`: IPC commands (`commands`), the auto-sync
+//! scheduler and the in-process run lease below. The engine itself (S3 /
+//! WebDAV stores, three-way merge, CAS protocol, conflict copies) lives in
+//! core and is shared with the headless CLI (`agentero sync …`).
 
 pub mod commands;
-pub mod config;
-pub mod engine;
-pub mod local;
-mod s3;
-mod scheduler;
-pub mod snapshot;
-mod store;
-mod webdav;
+pub mod scheduler;
+
+pub use agentero_core::features::sync::{config, engine, local, snapshot};
 
 use std::collections::HashSet;
 use std::sync::Mutex;
 
 /// Serializes sync passes per vault and owns the auto-sync scheduler tasks
-/// (managed tauri state).
+/// (managed tauri state). Cross-process passes (CLI alongside the Host) are
+/// serialized by the file lock inside `engine::sync_vault_locked`; this lease
+/// additionally drives the in-app `running` status.
 #[derive(Default)]
 pub struct SyncService {
     running: Mutex<HashSet<String>>,
@@ -79,6 +76,7 @@ mod tests {
         let a = service.try_begin("a").unwrap();
         let b = service.try_begin("b").unwrap();
         assert!(service.try_begin("a").is_none());
+        assert!(service.try_begin("b").is_none());
         assert!(service.is_running("a"));
         drop(a);
         assert!(!service.is_running("a"));
