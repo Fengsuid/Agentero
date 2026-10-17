@@ -239,10 +239,6 @@ pub(crate) fn build_child_env(
         child_env.insert("PATH".to_string(), path.to_string_lossy().to_string());
     }
 
-    // Windows exposes per-drive cwd entries such as `=C:` in the inherited
-    // environment. They cannot be set as explicit Command/ACP env overrides.
-    // Apply this after merging so shell and descriptor entries are covered too.
-    child_env.retain(|name, _| !name.is_empty() && !name.contains(['=', '\0']));
     child_env
 }
 
@@ -1124,57 +1120,6 @@ mod cwd_shell_wrap_tests {
             Some(&"https://shell/v1".to_string())
         );
         assert_eq!(env.get("SHARED"), Some(&"process".to_string()));
-    }
-
-    #[test]
-    fn build_child_env_excludes_invalid_names_from_every_source() {
-        let process_env = HashMap::from([
-            ("=C:".into(), "C:\\work".into()),
-            ("".into(), "empty name".into()),
-            ("NORMAL".into(), "process".into()),
-        ]);
-        let shell_env = HashMap::from([
-            ("=D:".into(), "D:\\vault".into()),
-            ("BAD\0NAME".into(), "nul name".into()),
-            ("SHELL_ONLY".into(), "shell=value".into()),
-        ]);
-        let desc_env = HashMap::from([
-            ("BAD=NAME".into(), "descriptor".into()),
-            ("NORMAL".into(), "descriptor=value".into()),
-            ("EMPTY_VALUE".into(), String::new()),
-        ]);
-        let env = build_child_env(process_env.into_iter(), Some(&shell_env), &desc_env);
-        for key in ["=C:", "=D:", "", "BAD\0NAME", "BAD=NAME"] {
-            assert!(
-                !env.contains_key(key),
-                "invalid name was forwarded: {key:?}"
-            );
-        }
-        assert_eq!(env["NORMAL"], "descriptor=value");
-        assert_eq!(env["SHELL_ONLY"], "shell=value");
-        assert_eq!(env["EMPTY_VALUE"], "");
-        assert!(env.contains_key("PATH"));
-    }
-
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn probe_initializes_with_windows_hidden_environment_names() {
-        let mut desc = descriptor(AgentTemplate::Custom);
-        desc.command = "powershell.exe".into();
-        desc.args = vec![
-            "-NoProfile".into(),
-            "-NonInteractive".into(),
-            "-Command".into(),
-            "if ($env:AGENTERO_ENV_TEST -ne 'literal=value') { exit 2 }; while ($line = [Console]::ReadLine()) { $r = ConvertFrom-Json $line; if ($r.method -eq 'initialize') { @{jsonrpc='2.0'; id=$r.id; result=@{protocolVersion=1;agentCapabilities=@{};agentInfo=@{name='env-fixture';version='1'}}} | ConvertTo-Json -Depth 5 -Compress | ForEach-Object { [Console]::WriteLine($_) } } }".into(),
-        ];
-        desc.env = HashMap::from([
-            ("=C:".into(), "C:\\work".into()),
-            ("=D:".into(), "D:\\vault".into()),
-            ("AGENTERO_ENV_TEST".into(), "literal=value".into()),
-        ]);
-        let result = crate::features::agent::acp::probe::probe_agent(&desc, None).await;
-        assert!(result.available, "ACP probe failed: {:?}", result.error);
-        assert_eq!(result.agent_name.as_deref(), Some("env-fixture"));
     }
 
     #[test]
