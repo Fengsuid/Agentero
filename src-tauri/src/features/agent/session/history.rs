@@ -3,7 +3,7 @@
 use crate::core::error::AppError;
 use crate::features::agent::acp::client::{
     acp_terminals, agentero_acp_builder, client_initialize_request, timed_acp_initialize,
-    timed_acp_request, to_acp_agent,
+    timed_acp_load_session, timed_acp_request, to_acp_agent,
 };
 use crate::features::agent::acp::interaction::permission_response;
 use crate::features::agent::acp::updates::{
@@ -496,6 +496,7 @@ pub async fn load_acp_session(
         )
         .connect_with(acp, {
             let sid = session_id.clone();
+            let agent_id = desc.id.clone();
             let last_replay = last_replay.clone();
             move |connection: ConnectionTo<Agent>| async move {
                 let init = timed_acp_initialize(
@@ -523,8 +524,9 @@ pub async fn load_acp_session(
                     ));
                 }
 
-                timed_acp_request(
-                    "session/load",
+                timed_acp_load_session(
+                    &agent_id,
+                    &sid,
                     connection
                         .send_request(
                             LoadSessionRequest::new(SessionId::new(sid.as_str()), cwd)

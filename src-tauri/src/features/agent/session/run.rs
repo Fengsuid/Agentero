@@ -3,7 +3,8 @@
 use crate::core::error::AppError;
 use crate::features::agent::acp::client::{
     acp_err, acp_terminals, agent_spawn_cwd, cancelled_payload, client_initialize_request,
-    timed_acp_initialize, timed_acp_request, to_acp_agent, wait_for_cancellation,
+    timed_acp_initialize, timed_acp_load_session, timed_acp_request, to_acp_agent,
+    wait_for_cancellation,
 };
 use crate::features::agent::acp::interaction::PermissionPolicy;
 use crate::features::agent::acp::terminal::AcpTerminalManager;
@@ -743,8 +744,9 @@ impl RunOnceContext {
             // continue across process restarts via session/load (requires
             // mcpServers; schema defaults to []).
             let resp = tokio::select! {
-                result = timed_acp_request(
-                    "session/load",
+                result = timed_acp_load_session(
+                    &self.agent_id,
+                    rid,
                     connection
                         .send_request(
                             LoadSessionRequest::new(SessionId::new(rid), cwd.to_path_buf())

@@ -7,7 +7,17 @@ Agentero 作为 **ACP Client**，stdio JSON-RPC 连接用户本机或远端 Agen
 - Crate：`agent-client-protocol`（及 Codex 的 npm ACP 适配器进程）。
 - Quick Chat 和侧边栏的论文上下文走同一解析器。本地会话在 `session/new`、`session/resume`、`session/load` 上传入 `agentero-context` stdio MCP；授权指纹变化时不恢复旧会话。见 [context.md](context.md)。
 - ACP `initialize` 在 run / warm / 历史 list / load 四处统一最多等待 30 秒（设置页
-  探针同样保留 30 秒总预算），覆盖 BYOA 冷启动；其余 session RPC 保持 15 秒预算。
+  探针同样保留 30 秒总预算），覆盖 BYOA 冷启动。warm 的 `session/new` 为 30 秒；
+  `session/load` 独立为 60 秒，覆盖历史浏览与续聊（冷连接及池连接），容纳适配器
+  启动运行时、读取和回放历史的开销；其余 session RPC 保持 15 秒预算。
+  续聊在等待 load 时仍响应现有取消信号，60 秒不是强制等待时长；历史浏览仍为一次性
+  IPC 请求，没有新增取消接口。初始化与历史回放 settle 窗口不计入 load 的 60 秒。
+  Host 日志以 `acp session/load` 记录 agent/session、开始与预算、结束状态
+  （success/failed/cancelled）和总请求耗时 `elapsed_ms`；失败另记错误，超时含 60 秒预算。
+  cancelled 表示宿主请求 future 被丢弃，不保证适配器已终止内部恢复工作。
+  Host 无法区分 Pi RPC 启动至就绪、读取历史、回放历史的内部阶段；这些耗时需在
+  使用的 `pi-acp` 适配器中输出（stderr，避免污染 ACP stdout）。
+  验证与后续见 [历史恢复超时复盘](../bug_fix/acp-session-load-timeout.md)。
 - 会话 `cwd` = 当前 Vault 根（远程则为远端 Vault 根）。run / warm / list / load
   统一由 `agent_spawn_cwd()` 选择路径，并在内部调用 `core::process::windows_shell_path` 归一；history
   不再二次归一。Windows 把 canonicalize 出的 `\\?\D:\...` 还原为 `D:\...`，避免 Agent

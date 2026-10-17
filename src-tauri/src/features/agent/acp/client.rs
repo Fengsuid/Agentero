@@ -469,6 +469,56 @@ pub(crate) const ACP_INITIALIZE_TIMEOUT: std::time::Duration = std::time::Durati
 /// interactive turns keep the responsive 15s budget.
 pub(crate) const ACP_NEW_SESSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// Loading can bootstrap an agent runtime and replay the entire transcript.
+/// Keep this separate from interactive RPCs and cancellable by the caller.
+pub(crate) const ACP_LOAD_SESSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Shared by history browsing and continuing a session (cold or pooled).
+pub(crate) async fn timed_acp_load_session<T, E>(
+    agent_id: &str,
+    session_id: &str,
+    request: impl std::future::Future<Output = Result<T, E>>,
+) -> Result<T, agent_client_protocol::Error>
+where
+    E: std::fmt::Display,
+{
+    // A dropped request future (e.g. the turn's cancellation select) must also
+    // leave a terminal log, rather than looking like a stuck load request.
+    struct LoadTimer<'a> {
+        agent_id: &'a str,
+        session_id: &'a str,
+        started: std::time::Instant,
+        outcome: &'static str,
+    }
+    impl Drop for LoadTimer<'_> {
+        fn drop(&mut self) {
+            log::info!(
+                "acp session/load agent={} session={} outcome={} elapsed_ms={}",
+                self.agent_id,
+                self.session_id,
+                self.outcome,
+                self.started.elapsed().as_millis(),
+            );
+        }
+    }
+    let mut timer = LoadTimer {
+        agent_id,
+        session_id,
+        started: std::time::Instant::now(),
+        outcome: "cancelled",
+    };
+    log::info!(
+        "acp session/load agent={agent_id} session={session_id} started budget_s={}",
+        ACP_LOAD_SESSION_TIMEOUT.as_secs(),
+    );
+    let result = timed_acp_request_with(ACP_LOAD_SESSION_TIMEOUT, "session/load", request).await;
+    timer.outcome = if result.is_ok() { "success" } else { "failed" };
+    if let Err(error) = &result {
+        log::warn!("acp session/load agent={agent_id} session={session_id}: {error}");
+    }
+    result
+}
+
 /// `session/new` variant of [`timed_acp_request`]; see [`ACP_NEW_SESSION_TIMEOUT`].
 pub(crate) async fn timed_acp_new_session<T, E>(
     request: impl std::future::Future<Output = Result<T, E>>,
@@ -546,6 +596,49 @@ pub(crate) fn acp_err(msg: impl ToString) -> agent_client_protocol::Error {
 #[cfg(test)]
 mod timeout_tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn load_session_has_an_independent_budget() {
+        let slow_request = || async {
+            tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+            Ok::<_, &str>(())
+        };
+        let (load, ordinary) = tokio::join!(
+            timed_acp_load_session("pi", "test", slow_request()),
+            timed_acp_request("session/list", slow_request()),
+        );
+        assert!(load.is_ok());
+        assert!(ordinary.unwrap_err().to_string().contains("after 15s"));
+        let started = tokio::time::Instant::now();
+        let error =
+            timed_acp_load_session("pi", "test", std::future::pending::<Result<(), &str>>())
+                .await
+                .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("session/load timed out after 60s"));
+        assert_eq!(started.elapsed(), ACP_LOAD_SESSION_TIMEOUT);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn load_session_remains_cancellable() {
+        let (tx, mut cancellation) = watch::channel(false);
+        let started = tokio::time::Instant::now();
+        let cancel = async {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            tx.send(true).unwrap();
+        };
+        let load = async {
+            tokio::select! {
+                result = timed_acp_load_session(
+                    "pi", "test", std::future::pending::<Result<(), &str>>(),
+                ) => panic!("load completed before cancellation: {result:?}"),
+                () = wait_for_cancellation(&mut cancellation) => {}
+            }
+        };
+        tokio::join!(load, cancel);
+        assert_eq!(started.elapsed(), std::time::Duration::from_secs(2));
+    }
 
     #[tokio::test(start_paused = true)]
     async fn initialize_has_an_independent_budget() {
