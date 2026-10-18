@@ -94,9 +94,9 @@ export type VaultSidebarHeaderProps = {
 	onCreateVault: () => void;
 	/** Open remote vault via SSH (host + remote path). */
 	onOpenRemoteVault?: (args: OpenRemoteVaultArgs) => void | Promise<void>;
-	/** Migrate from Zotero (icon in magic-wand popover, right of bibliography import). */
+	/** Migrate from Zotero (item in the vault switcher dropdown). */
 	onMigrateZotero?: () => void;
-	/** Bidirectional Zotero sync (icon in magic-wand popover, right of migrate). */
+	/** Bidirectional Zotero sync (item in the vault switcher dropdown). */
 	onSyncZotero?: () => void;
 };
 
@@ -364,7 +364,7 @@ export const VaultSidebarHeader = memo(function VaultSidebarHeader({
 											{lookupError}
 										</p>
 									) : null}
-									{/* Imports bottom-left (PDF · bibliography · Zotero) · Add bottom-right */}
+									{/* Imports bottom-left (PDF · bibliography) · Add bottom-right */}
 									<div className="flex items-center justify-between gap-2">
 										<div className="flex items-center gap-1">
 											{onImportLocalPdf ? (
@@ -414,50 +414,6 @@ export const VaultSidebarHeader = memo(function VaultSidebarHeader({
 													</TooltipTrigger>
 													<TooltipContent side="bottom">
 														{t("papersLibrary.import")}
-													</TooltipContent>
-												</Tooltip>
-											) : null}
-											{onMigrateZotero ? (
-												<Tooltip>
-													<TooltipTrigger asChild>
-														<Button
-															type="button"
-															variant="ghost"
-															size="icon-xs"
-															disabled={actionsDisabled}
-															aria-label={t("zoteroMigrate.button")}
-															onClick={() => {
-																setWandOpen(false);
-																onMigrateZotero();
-															}}
-														>
-															<SiZotero className="size-3.5 text-[#CC2936]" />
-														</Button>
-													</TooltipTrigger>
-													<TooltipContent side="bottom">
-														{t("zoteroMigrate.button")}
-													</TooltipContent>
-												</Tooltip>
-											) : null}
-											{onSyncZotero ? (
-												<Tooltip>
-													<TooltipTrigger asChild>
-														<Button
-															type="button"
-															variant="ghost"
-															size="icon-xs"
-															disabled={actionsDisabled}
-															aria-label={t("zoteroSync.button")}
-															onClick={() => {
-																setWandOpen(false);
-																onSyncZotero();
-															}}
-														>
-															<RefreshCw className="size-3.5" />
-														</Button>
-													</TooltipTrigger>
-													<TooltipContent side="bottom">
-														{t("zoteroSync.button")}
 													</TooltipContent>
 												</Tooltip>
 											) : null}
@@ -619,6 +575,31 @@ export const VaultSidebarHeader = memo(function VaultSidebarHeader({
 								<FolderPlus className="size-3.5" />
 								{t("app:vault.createVaultButton")}
 							</DropdownMenuItem>
+							{onMigrateZotero || onSyncZotero ? (
+								<DropdownMenuSeparator />
+							) : null}
+							{onMigrateZotero ? (
+								<DropdownMenuItem
+									disabled={actionsDisabled}
+									onSelect={() => {
+										requestAnimationFrame(() => onMigrateZotero());
+									}}
+								>
+									<SiZotero className="size-3.5 text-[#CC2936]" />
+									{t("zoteroMigrate.button")}
+								</DropdownMenuItem>
+							) : null}
+							{onSyncZotero ? (
+								<DropdownMenuItem
+									disabled={actionsDisabled}
+									onSelect={() => {
+										requestAnimationFrame(() => onSyncZotero());
+									}}
+								>
+									<RefreshCw className="size-3.5" />
+									{t("zoteroSync.button")}
+								</DropdownMenuItem>
+							) : null}
 						</DropdownMenuContent>
 					</DropdownMenu>
 					{onOpenRemoteVault ? (
