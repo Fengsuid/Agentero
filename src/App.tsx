@@ -233,8 +233,6 @@ export default function App() {
 		rightWidthPxRef,
 		initialLeftPx,
 		initialRightPx,
-		animatingRailRef,
-		cancelRailAnimation,
 	} = useShellLayout(vaultPath);
 
 	const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
@@ -483,13 +481,6 @@ export default function App() {
 									groupResizeBehavior="preserve-pixel-size"
 									className="min-h-0 overflow-hidden"
 									onResize={(size) => {
-										// Programmatic collapse/expand transition in flight.
-										if (
-											animatingRailRef.current === "left" ||
-											animatingRailRef.current === "both"
-										) {
-											return;
-										}
 										// Only mark collapsed after a real collapse, never mid-drag.
 										if (size.inPixels <= RAIL_COLLAPSED_MAX_PX) {
 											setSidebarCollapsedState(true);
@@ -517,7 +508,6 @@ export default function App() {
 
 								{sidebarCollapsed ? null : (
 									<ResizableHandle
-										onPointerDown={cancelRailAnimation}
 										onDoubleClick={() => commitRailReset("left")}
 									/>
 								)}
@@ -549,10 +539,7 @@ export default function App() {
 
 						{/* Right sidebar: always mounted + collapsible (same as left). */}
 						{rightSidebarOpen ? (
-							<ResizableHandle
-								onPointerDown={cancelRailAnimation}
-								onDoubleClick={() => commitRailReset("right")}
-							/>
+							<ResizableHandle onDoubleClick={() => commitRailReset("right")} />
 						) : null}
 						<ResizablePanel
 							id="right-sidebar"
@@ -565,13 +552,6 @@ export default function App() {
 							groupResizeBehavior="preserve-pixel-size"
 							className="min-h-0 overflow-hidden"
 							onResize={(size) => {
-								// Programmatic collapse/expand transition in flight.
-								if (
-									animatingRailRef.current === "right" ||
-									animatingRailRef.current === "both"
-								) {
-									return;
-								}
 								if (size.inPixels <= RAIL_COLLAPSED_MAX_PX) {
 									setRightSidebarOpenState(false);
 								} else if (size.inPixels >= RAIL_RECORD_MIN_PX) {

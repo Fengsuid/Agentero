@@ -134,17 +134,6 @@
 }
 
 /*
- * Rail collapse/expand: use-shell-layout marks every panel in the group with
- * data-rail-animating, then commits the final layout via collapse()/expand().
- * Panel size is an inline flex-grow, so transitioning it animates all rails
- * in lockstep. The attribute is removed when the transition settles (or when
- * a separator drag cancels it), so manual resizing stays transition-free.
- */
-[data-panel][data-rail-animating] {
-	transition: flex-grow var(--motion-duration-normal) var(--motion-ease-out);
-}
-
-/*
  * Global reduced-motion fallback: Radix/tw-animate popovers, sonner toasts and
  * keyframe loaders have no per-component opt-out, so collapse all motion to a
  * near-zero duration here (state changes still apply, just without movement).
@@ -270,11 +259,10 @@
 
 	/*
 	 * Motion tokens — single source of truth for custom CSS + JS (see
-	 * lib/core/motion.ts). Keep RAIL_ANIMATION_MS in use-shell-layout.ts in
-	 * sync with --motion-duration-normal.
+	 * lib/core/motion.ts).
 	 *   micro  100ms — press / hover feedback (Button, tabs, rings)
 	 *   fast   150ms — overlay enter/exit, chrome color fades
-	 *   normal 200ms — layout choreography (rails, panels, task HUD)
+	 *   normal 200ms — task HUD timeout / larger choreography
 	 */
 	--motion-duration-micro: 100ms;
 	--motion-duration-fast: 150ms;

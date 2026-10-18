@@ -7,7 +7,7 @@
 - **右栏**（可选）：Agent / 批注（`bg-sidebar`，与左栏同色）。
   - 参考文献与版面解析已移入 PDF 阅读器左侧浮层面板（见 [pdf.md](pdf.md)），不再占用右栏。
   - **移至新窗口**：标题栏右栏功能图标 **右键** →「移动至新窗口」→ 单例 `feature-{view}` Webview；主窗右栏收起。工具视图默认 **跟随主窗当前激活文档**（`workspace:active-changed`）。
-- 左右栏折叠：`⌥⌘S` / `⌘L`（不重叠）。折叠/展开带 200ms `flex-grow` 过渡（`data-rail-animating`，见 `index.css`）；过渡中拖动分隔条立即接管（可打断）；`prefers-reduced-motion` 下直接切换。
+- 左右栏折叠：`⌥⌘S` / `⌘L`（不重叠）。折叠/展开直接切换 panel 布局，不做宽度过渡：栏宽逐帧变化会让 Dockview 与 PDF fit-width 在动画结束后二次重排，观感像来回缩放（#757）。
 - **标题栏**：`bg-background/75` + `backdrop-blur-xl` + `backdrop-saturate-150`（`supports-backdrop-blur` 回退更实色；`prefers-reduced-transparency` 下实色无 blur）。macOS 左侧留出避让原生三色按钮的拖拽条（`TrafficLightSpacer`，主窗 / 功能窗 / 文档弹出窗 / 设置窗共用），进入原生全屏（绿灯按钮）后三色按钮隐藏，该条收窄为常规 8px，避免首个控件被顶到 ~92px；进出全屏由 tao 的 resize 事件重新查询 `isFullscreen()`。右侧：更新指示器、窗口布局菜单、Agent 切换；有新版本可更新时显示更新指示器按钮（见 [settings.md](settings.md) 「应用更新」）。布局菜单提供 **Agent**（PDF / Agent `2:1`）、**笔记**（折叠左右侧栏，中间 PDF / Notes）和 **阅读**（仅 PDF）三种预设。预设只调整 panel 宽度并开关当前论文的 Notes / Agent，不关闭其它 PDF tab。
 - **布局宽度记忆**：手动拖拽调整过的左栏宽度按布局模式各记一份，AI 右栏宽度全局只记一份；都以窗口宽度比例持久化在 localStorage `agentero.shellLayout.v1`（`layout-persist.ts` 的 `widths[slot].left` / `aiWidth`）。重进该布局、切换预设或重启应用，AI 栏都沿用最后一次拖出的宽度，不再回落到 320px 默认值；恢复时按面板 min/max 收窄 clamp，双击分隔条重置也会被记住。提交走 `ResizableGroup.onLayoutChanged` 且只认 `isUserInteraction`（拖拽释放 / 键盘调整），程序化预设应用、挂载回声与窗口重排不写入；拖到折叠（< 80px）不污染记忆宽度。布局模式本身与折叠态一并持久化，启动时在 `boot()` 经 `initShellLayoutFromPrefs()` 预置，首帧即上次布局。旧数据里按布局保存的右栏宽度会在读取时迁移为全局 `aiWidth`（优先当前布局，其次 custom）。
   - 手动修改后模式变为 `custom`，但左栏宽度仍归属最近选择的预设；`lastPreset` 一并保存，重启后恢复相同的左栏宽度槽位，后续拖动继续更新该预设。AI 栏宽度与布局无关，不再需要 `lastPreset` 归属。进入 `custom` 时同时快照左右栏折叠态。所有会改变折叠态的入口（`⌥⌘S` / `⌘L`、布局菜单外展开右栏、PDF pin 打开 Agent、聚焦侧栏展开左栏）都同样切到 `custom` 并持久化；功能窗口承接时不影响主窗布局。
@@ -96,7 +96,7 @@
 
 ## 设计约定
 
-- **Motion tokens**（`index.css` / `src/lib/core/motion.ts` 的 `MOTION_MS`）：`micro` 100ms（按压/hover）、`fast` 150ms（浮层进出）、`normal` 200ms（栏折叠 / 任务 HUD）。壳层默认无 bounce；可打断的手势再考虑弹簧。
+- **Motion tokens**（`index.css` / `src/lib/core/motion.ts` 的 `MOTION_MS`）：`micro` 100ms（按压/hover）、`fast` 150ms（浮层进出）、`normal` 200ms（任务 HUD 等大块编排）。壳层默认无 bounce；可打断的手势再考虑弹簧。侧栏折叠/展开不做布局动画，避免 PDF 等重内容在动画中逐帧重排。
 - **按压反馈**：`Button` 为 `active:scale-[0.97]`；文件树行 / Dock 页签 / 任务圆环共享同档微反馈（色阶或轻 scale/opacity）。Layout 菜单触发器保留 ghost hover fill。
 - 工具栏优先图标 + `aria-label` + Tooltip；避免常驻解释文案。
 - 操作型 Chrome（按钮、导航、标题栏、工具栏、Dock 标签、可点击卡片、Agent 空状态）默认禁用浏览器文字选择；正文、可复制 metadata、编辑器、PDF 译文层（`.select-text`）和输入控件必须保持可选。不要在应用根节点统一设置 `user-select: none`，避免误伤第三方内容层和移动端长按选择。

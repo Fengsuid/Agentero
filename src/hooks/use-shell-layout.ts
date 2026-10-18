@@ -1,12 +1,11 @@
 /**
  * Rail layout controller: owns the resizable panel refs and the
- * imperative collapse / expand transitions, and registers them into the
+ * imperative collapse / expand commands, and registers them into the
  * ui-store so plain actions (palette, shortcuts, agent) can drive layout.
  */
 
 import { type RefObject, useEffect, useMemo, useRef } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { prefersReducedMotion } from "@/lib/core/motion";
 import {
 	getShellLayoutPrefs,
 	type RailLimits,
@@ -62,13 +61,8 @@ export type ShellLayout = {
 	/** Restored boot widths (remembered ratios × current window, clamped). */
 	initialLeftPx: number;
 	initialRightPx: number;
-	/** Which rail is running a programmatic collapse/expand transition. */
-	animatingRailRef: RefObject<"left" | "right" | "both" | null>;
-	cancelRailAnimation: () => void;
 };
 
-/** Keep in sync with --motion-duration-normal in index.css. */
-const RAIL_ANIMATION_MS = 200;
 /** Wait for the post-boot window restore/maximize animation to settle. */
 const RAIL_BOOT_RESIZE_DEBOUNCE_MS = 150;
 const RAIL_BOOT_RESIZE_LISTEN_MS = 2000;
@@ -95,8 +89,6 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 	);
 	const leftWidthPxRef = useRef(bootWidths.leftPx);
 	const rightWidthPxRef = useRef(bootWidths.rightPx);
-	const animatingRailRef = useRef<"left" | "right" | "both" | null>(null);
-	const railAnimTimerRef = useRef({ left: 0, right: 0 });
 
 	const controller = useMemo(() => {
 		const rememberedWidths = () =>
@@ -107,105 +99,27 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 				LEFT_LIMITS,
 				RIGHT_LIMITS,
 			);
-		const setAnimatingRail = (side: "left" | "right") => {
-			const current = animatingRailRef.current;
-			animatingRailRef.current = !current || current === side ? side : "both";
-		};
-
-		const clearRailAnimating = () => {
-			for (const el of document.querySelectorAll("[data-rail-animating]")) {
-				el.removeAttribute("data-rail-animating");
-			}
-		};
-
-		const clearAnimatingRail = (side: "left" | "right") => {
-			railAnimTimerRef.current[side] = 0;
-			const leftActive = railAnimTimerRef.current.left !== 0;
-			const rightActive = railAnimTimerRef.current.right !== 0;
-			if (leftActive && rightActive) {
-				animatingRailRef.current = "both";
-				return;
-			}
-			if (leftActive) {
-				animatingRailRef.current = "left";
-				return;
-			}
-			if (rightActive) {
-				animatingRailRef.current = "right";
-				return;
-			}
-			clearRailAnimating();
-			animatingRailRef.current = null;
-		};
-
-		const cancelRailAnimation = () => {
-			for (const side of ["left", "right"] as const) {
-				const timer = railAnimTimerRef.current[side];
-				if (timer) {
-					window.clearTimeout(timer);
-					railAnimTimerRef.current[side] = 0;
-				}
-			}
-			clearRailAnimating();
-			animatingRailRef.current = null;
-		};
-
-		/**
-		 * The library sizes panels via flex-grow and snaps resize() between
-		 * collapsedSize and minSize, so tweening resize() is impossible.
-		 * Instead: mark every panel in the group so `flex-grow` transitions
-		 * (see index.css), then let collapse()/expand() commit the final layout
-		 * — the browser animates all panels in lockstep. A user drag on a
-		 * separator cancels the transition first (see App handles).
-		 */
-		const withRailAnimation = (
-			side: "left" | "right",
-			panelEl: HTMLElement | null,
-			apply: () => void,
-		) => {
-			if (prefersReducedMotion() || !panelEl) {
-				apply();
-				return;
-			}
-			const currentTimer = railAnimTimerRef.current[side];
-			if (currentTimer) window.clearTimeout(currentTimer);
-			setAnimatingRail(side);
-			const groupEl = panelEl.closest("[data-group]") ?? panelEl.parentElement;
-			const targets = groupEl
-				? groupEl.querySelectorAll("[data-panel]")
-				: [panelEl];
-			for (const el of targets) el.setAttribute("data-rail-animating", "");
-			apply();
-			railAnimTimerRef.current[side] = window.setTimeout(() => {
-				clearAnimatingRail(side);
-			}, RAIL_ANIMATION_MS + 40);
-		};
 
 		/** Collapse / expand left file-tree panel without remounting. */
 		const setLeftCollapsed = (collapsed: boolean) => {
 			const panel = sidebarPanelRef.current;
 			if (panel) {
-				const el = document.getElementById("sidebar");
 				if (collapsed) {
-					withRailAnimation("left", el, () => {
-						try {
-							panel.collapse();
-						} catch {
-							// ignore
-						}
-					});
+					try {
+						panel.collapse();
+					} catch {
+						// ignore
+					}
 				} else {
 					const targetPx =
 						rememberedWidths().leftPx ??
 						(leftWidthPxRef.current || SIDEBAR_DEFAULT_PX);
-					withRailAnimation("left", el, () => {
-						try {
-							panel.expand();
-							panel.resize(targetPx);
-						} catch {
-							// ignore
-						}
-					});
+					try {
+						panel.expand();
+						panel.resize(targetPx);
+					} catch {
+						// ignore
+					}
 					// expand() fires onResize synchronously and may overwrite the
 					// remembered width with the library's default expand size.
 					leftWidthPxRef.current = targetPx;
@@ -221,27 +135,22 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 		) => {
 			const panel = rightSidebarPanelRef.current;
 			if (panel) {
-				const el = document.getElementById("right-sidebar");
 				if (collapsed) {
-					withRailAnimation("right", el, () => {
-						try {
-							panel.collapse();
-						} catch {
-							// ignore
-						}
-					});
+					try {
+						panel.collapse();
+					} catch {
+						// ignore
+					}
 				} else {
 					const targetPx =
 						rememberedWidths().rightPx ??
 						(rightWidthPxRef.current || RIGHT_SIDEBAR_DEFAULT_PX);
-					withRailAnimation("right", el, () => {
-						try {
-							panel.expand();
-							panel.resize(targetPx);
-						} catch {
-							// ignore
-						}
-					});
+					try {
+						panel.expand();
+						panel.resize(targetPx);
+					} catch {
+						// ignore
+					}
 					rightWidthPxRef.current = targetPx;
 				}
 			}
@@ -252,15 +161,12 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 		const setRightPx = (px: number) => {
 			const panel = rightSidebarPanelRef.current;
 			if (!panel) return;
-			const el = document.getElementById("right-sidebar");
-			withRailAnimation("right", el, () => {
-				try {
-					panel.expand();
-					panel.resize(px);
-				} catch {
-					// ignore
-				}
-			});
+			try {
+				panel.expand();
+				panel.resize(px);
+			} catch {
+				// ignore
+			}
 			rightWidthPxRef.current = px;
 			setRightSidebarOpenState(true);
 		};
@@ -351,16 +257,12 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 			focusSidebar,
 			focusEditorPane,
 			focusNotesEditor,
-			cancelRailAnimation,
 		};
 	}, [sidebarPanelRef, rightSidebarPanelRef, sourcePanelRef]);
 
 	useEffect(() => {
 		registerLayoutController(controller);
-		return () => {
-			registerLayoutController(null);
-			controller.cancelRailAnimation();
-		};
+		return () => registerLayoutController(null);
 	}, [controller]);
 
 	useEffect(() => {
@@ -440,7 +342,5 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 		rightWidthPxRef,
 		initialLeftPx: bootWidths.leftPx,
 		initialRightPx: bootWidths.rightPx,
-		animatingRailRef,
-		cancelRailAnimation: controller.cancelRailAnimation,
 	};
 }
