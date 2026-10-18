@@ -19,6 +19,17 @@ const markerWidthByDepth = {
 	6: "w-2",
 } as const;
 
+/** Label indent by heading depth. Applied to the out-of-flow label only, so
+ * deep headings cannot push the marker out of the collapsed rail. */
+const labelIndentByDepth = {
+	1: 8,
+	2: 18,
+	3: 28,
+	4: 38,
+	5: 48,
+	6: 58,
+} as const;
+
 const headingDepthByType: Record<string, number> = {
 	h1: 1,
 	h2: 2,
@@ -161,10 +172,10 @@ export function TocSidebar(props: TocSideBarProps) {
 		>
 			<div
 				className={cn(
-					"rounded-lg border border-transparent bg-transparent p-1",
+					"rounded-xl border border-transparent bg-transparent p-1",
 					"transition-[background-color,border-color,box-shadow] duration-200 ease-out",
-					"group-hover/toc:border-border/60 group-hover/toc:bg-background/95 group-hover/toc:shadow-md",
-					"group-focus-within/toc:border-border/60 group-focus-within/toc:bg-background/95 group-focus-within/toc:shadow-md",
+					"group-hover/toc:border-border/60 group-hover/toc:bg-background/95 group-hover/toc:shadow-lg",
+					"group-focus-within/toc:border-border/60 group-focus-within/toc:bg-background/95 group-focus-within/toc:shadow-lg",
 				)}
 			>
 				<div
@@ -183,39 +194,56 @@ export function TocSidebar(props: TocSideBarProps) {
 								aria-current={active ? "location" : undefined}
 								aria-label={item.title}
 								data-active={active}
-								style={{ paddingLeft: 4 + (depth - 1) * 10 }}
 								className={cn(
-									"group/item flex h-5 w-full items-center justify-between gap-0 rounded-sm pr-1 outline-none",
+									"group/item relative flex h-5 w-full items-center rounded-md outline-none",
 									// Breathing room before each top-level section heading.
 									index > 0 && depth === 1 && "mt-1.5",
-									"group-hover/toc:gap-1.5 group-focus-within/toc:gap-1.5",
-									"transition-[background-color,color] duration-200 ease-out",
-									"text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+									"transition-colors duration-150 ease-out",
+									"text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+									"focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
 									depth === 1 && "text-foreground/80",
 									active && "text-foreground hover:text-foreground",
 								)}
 								onClick={(event) => onContentClick(event, item, "smooth")}
 							>
+								{/*
+								 * The label is out of flow: its depth indent never widens the
+								 * collapsed rail, so deep headings can't push the heading
+								 * markers right (and back on hover). The marker stays pinned
+								 * to the same right edge at every rail width.
+								 */}
 								<span
 									className={cn(
-										"pointer-events-none min-w-0 flex-1 truncate text-left text-xs",
+										"pointer-events-none absolute inset-y-0 left-0 right-8 flex min-w-0 items-center",
 										"translate-x-1 opacity-0 transition-[transform,opacity] duration-200 ease-out",
 										"group-hover/toc:translate-x-0 group-hover/toc:opacity-100",
 										"group-focus-within/toc:translate-x-0 group-focus-within/toc:opacity-100",
 										"motion-reduce:transition-none",
-										active
-											? "font-semibold"
-											: depth === 1
-												? "font-medium"
-												: "font-normal",
 									)}
+									style={{
+										paddingLeft:
+											labelIndentByDepth[
+												depth as keyof typeof labelIndentByDepth
+											],
+									}}
 								>
-									{item.title}
+									<span
+										className={cn(
+											"min-w-0 truncate text-left text-xs",
+											active
+												? "font-semibold"
+												: depth === 1
+													? "font-medium"
+													: "font-normal",
+										)}
+									>
+										{item.title}
+									</span>
 								</span>
 								<span
 									aria-hidden="true"
 									className={cn(
-										"h-[3px] shrink-0 rounded-full bg-muted-foreground/35",
+										"absolute right-1.5 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-muted-foreground/35",
 										"transition-[height,width,background-color,box-shadow] duration-200 ease-out motion-reduce:transition-none",
 										markerWidthByDepth[
 											item.depth as keyof typeof markerWidthByDepth
