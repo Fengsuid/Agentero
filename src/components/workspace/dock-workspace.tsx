@@ -171,6 +171,12 @@ export type DockWorkspaceHandle = {
 	activatePanel: (panelId: string) => void;
 	/** True when the panel is registered in this dock and can be activated. */
 	canActivatePanel: (panelId: string) => boolean;
+	/** Maximize the active group; false when the dock has no active panel. */
+	maximizeActivePanel: () => boolean;
+	/** Restore the grid behind any maximized group. */
+	exitMaximizedPanel: () => void;
+	/** True while a dock group is maximized. */
+	isMaximizedPanel: () => boolean;
 	/** Remember / restore the shared two-column PDF / Notes proportion. */
 	rememberNotesSplitWidth: (paperId: string, notesId: string) => void;
 	restoreNotesSplitWidth: (paperId: string, notesId: string) => void;
@@ -813,6 +819,19 @@ export const DockWorkspace = memo(
 				},
 				canActivatePanel(panelId) {
 					return Boolean(apiRef.current?.getPanel(panelId));
+				},
+				maximizeActivePanel() {
+					const api = apiRef.current;
+					const panel = api?.activePanel;
+					if (!api || !panel) return false;
+					if (!api.hasMaximizedGroup()) api.maximizeGroup(panel);
+					return true;
+				},
+				exitMaximizedPanel() {
+					apiRef.current?.exitMaximizedGroup();
+				},
+				isMaximizedPanel() {
+					return apiRef.current?.hasMaximizedGroup() ?? false;
 				},
 				rememberNotesSplitWidth(paperId, notesId) {
 					const api = apiRef.current;

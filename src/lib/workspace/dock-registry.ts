@@ -29,6 +29,12 @@ export type DockHandle = {
 	 * pane / popout window this handle cannot see).
 	 */
 	canActivatePanel: (panelId: string) => boolean;
+	/** Maximize the active group (other splits hidden, layout preserved). */
+	maximizeActivePanel: () => boolean;
+	/** Restore the grid behind any maximized group. */
+	exitMaximizedPanel: () => void;
+	/** True while a dock group is maximized. */
+	isMaximizedPanel: () => boolean;
 	/** Remember / restore the shared two-column PDF / Notes proportion. */
 	rememberNotesSplitWidth: (paperId: string, notesId: string) => void;
 	restoreNotesSplitWidth: (paperId: string, notesId: string) => void;

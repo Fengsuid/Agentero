@@ -56,21 +56,28 @@ export function LayoutMenu({ value, onValueChange }: LayoutMenuProps) {
 				onMouseLeave={scheduleClose}
 			>
 				<DropdownMenuLabel>{t("titlebar.layoutModes")}</DropdownMenuLabel>
-				<DropdownMenuRadioGroup
-					value={selected}
-					onValueChange={(next) => {
-						if (next === "agent" || next === "notes" || next === "reading") {
-							onValueChange(next);
-						}
-					}}
-				>
-					<DropdownMenuRadioItem value="agent">
+				{/*
+				 * Use `onSelect` rather than the group's `onValueChange`: the
+				 * controlled value is empty in custom mode, so re-selecting the
+				 * current preset (or toggling Reading off) must still fire.
+				 */}
+				<DropdownMenuRadioGroup value={selected}>
+					<DropdownMenuRadioItem
+						value="agent"
+						onSelect={() => onValueChange("agent")}
+					>
 						{t("titlebar.layoutAgent")}
 					</DropdownMenuRadioItem>
-					<DropdownMenuRadioItem value="notes">
+					<DropdownMenuRadioItem
+						value="notes"
+						onSelect={() => onValueChange("notes")}
+					>
 						{t("titlebar.layoutNotes")}
 					</DropdownMenuRadioItem>
-					<DropdownMenuRadioItem value="reading">
+					<DropdownMenuRadioItem
+						value="reading"
+						onSelect={() => onValueChange("reading")}
+					>
 						{t("titlebar.layoutReading")}
 					</DropdownMenuRadioItem>
 				</DropdownMenuRadioGroup>

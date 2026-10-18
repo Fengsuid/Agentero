@@ -190,9 +190,15 @@ export function initShellLayoutFromPrefs(): void {
 	const prefs = getShellLayoutPrefs();
 	if (prefs.lastMode !== "custom") {
 		const mode = prefs.lastMode;
+		// Reading is a transient maximize over the previous preset; it has no
+		// width slot of its own (#764).
+		const previousPreset =
+			prefs.lastPreset && prefs.lastPreset !== "reading"
+				? prefs.lastPreset
+				: null;
 		uiStore.setState({
 			layoutMode: mode,
-			lastAppliedPreset: mode,
+			lastAppliedPreset: mode === "reading" ? previousPreset : mode,
 			sidebarCollapsed: layoutModeLeftCollapsed(mode),
 			rightSidebarOpen: !layoutModeRightCollapsed(mode),
 		});

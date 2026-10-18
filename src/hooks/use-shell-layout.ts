@@ -19,6 +19,7 @@ import {
 	layoutModeRightRatio,
 } from "@/lib/shell/layout-presets";
 import {
+	type LayoutMode,
 	registerLayoutController,
 	setLastAppliedPreset,
 	setLayoutMode,
@@ -27,6 +28,7 @@ import {
 	uiStore,
 } from "@/lib/shell/ui-store";
 import { setNotesSplit, toggleNotesSplit } from "@/lib/workspace/actions";
+import { dockHandle } from "@/lib/workspace/dock-registry";
 import { getActiveTabId, getTabs } from "@/lib/workspace/store";
 import { tabHasNotesSplit, tabNotesEligible } from "@/lib/workspace/tabs";
 
@@ -39,6 +41,15 @@ export const RIGHT_SIDEBAR_MIN_PX = 260;
 export const RIGHT_SIDEBAR_MAX_RATIO = 0.5;
 /** Collapse detection tolerance (collapsedSize is 0; sub-pixel rounding). */
 export const RAIL_COLLAPSED_MAX_PX = 1;
+
+type ReadingSnapshot = {
+	/** Layout to restore when reading is toggled off (reading never nests). */
+	mode: Exclude<LayoutMode, "reading">;
+	leftCollapsed: boolean;
+	rightOpen: boolean;
+	leftPx: number;
+	rightPx: number;
+};
 
 const LEFT_LIMITS: RailLimits = {
 	minPx: SIDEBAR_MIN_PX,
@@ -91,6 +102,9 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 	const rightWidthPxRef = useRef(bootWidths.rightPx);
 
 	const controller = useMemo(() => {
+		/** Pre-reading arrangement, restored when reading is toggled off. */
+		let readingSnapshot: ReadingSnapshot | null = null;
+
 		const rememberedWidths = () =>
 			railWidthsForSlot(
 				getShellLayoutPrefs(),
@@ -181,7 +195,7 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 			setRightPx(Math.round(total * ratio));
 		};
 
-		const applyLayoutMode = (mode: LayoutPresetMode) => {
+		const applyPreset = (mode: Exclude<LayoutPresetMode, "reading">) => {
 			// Stop recording custom visibility before programmatic panel changes.
 			setLayoutMode(mode);
 			setLastAppliedPreset(mode);
@@ -214,6 +228,107 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 			} else {
 				setRightRatio(layoutModeRightRatio(mode));
 			}
+		};
+
+		/** Reading has no saved rail arrangement of its own; fall back to the
+		 * previous preset (restored layouts) or the custom snapshot. */
+		const fallbackReadingSnapshot = (): ReadingSnapshot => {
+			const prefs = getShellLayoutPrefs();
+			const lastPreset = uiStore.getState().lastAppliedPreset;
+			const preset = lastPreset && lastPreset !== "reading" ? lastPreset : null;
+			const slot = preset ?? "custom";
+			const saved = railWidthsForSlot(
+				prefs,
+				slot,
+				window.innerWidth,
+				LEFT_LIMITS,
+				RIGHT_LIMITS,
+			);
+			return {
+				mode: preset ?? "custom",
+				leftCollapsed: preset
+					? layoutModeLeftCollapsed(preset)
+					: (prefs.customRails?.leftCollapsed ?? false),
+				rightOpen: preset
+					? !layoutModeRightCollapsed(preset)
+					: (prefs.customRails?.rightOpen ?? false),
+				leftPx: saved.leftPx ?? leftWidthPxRef.current,
+				rightPx: saved.rightPx ?? rightWidthPxRef.current,
+			};
+		};
+
+		const enterReading = () => {
+			const state = uiStore.getState();
+			readingSnapshot =
+				state.layoutMode === "reading"
+					? fallbackReadingSnapshot()
+					: {
+							mode: state.layoutMode,
+							leftCollapsed: state.sidebarCollapsed,
+							rightOpen: state.rightSidebarOpen,
+							leftPx:
+								sidebarPanelRef.current?.getSize().inPixels ??
+								leftWidthPxRef.current,
+							rightPx:
+								rightSidebarPanelRef.current?.getSize().inPixels ??
+								rightWidthPxRef.current,
+						};
+			// Do not touch lastAppliedPreset: it keeps the pre-reading width slot.
+			setLayoutMode("reading");
+			setLeftCollapsed(true);
+			setRightCollapsed(true);
+			// Maximize the active group; other splits stay mounted but hidden.
+			dockHandle()?.maximizeActivePanel();
+		};
+
+		const exitReading = (restore: boolean) => {
+			const snapshot = readingSnapshot ?? fallbackReadingSnapshot();
+			readingSnapshot = null;
+			dockHandle()?.exitMaximizedPanel();
+			if (!restore) return;
+
+			if (snapshot.mode !== "custom") {
+				applyPreset(snapshot.mode);
+				return;
+			}
+
+			// Restore rails before switching to custom so `setLayoutMode` snapshots
+			// the restored visibility instead of the collapsed reading state.
+			if (snapshot.leftCollapsed) {
+				setLeftCollapsed(true);
+			} else {
+				setLeftCollapsed(false);
+				sidebarPanelRef.current?.resize(snapshot.leftPx);
+				leftWidthPxRef.current = snapshot.leftPx;
+			}
+			if (snapshot.rightOpen) {
+				setRightPx(snapshot.rightPx);
+			} else {
+				setRightCollapsed(true);
+			}
+			setLayoutMode("custom");
+		};
+
+		const applyLayoutMode = (mode: LayoutPresetMode) => {
+			const state = uiStore.getState();
+			if (mode === "reading") {
+				// Reading is a toggle: a second click restores the previous
+				// arrangement. Checking the dock's real state handles a restored
+				// or externally exited maximize without a snapshot.
+				if (
+					state.layoutMode === "reading" &&
+					(readingSnapshot !== null || dockHandle()?.isMaximizedPanel())
+				) {
+					exitReading(true);
+				} else {
+					enterReading();
+				}
+				return;
+			}
+			// Any other preset leaves reading (and restores its maximize).
+			dockHandle()?.exitMaximizedPanel();
+			readingSnapshot = null;
+			applyPreset(mode);
 		};
 
 		const focusSidebar = () => {

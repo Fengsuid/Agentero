@@ -14,6 +14,7 @@ import {
 	setSidebarCollapsedState,
 	uiStore,
 } from "@/lib/shell/ui-store";
+import { setNotesSplit } from "@/lib/workspace/actions";
 
 // Exercise the real controller and persistence without mounting desktop UI.
 vi.mock("react", () => ({
@@ -33,6 +34,26 @@ vi.mock("@/lib/workspace/actions", () => ({
 vi.mock("@/lib/workspace/store", () => ({
 	getActiveTabId: () => null,
 	getTabs: () => [],
+}));
+const dock = vi.hoisted(() => ({
+	maximized: false,
+	maximize: vi.fn(() => true),
+	exit: vi.fn(),
+	isMaximized: vi.fn(() => false),
+}));
+vi.mock("@/lib/workspace/dock-registry", () => ({
+	dockHandle: () => ({
+		maximizeActivePanel: () => {
+			const ok = dock.maximize();
+			dock.maximized = Boolean(ok);
+			return Boolean(ok);
+		},
+		exitMaximizedPanel: () => {
+			dock.exit();
+			dock.maximized = false;
+		},
+		isMaximizedPanel: () => dock.maximized,
+	}),
 }));
 
 function mountController(vaultPath: string | null = null) {
@@ -91,6 +112,10 @@ function dispatchWindowResize(): void {
 
 beforeEach(() => {
 	vi.useFakeTimers();
+	dock.maximized = false;
+	dock.maximize.mockClear();
+	dock.exit.mockClear();
+	dock.isMaximized.mockClear();
 	resizeHandlers = new Set();
 	const data = new Map<string, string>();
 	vi.stubGlobal("localStorage", {
@@ -119,6 +144,67 @@ afterEach(() => {
 });
 
 describe("shell layout restoration", () => {
+	it("maximizes the active pane in reading and toggles back to the previous custom layout", () => {
+		const { controller, widths } = mountController();
+		controller.applyLayoutMode("agent");
+		setLayoutMode("custom");
+		controller.setLeftCollapsed(false);
+		controller.setRightCollapsed(false);
+		const beforeReading = { ...widths };
+		vi.mocked(setNotesSplit).mockClear();
+		dock.exit.mockClear();
+
+		controller.applyLayoutMode("reading");
+		expect(uiStore.getState().layoutMode).toBe("reading");
+		expect(widths).toEqual({ left: 0, right: 0 });
+		expect(dock.maximize).toHaveBeenCalledTimes(1);
+		expect(setNotesSplit).not.toHaveBeenCalled();
+
+		// A second click must reliably leave reading even though the menu value
+		// did not change (#764 follow-up: repeated clicks).
+		controller.applyLayoutMode("reading");
+		expect(dock.exit).toHaveBeenCalledTimes(1);
+		expect(uiStore.getState().layoutMode).toBe("custom");
+		expect(widths).toEqual(beforeReading);
+	});
+
+	it("leaves reading for another preset and exits the dock maximize", () => {
+		const { controller, widths } = mountController();
+		controller.applyLayoutMode("reading");
+		expect(widths).toEqual({ left: 0, right: 0 });
+
+		controller.applyLayoutMode("agent");
+		expect(dock.exit).toHaveBeenCalledTimes(1);
+		expect(uiStore.getState().layoutMode).toBe("agent");
+		expect(widths.left).toBeGreaterThan(0);
+		expect(widths.right).toBeGreaterThan(0);
+	});
+
+	it("boots into reading without stealing the previous preset's width slot", () => {
+		localStorage.setItem(
+			SHELL_LAYOUT_STORAGE_KEY,
+			JSON.stringify({
+				lastMode: "reading",
+				lastPreset: "agent",
+				widths: { agent: { left: 0.2 } },
+			}),
+		);
+		loadShellLayoutPrefs();
+		initShellLayoutFromPrefs();
+		expect(uiStore.getState()).toMatchObject({
+			layoutMode: "reading",
+			lastAppliedPreset: "agent",
+			sidebarCollapsed: true,
+			rightSidebarOpen: false,
+		});
+		const { controller } = mountController();
+		// A restored maximized layout has no in-memory snapshot; toggling it off
+		// must still return to the previous preset, not the reading slot.
+		controller.applyLayoutMode("reading");
+		controller.applyLayoutMode("reading");
+		expect(uiStore.getState().layoutMode).toBe("agent");
+	});
+
 	it("keeps the width owner when customizing a preset restored from older prefs", () => {
 		localStorage.setItem(
 			SHELL_LAYOUT_STORAGE_KEY,
@@ -183,14 +269,14 @@ describe("shell layout restoration", () => {
 		expect(widths).toEqual({ left: 300, right: 480 });
 	});
 
-	it("uses the left default for an unvisited layout while keeping the global Agent width", () => {
+	it("restores the previous preset and its global Agent width after reading", () => {
 		commitShellRailWidths({ leftRatio: 0.25, rightRatio: 0.4 }, "agent", 1200);
 		const { controller, widths } = mountController();
 		controller.applyLayoutMode("agent");
 		controller.applyLayoutMode("reading");
-		controller.setLeftCollapsed(false);
-		controller.setRightCollapsed(false);
-		expect(widths).toEqual({ left: 200, right: 480 });
+		controller.applyLayoutMode("reading");
+		expect(uiStore.getState().layoutMode).toBe("agent");
+		expect(widths).toEqual({ left: 300, right: 480 });
 	});
 
 	it("restores custom visibility and its preset width owner after a cold reload", () => {
