@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	resolveTranslatedHighlightIds,
+	sentenceHighlightTints,
 	sentenceIndexesForHighlightTint,
 	sentenceIndexesOverlappingHighlight,
 } from "@/lib/pdf/highlight/sentence-tint";
@@ -111,6 +112,59 @@ describe("sentenceGlyphRects", () => {
 		expect(rects[0]?.every((rect) => rect.y === 80 / 500)).toBe(true);
 		expect(rects[1]?.every((rect) => rect.y === 100 / 500)).toBe(true);
 		expect(rects[0]?.some((rect) => rect.y === 100 / 500)).toBe(false);
+	});
+});
+
+describe("sentenceHighlightTints", () => {
+	const item: LayoutTranslateItem = {
+		id: "item-1",
+		pageIndex: 0,
+		kind: "text",
+		bbox: { x: 0.1, y: 0.2, w: 0.8, h: 0.3 },
+		source: "First sentence. Second sentence.",
+		status: "done",
+		translated: "第一句。第二句。",
+		sentences: [
+			{ quote: "First sentence.", translated: "第一句。" },
+			{ quote: "Second sentence.", translated: "第二句。" },
+		],
+	};
+	const highlight = (id: string, quote: string) => ({
+		id,
+		quote,
+		color: "yellow" as const,
+		rects: [{ x: 0.1, y: 0.2, w: 0.4, h: 0.05 }],
+	});
+
+	it("maps the tinted sentence back to the owning highlight", () => {
+		const tints = sentenceHighlightTints({
+			layoutItems: [item],
+			highlightQuotes: [highlight("hl-1", "First sentence.")],
+		});
+		expect(tints.get("item-1")?.get(0)).toEqual({
+			color: "yellow",
+			highlightId: "hl-1",
+		});
+		expect(tints.get("item-1")?.has(1)).toBe(false);
+	});
+
+	it("keeps the first highlight when two match the same sentence", () => {
+		const tints = sentenceHighlightTints({
+			layoutItems: [item],
+			highlightQuotes: [
+				highlight("hl-first", "First sentence."),
+				highlight("hl-second", "First sentence."),
+			],
+		});
+		expect(tints.get("item-1")?.get(0)?.highlightId).toBe("hl-first");
+	});
+
+	it("skips sentences that are not painted yet", () => {
+		const tints = sentenceHighlightTints({
+			layoutItems: [{ ...item, status: "pending", translated: undefined }],
+			highlightQuotes: [highlight("hl-1", "First sentence.")],
+		});
+		expect(tints.size).toBe(0);
 	});
 });
 

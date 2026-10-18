@@ -6,11 +6,18 @@
  * the sentence. Text is only a stand-in until those boxes have been read.
  */
 
+import type { HighlightColor } from "@/lib/pdf/highlight/palette";
 import type { HighlightQuoteTint } from "@/lib/pdf/highlight/translated-geometry";
 import type { PdfHighlightRect } from "@/lib/pdf/highlight/types";
 import { sentenceIndexesCoveredByQuote } from "@/lib/pdf/layout/layout-sentences";
 import { isLayoutTranslateItemPainted } from "@/lib/pdf/layout/layout-translate-reliable";
 import type { LayoutTranslateItem } from "@/lib/pdf/layout/types";
+
+/** Sentence-level tint: the color to paint plus the owning highlight. */
+export type TranslateSentenceTint = {
+	color: HighlightColor;
+	highlightId: string;
+};
 
 /** A sentence this much smaller than the best overlap is a border sliver. */
 const MIN_SHARE_OF_BEST = 0.2;
@@ -74,6 +81,45 @@ export function sentenceIndexesForHighlightTint(options: {
 }
 
 /**
+ * Sentence → tint map for the translated overlay. One shared source for both
+ * painting the tint and resolving a click back to the owning highlight.
+ */
+export function sentenceHighlightTints(options: {
+	layoutItems?: readonly LayoutTranslateItem[];
+	highlightQuotes?: readonly HighlightQuoteTint[];
+	sentenceRectsByItemId?: ReadonlyMap<
+		string,
+		readonly (readonly PdfHighlightRect[])[]
+	>;
+}): Map<string, ReadonlyMap<number, TranslateSentenceTint>> {
+	const byItem = new Map<string, ReadonlyMap<number, TranslateSentenceTint>>();
+	const quotes = options.highlightQuotes;
+	const items = options.layoutItems;
+	if (!quotes?.length || !items?.length) return byItem;
+	for (const item of items) {
+		if (!isLayoutTranslateItemPainted(item) || !item.sentences?.length) {
+			continue;
+		}
+		const tints = new Map<number, TranslateSentenceTint>();
+		for (const quote of quotes) {
+			const matchedIndexes = sentenceIndexesForHighlightTint({
+				sentences: item.sentences,
+				quote: quote.quote,
+				sentenceRects: options.sentenceRectsByItemId?.get(item.id),
+				highlightRects: quote.rects,
+			});
+			for (const index of matchedIndexes) {
+				if (!tints.has(index)) {
+					tints.set(index, { color: quote.color, highlightId: quote.id });
+				}
+			}
+		}
+		if (tints.size > 0) byItem.set(item.id, tints);
+	}
+	return byItem;
+}
+
+/**
  * Highlight IDs on a page that have an active translated visual replacement.
  *
  * A highlight is suppressed from the English annotation layer only when:
@@ -98,26 +144,8 @@ export function resolveTranslatedHighlightIds(options: {
 			resolved.add(paint.id);
 		}
 	}
-	const quotes = options.highlightQuotes;
-	const items = options.layoutItems;
-	if (quotes?.length && items?.length) {
-		for (const item of items) {
-			if (!isLayoutTranslateItemPainted(item) || !item.sentences?.length) {
-				continue;
-			}
-			for (const tint of quotes) {
-				if (resolved.has(tint.id)) continue;
-				const matchedIndexes = sentenceIndexesForHighlightTint({
-					sentences: item.sentences,
-					quote: tint.quote,
-					sentenceRects: options.sentenceRectsByItemId?.get(item.id),
-					highlightRects: tint.rects,
-				});
-				if (matchedIndexes.length > 0) {
-					resolved.add(tint.id);
-				}
-			}
-		}
+	for (const tints of sentenceHighlightTints(options).values()) {
+		for (const tint of tints.values()) resolved.add(tint.highlightId);
 	}
 	return resolved;
 }

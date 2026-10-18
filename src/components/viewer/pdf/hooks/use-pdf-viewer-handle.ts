@@ -35,7 +35,10 @@ import { notifyError, notifySuccess } from "@/lib/core/notify";
 import { isTauri } from "@/lib/core/tauri";
 import type { PdfVisualSessionTrace } from "@/lib/pdf/agent-trace";
 import { deletePdfAskThread, type PdfAskThread } from "@/lib/pdf/ask";
-import { isHighlightObject } from "@/lib/pdf/highlight/annotation-store";
+import {
+	isHighlightObject,
+	isLiveAnnotation,
+} from "@/lib/pdf/highlight/annotation-store";
 import type { PdfHighlight } from "@/lib/pdf/highlight/types";
 import {
 	expandFocusBboxForOverlay,
@@ -85,6 +88,8 @@ export type UsePdfViewerHandleOptions = {
 	openEditorForAnnotation: (id: string) => void;
 	openThread: (thread: PdfAskThread) => void;
 	deleteVisualTraceById: (id: string) => void;
+	/** Verified highlight deletion (purges even when a commit was dropped). */
+	deleteHighlightAnnotation: (pageIndex: number, id: string) => void;
 	toggleRegionSelect: () => void;
 	/** Dual-pane-aware full-text translate toggle; parent callback — kept in a ref. */
 	toggleLayoutTranslate: () => void;
@@ -108,6 +113,7 @@ export function usePdfViewerHandle({
 	openEditorForAnnotation,
 	openThread,
 	deleteVisualTraceById,
+	deleteHighlightAnnotation,
 	toggleRegionSelect,
 	toggleLayoutTranslate,
 }: UsePdfViewerHandleOptions): void {
@@ -128,10 +134,10 @@ export function usePdfViewerHandle({
 		const handle: PdfViewerHandle = {
 			getHighlights: () => highlightsRef.current,
 			scrollToHighlight: (id) => {
-				const obj = annotationCap
-					?.forDocument(docId)
-					.getAnnotationById(id)?.object;
-				if (!obj || !isHighlightObject(obj)) return;
+				const tracked = annotationCap?.forDocument(docId).getAnnotationById(id);
+				if (!tracked || !isLiveAnnotation(tracked)) return;
+				const obj = tracked.object;
+				if (!isHighlightObject(obj)) return;
 				// Instant: smooth jumps across distant pages feel like slow render.
 				scrollRef.current?.scrollToPage({
 					pageNumber: obj.pageIndex + 1,
@@ -141,11 +147,10 @@ export function usePdfViewerHandle({
 			},
 			editComment: (id) => openEditorForAnnotation(id),
 			deleteHighlight: (id) => {
-				const obj = annotationCap
-					?.forDocument(docId)
-					.getAnnotationById(id)?.object;
-				if (obj && isHighlightObject(obj))
-					annotationCap?.forDocument(docId).deleteAnnotation(obj.pageIndex, id);
+				const tracked = annotationCap?.forDocument(docId).getAnnotationById(id);
+				if (tracked && isHighlightObject(tracked.object)) {
+					deleteHighlightAnnotation(tracked.object.pageIndex, id);
+				}
 			},
 			scrollToAsk: (id) => {
 				const thread = threadsRef.current.find((th) => th.id === id);
@@ -318,6 +323,7 @@ export function usePdfViewerHandle({
 		openEditorForAnnotation,
 		openThread,
 		deleteVisualTraceById,
+		deleteHighlightAnnotation,
 		toggleRegionSelect,
 	]);
 }

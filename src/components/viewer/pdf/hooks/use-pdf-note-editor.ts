@@ -17,6 +17,7 @@ import {
 	highlightColorOf,
 	highlightQuoteOf,
 	isHighlightObject,
+	isLiveAnnotation,
 } from "@/lib/pdf/highlight/annotation-store";
 
 type AnnotationCapabilityProvides = ReturnType<
@@ -87,10 +88,10 @@ export function usePdfNoteEditor({
 
 	const openEditorForAnnotation = useCallback(
 		(id: string) => {
-			const obj = annotationCap
-				?.forDocument(docId)
-				.getAnnotationById(id)?.object;
-			if (!obj || !isHighlightObject(obj)) return;
+			const tracked = annotationCap?.forDocument(docId).getAnnotationById(id);
+			if (!tracked || !isLiveAnnotation(tracked)) return;
+			const obj = tracked.object;
+			if (!isHighlightObject(obj)) return;
 			beginRailEdit({
 				id,
 				pageIndex: obj.pageIndex,

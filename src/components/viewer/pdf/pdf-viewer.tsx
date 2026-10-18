@@ -1738,6 +1738,7 @@ function PdfViewerInner({
 		openEditorForAnnotation,
 		openThread,
 		deleteVisualTraceById,
+		deleteHighlightAnnotation,
 		toggleRegionSelect,
 		// Dual-pane aware — ⌥A and the toolbar Languages button share this path.
 		toggleLayoutTranslate: handleToggleLayoutTranslateWithDualPane,
@@ -2195,6 +2196,7 @@ function PdfViewerInner({
 	return (
 		<div
 			ref={hostRef}
+			data-pdf-root
 			className="relative flex h-full min-h-0 w-full select-none flex-col"
 		>
 			{!translationOnly && (

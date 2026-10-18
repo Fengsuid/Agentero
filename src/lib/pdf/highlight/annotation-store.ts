@@ -3,6 +3,7 @@ import type {
 	PdfHighlightAnnoObject,
 } from "@embedpdf/models";
 import { PdfAnnotationSubtype } from "@embedpdf/models";
+import type { TrackedAnnotation } from "@embedpdf/plugin-annotation";
 import type { AnnotationTransferItem } from "@embedpdf/plugin-annotation/react";
 import { isTauri } from "@/lib/core/tauri";
 import {
@@ -149,6 +150,18 @@ export function isHighlightObject(
 	obj: PdfAnnotationObject,
 ): obj is PdfHighlightAnnoObject {
 	return obj.type === PdfAnnotationSubtype.HIGHLIGHT;
+}
+
+/**
+ * EmbedPDF keeps a deleted annotation in `byUid` until an async commit purges
+ * it, and `getAnnotations()` / `getAnnotationById()` still return it as
+ * `commitState: "deleted"` in the meantime (or forever if the commit was
+ * dropped). Rendering, hit testing and editors must treat those as gone.
+ */
+export function isLiveAnnotation(
+	annotation: Pick<TrackedAnnotation, "commitState">,
+): boolean {
+	return annotation.commitState !== "deleted";
 }
 
 /** App-specific metadata round-tripped through the annotation `custom` field. */

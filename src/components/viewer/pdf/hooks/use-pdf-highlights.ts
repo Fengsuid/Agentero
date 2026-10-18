@@ -46,6 +46,7 @@ import {
 	hasAnnotationsFile,
 	highlightViewFromObject,
 	isHighlightObject,
+	isLiveAnnotation,
 	loadAnnotationItems,
 	saveAnnotationItems,
 } from "@/lib/pdf/highlight/annotation-store";
@@ -68,6 +69,9 @@ const HIGHLIGHT_SAVE_DEBOUNCE_MS = 600;
 
 /** One CLI invocation can append several highlights; coalesce the watcher burst. */
 const ANNOTATIONS_REIMPORT_BURST_MS = 200;
+
+/** Delays (ms) between purge checks after a delete; total window is ~5 s. */
+const DELETE_RETRY_DELAYS_MS = [120, 200, 400, 800, 1500, 2000];
 
 type AnnotationCapabilityProvides = ReturnType<
 	typeof useAnnotationCapability
@@ -155,7 +159,10 @@ export function usePdfHighlights({
 	const rebuildHighlights = useCallback(() => {
 		if (!annotationCap) return;
 		const scope = annotationCap.forDocument(docId);
-		const all = scope.getAnnotations();
+		// Deleted annotations stay in the plugin's tracked list until an async
+		// commit purges them (and a dropped commit can leave them there for the
+		// session). They must not reach the rail, pins or paint layers.
+		const all = scope.getAnnotations().filter(isLiveAnnotation);
 		const doc = docCap?.getDocument(docId);
 		const objects = all.map((a) => a.object).filter(isHighlightObject);
 		const list = objects.map((o) => {
@@ -236,28 +243,40 @@ export function usePdfHighlights({
 		});
 	}, [rebuildHighlights]);
 
-	const scheduleSave = useCallback(() => {
-		if (!paperAbsPath || !annotationCap) return;
-		if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-		saveTimerRef.current = setTimeout(async () => {
-			try {
-				const items = await annotationCap
-					.forDocument(docId)
-					.exportAnnotations()
-					.toPromise();
-				await saveAnnotationItems(paperAbsPath, items);
-			} catch {
-				// transient export failures are non-fatal; next change retries
-			}
-		}, HIGHLIGHT_SAVE_DEBOUNCE_MS);
-	}, [paperAbsPath, annotationCap, docId]);
+	/**
+	 * `immediate` is used for deletions: a tab closed inside the normal debounce
+	 * would keep the deleted entry on disk and resurrect it on the next open.
+	 */
+	const scheduleSave = useCallback(
+		(immediate = false) => {
+			if (!paperAbsPath || !annotationCap) return;
+			if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+			saveTimerRef.current = setTimeout(
+				async () => {
+					try {
+						const items = await annotationCap
+							.forDocument(docId)
+							.exportAnnotations()
+							.toPromise();
+						await saveAnnotationItems(paperAbsPath, items);
+					} catch {
+						// transient export failures are non-fatal; next change retries
+					}
+				},
+				immediate ? 0 : HIGHLIGHT_SAVE_DEBOUNCE_MS,
+			);
+		},
+		[paperAbsPath, annotationCap, docId],
+	);
 
 	useEffect(() => {
 		if (!annotationCap) return;
 		const scope = annotationCap.forDocument(docId);
 		const off = scope.onAnnotationEvent((event) => {
 			scheduleRebuild();
-			if (event.type !== "loaded" && !importingRef.current) scheduleSave();
+			if (event.type !== "loaded" && !importingRef.current) {
+				scheduleSave(event.type === "delete");
+			}
 		});
 		rebuildHighlights();
 		return () => off();
@@ -407,7 +426,11 @@ export function usePdfHighlights({
 
 	const updateHighlightComment = useCallback(
 		(pageIndex: number, id: string, comment: string) => {
-			annotationCap?.forDocument(docId).updateAnnotation(pageIndex, id, {
+			const scope = annotationCap?.forDocument(docId);
+			if (!scope) return;
+			const tracked = scope.getAnnotationById(id);
+			if (!tracked || !isLiveAnnotation(tracked)) return;
+			scope.updateAnnotation(pageIndex, id, {
 				contents: comment.trim() || undefined,
 			});
 		},
@@ -418,8 +441,15 @@ export function usePdfHighlights({
 		(pageIndex: number, id: string, color: HighlightColor) => {
 			const scope = annotationCap?.forDocument(docId);
 			if (!scope) return;
-			const obj = scope.getAnnotationById(id)?.object;
-			if (!obj || !isHighlightObject(obj)) return;
+			const tracked = scope.getAnnotationById(id);
+			if (
+				!tracked ||
+				!isLiveAnnotation(tracked) ||
+				!isHighlightObject(tracked.object)
+			) {
+				return;
+			}
+			const obj = tracked.object;
 			const custom = (obj.custom ?? {}) as HighlightCustom;
 			scope.updateAnnotation(pageIndex, id, {
 				strokeColor: HIGHLIGHT_HEX[color],
@@ -429,9 +459,46 @@ export function usePdfHighlights({
 		[annotationCap, docId],
 	);
 
+	/** Delays between purge checks; see {@link DELETE_RETRY_DELAYS_MS}. */
+	const deleteTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+
+	useEffect(
+		() => () => {
+			for (const timer of deleteTimersRef.current) clearTimeout(timer);
+			deleteTimersRef.current.clear();
+		},
+		[],
+	);
+
 	const deleteHighlightAnnotation = useCallback(
 		(pageIndex: number, id: string) => {
-			annotationCap?.forDocument(docId).deleteAnnotation(pageIndex, id);
+			const scope = annotationCap?.forDocument(docId);
+			if (!scope) return;
+			// EmbedPDF's auto-commit gives up silently when another commit holds
+			// the document lock. The in-flight commit then clears the pending-changes
+			// flag, so the deletion is never purged and the annotation stays
+			// selectable as a ghost. Re-issue the delete until it is really gone.
+			let attempt = 0;
+			const scheduleCheck = () => {
+				const delay = DELETE_RETRY_DELAYS_MS[attempt];
+				if (delay === undefined) return;
+				const timer = setTimeout(() => {
+					deleteTimersRef.current.delete(timer);
+					let tracked = false;
+					try {
+						tracked = scope.getAnnotationById(id) != null;
+					} catch {
+						return;
+					}
+					if (!tracked) return;
+					attempt += 1;
+					scope.deleteAnnotation(pageIndex, id);
+					scheduleCheck();
+				}, delay);
+				deleteTimersRef.current.add(timer);
+			};
+			scope.deleteAnnotation(pageIndex, id);
+			scheduleCheck();
 		},
 		[annotationCap, docId],
 	);

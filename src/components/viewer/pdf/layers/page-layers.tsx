@@ -58,6 +58,7 @@ import {
 	pdfTileDpr,
 } from "@/components/viewer/pdf/constants";
 import { EMBED_PAGE_ATTR } from "@/components/viewer/pdf/coords";
+import { nativeSelectionBelongsToHost } from "@/components/viewer/pdf/host-dom";
 import { AskHighlightLayer } from "@/components/viewer/pdf/layers/ask-highlight-layer";
 import {
 	CitationLinkLayer,
@@ -86,13 +87,17 @@ import type {
 import { cn } from "@/lib/core/utils";
 import type { PdfVisualSessionTrace } from "@/lib/pdf/agent-trace";
 import type { PdfAskNormalizedRect } from "@/lib/pdf/ask/types";
+import { isLiveAnnotation } from "@/lib/pdf/highlight/annotation-store";
 import {
 	HIGHLIGHT_HEX,
 	HIGHLIGHT_OPACITY,
 	type HighlightColor,
 	highlightHoverOverlayColor,
 } from "@/lib/pdf/highlight/palette";
-import { resolveTranslatedHighlightIds } from "@/lib/pdf/highlight/sentence-tint";
+import {
+	resolveTranslatedHighlightIds,
+	sentenceHighlightTints,
+} from "@/lib/pdf/highlight/sentence-tint";
 import type { HighlightQuoteTint } from "@/lib/pdf/highlight/translated-geometry";
 import {
 	isLayoutRegionActivation,
@@ -906,6 +911,22 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 			layout.sentenceRectsByItemId,
 		],
 	);
+	const translatedSentenceTints = useMemo(
+		() =>
+			translationVisible
+				? sentenceHighlightTints({
+						layoutItems: layoutTranslateOnPage,
+						highlightQuotes,
+						sentenceRectsByItemId: layout.sentenceRectsByItemId,
+					})
+				: null,
+		[
+			translationVisible,
+			layoutTranslateOnPage,
+			highlightQuotes,
+			layout.sentenceRectsByItemId,
+		],
+	);
 	const annotationRenderers = useMemo<BoxedAnnotationRenderer[]>(() => {
 		if (!translationVisible || resolvedTranslatedIds.size === 0) {
 			return READING_ANNOTATION_RENDERERS;
@@ -981,15 +1002,17 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 				),
 			);
 			if (hit) {
-				const object = annotationCap
+				const tracked = annotationCap
 					.forDocument(docId)
-					.getAnnotationById(hit.id)?.object;
-				if (
-					object &&
-					object.type === PdfAnnotationSubtype.HIGHLIGHT &&
-					object.pageIndex === pageIndex
-				) {
-					return object;
+					.getAnnotationById(hit.id);
+				if (tracked && isLiveAnnotation(tracked)) {
+					const object = tracked.object;
+					if (
+						object.type === PdfAnnotationSubtype.HIGHLIGHT &&
+						object.pageIndex === pageIndex
+					) {
+						return object;
+					}
 				}
 			}
 		}
@@ -998,6 +1021,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 		const highlights = annotationCap
 			.forDocument(docId)
 			.getAnnotations()
+			.filter(isLiveAnnotation)
 			.map((annotation) => annotation.object)
 			.filter(
 				(annotation): annotation is PdfHighlightAnnoObject =>
@@ -1037,9 +1061,35 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 		if (hoveredCommentId) handlers.onLeaveComment();
 	};
 
+	const translatedHighlightAtTarget = (
+		target: EventTarget | null,
+	): string | null => {
+		if (!translatedSentenceTints) return null;
+		const sentenceEl = (target as Element | null)?.closest?.("[data-sentence]");
+		if (!sentenceEl) return null;
+		const itemId = sentenceEl
+			.closest("[data-layout-item]")
+			?.getAttribute("data-layout-item");
+		const sentenceIndex = Number(sentenceEl.getAttribute("data-sentence"));
+		if (!itemId || !Number.isInteger(sentenceIndex)) return null;
+		return (
+			translatedSentenceTints.get(itemId)?.get(sentenceIndex)?.highlightId ??
+			null
+		);
+	};
+
 	const handlePageClickCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
 		if ((event.target as Element | null)?.closest("[data-pdf-chrome]")) return;
-		if (window.getSelection()?.toString()) return;
+		// A translation overlay selection is a real DOM range; page clicks must not
+		// steal it. Selections elsewhere in the app (notes, Agent panel) must not
+		// block annotation hits.
+		const viewerRoot = pageShellRef.current?.closest("[data-pdf-root]");
+		if (
+			viewerRoot instanceof HTMLElement &&
+			nativeSelectionBelongsToHost(viewerRoot)
+		) {
+			return;
+		}
 		const comment = textCommentAtPoint(event.clientX, event.clientY);
 		if (comment) {
 			event.stopPropagation();
@@ -1047,7 +1097,17 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 			return;
 		}
 		const highlight = highlightAtPoint(event.clientX, event.clientY);
-		if (!highlight) return;
+		if (!highlight) {
+			// In translated mode the English highlight is replaced by a sentence
+			// tint with no annotation hit area. Resolve the clicked sentence back
+			// to its highlight so the annotation menu (recolor / edit / delete)
+			// stays reachable.
+			const tintedId = translatedHighlightAtTarget(event.target);
+			if (!tintedId) return;
+			event.stopPropagation();
+			annotationCap?.forDocument(docId).selectAnnotation(pageIndex, tintedId);
+			return;
+		}
 		event.stopPropagation();
 		annotationCap?.forDocument(docId).selectAnnotation(pageIndex, highlight.id);
 	};

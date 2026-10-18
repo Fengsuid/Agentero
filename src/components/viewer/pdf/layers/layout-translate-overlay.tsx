@@ -6,11 +6,11 @@
 
 import { Fragment, memo, useLayoutEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/core/utils";
+import { highlightFill } from "@/lib/pdf/highlight/palette";
 import {
-	type HighlightColor,
-	highlightFill,
-} from "@/lib/pdf/highlight/palette";
-import { sentenceIndexesForHighlightTint } from "@/lib/pdf/highlight/sentence-tint";
+	sentenceHighlightTints,
+	type TranslateSentenceTint,
+} from "@/lib/pdf/highlight/sentence-tint";
 import type { HighlightQuoteTint } from "@/lib/pdf/highlight/translated-geometry";
 import type { PdfHighlightRect } from "@/lib/pdf/highlight/types";
 import { isLayoutTranslateHeadingKind } from "@/lib/pdf/layout/labels";
@@ -468,7 +468,7 @@ type ExactFitParagraphProps = {
 	paperDark: boolean;
 	tone: PdfPaperTone;
 	/** Sentence indexes whose translation should show the highlight color. */
-	tintedSentences?: ReadonlyMap<number, HighlightColor>;
+	tintedSentences?: ReadonlyMap<number, TranslateSentenceTint>;
 	linkAssignments?: readonly PreservedLinkAssignment[];
 	onOpenLink?: (assignment: PreservedLinkAssignment) => void;
 	onHoverLink?: LayoutTranslateOverlayProps["onHoverLink"];
@@ -662,38 +662,35 @@ export const LayoutTranslateParagraph = memo(function LayoutTranslateParagraph({
 			}}
 		>
 			{slices && sentenceNodes ? (
-				slices.map((node, index) => (
-					<Fragment key={node.index}>
-						{index > 0 ? sentenceNodes.gap : null}
-						<span
-							data-sentence={node.index}
-							className={
-								tintedSentences?.has(node.index) ? "rounded-[1px]" : undefined
-							}
-							style={
-								tintedSentences?.has(node.index)
-									? {
-											backgroundColor: highlightFill(
-												tintedSentences.get(node.index) ?? "yellow",
-											),
-										}
-									: undefined
-							}
-						>
-							<LinkifiedText
-								text={node.text}
-								assignments={assignmentsWithin(
-									linkAssignments ?? [],
-									node.start,
-									node.start + node.text.length,
-								)}
-								tone={tone}
-								onOpenLink={onOpenLink}
-								onHoverLink={onHoverLink}
-							/>
-						</span>
-					</Fragment>
-				))
+				slices.map((node, index) => {
+					const tint = tintedSentences?.get(node.index);
+					return (
+						<Fragment key={node.index}>
+							{index > 0 ? sentenceNodes.gap : null}
+							<span
+								data-sentence={node.index}
+								className={cn(tint && "rounded-[1px]")}
+								style={
+									tint
+										? { backgroundColor: highlightFill(tint.color) }
+										: undefined
+								}
+							>
+								<LinkifiedText
+									text={node.text}
+									assignments={assignmentsWithin(
+										linkAssignments ?? [],
+										node.start,
+										node.start + node.text.length,
+									)}
+									tone={tone}
+									onOpenLink={onOpenLink}
+									onHoverLink={onHoverLink}
+								/>
+							</span>
+						</Fragment>
+					);
+				})
 			) : (
 				<LinkifiedText
 					text={text}
@@ -775,26 +772,15 @@ export const LayoutTranslateOverlay = memo(function LayoutTranslateOverlay({
 			};
 		});
 	}, [items, layoutRegions, pageHeightPx, pageWidthPx]);
-	const tintByItem = useMemo(() => {
-		const map = new Map<string, ReadonlyMap<number, HighlightColor>>();
-		if (!highlightQuotes?.length) return map;
-		for (const item of onPage) {
-			if (!item.sentences?.length) continue;
-			const colors = new Map<number, HighlightColor>();
-			for (const tint of highlightQuotes) {
-				for (const index of sentenceIndexesForHighlightTint({
-					sentences: item.sentences,
-					quote: tint.quote,
-					sentenceRects: sentenceRectsByItemId?.get(item.id),
-					highlightRects: tint.rects,
-				})) {
-					if (!colors.has(index)) colors.set(index, tint.color);
-				}
-			}
-			if (colors.size > 0) map.set(item.id, colors);
-		}
-		return map;
-	}, [highlightQuotes, onPage, sentenceRectsByItemId]);
+	const tintByItem = useMemo(
+		() =>
+			sentenceHighlightTints({
+				layoutItems: onPage,
+				highlightQuotes,
+				sentenceRectsByItemId,
+			}),
+		[highlightQuotes, onPage, sentenceRectsByItemId],
+	);
 	const linksByItem = useMemo(
 		() => claimTranslateLinks(onPage, links ?? []),
 		[links, onPage],
