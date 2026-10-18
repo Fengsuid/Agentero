@@ -7,6 +7,8 @@ import {
 	SiAlibabacloud,
 	SiBaidu,
 	SiCloudflare,
+	SiGithub,
+	SiGitlab,
 	SiMinio,
 	SiNextcloud,
 } from "react-icons/si";
@@ -130,9 +132,28 @@ const WEBDAV_PROVIDER_LINKS: SyncProviderLink[] = [
 	},
 ];
 
+const GIT_PROVIDER_LINKS: SyncProviderLink[] = [
+	{
+		id: "github",
+		name: "GitHub",
+		docsUrl:
+			"https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository",
+		icon: SiGithub,
+		iconClassName: "text-foreground",
+	},
+	{
+		id: "gitlab",
+		name: "GitLab",
+		docsUrl: "https://docs.gitlab.com/ee/user/project/repository/",
+		icon: SiGitlab,
+		iconClassName: "text-[#FC6D26]",
+	},
+];
+
 const BACKEND_OPTIONS = [
 	{ value: "s3", labelKey: "sync.backendS3" },
 	{ value: "webdav", labelKey: "sync.backendWebdav" },
+	{ value: "git", labelKey: "sync.backendGit" },
 ] as const;
 
 export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
@@ -208,7 +229,7 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 	}, [localVault, refresh, t]);
 
 	useEffect(() => {
-		if (!localVault) return;
+		if (!localVault || form.backend === "git") return;
 		let cancelled = false;
 		syncScopeSizes(localVault)
 			.then((sizes) => {
@@ -218,7 +239,7 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [localVault]);
+	}, [form.backend, localVault]);
 
 	if (!localVault) {
 		return (
@@ -239,8 +260,13 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 		patch({ scope: { ...scope, [key]: value } });
 
 	const isWebdav = form.backend === "webdav";
+	const isGit = form.backend === "git";
 	const backendLocked = status?.configured === true;
-	const providerLinks = isWebdav ? WEBDAV_PROVIDER_LINKS : SYNC_PROVIDER_LINKS;
+	const providerLinks = isGit
+		? GIT_PROVIDER_LINKS
+		: isWebdav
+			? WEBDAV_PROVIDER_LINKS
+			: SYNC_PROVIDER_LINKS;
 
 	const save = async () => {
 		setSaving(true);
@@ -397,7 +423,7 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 				actions={primaryAction}
 			/>
 
-			{status?.configured && !form.conditionalWrites ? (
+			{status?.configured && !isGit && !form.conditionalWrites ? (
 				<p className="mb-3 text-muted-foreground text-xs">
 					{t("sync.noConditionalWrites")}
 				</p>
@@ -412,9 +438,11 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 						<span className="inline-flex">
 							<Select
 								value={form.backend}
-								onValueChange={(value) =>
-									patch({ backend: value === "webdav" ? "webdav" : "s3" })
-								}
+								onValueChange={(value) => {
+									if (value === "s3" || value === "webdav" || value === "git") {
+										patch({ backend: value });
+									}
+								}}
 								disabled={backendLocked}
 							>
 								<SelectTrigger
@@ -470,7 +498,23 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 				</div>
 			</div>
 
-			{isWebdav ? (
+			{isGit ? (
+				<>
+					<SettingsGroup>
+						<SettingsRow label={t("sync.gitRemote")} htmlFor="sync-gitRemote">
+							{field("gitRemote", {
+								placeholder: "git@github.com:you/papers.git",
+							})}
+						</SettingsRow>
+						<SettingsRow label={t("sync.gitBranch")} htmlFor="sync-gitBranch">
+							{field("gitBranch", { placeholder: "main" })}
+						</SettingsRow>
+					</SettingsGroup>
+					<p className="mt-2 text-muted-foreground text-xs">
+						{t("sync.gitAuthHint")} {t("sync.gitFullVaultHint")}
+					</p>
+				</>
+			) : isWebdav ? (
 				<SettingsGroup>
 					<SettingsRow label={t("sync.serverUrl")} htmlFor="sync-webdavUrl">
 						{field("webdavUrl", {
@@ -532,58 +576,67 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 				) : null}
 			</SettingsGroup>
 
-			<SettingsSectionLabel className="mt-4">
-				<HelpLabel label={t("sync.scope")} help={t("sync.scopeHint")} />
-			</SettingsSectionLabel>
-			<SettingsGroup>
-				<SettingsRow label={t("sync.scopePdf")} htmlFor="sync-scope-pdf">
-					<span className="flex items-center gap-2">
-						{scopeSizes ? (
-							<span className="text-muted-foreground text-xs tabular-nums">
-								{formatBytes(scopeSizes.pdf)}
+			{!isGit ? (
+				<>
+					<SettingsSectionLabel className="mt-4">
+						<HelpLabel label={t("sync.scope")} help={t("sync.scopeHint")} />
+					</SettingsSectionLabel>
+					<SettingsGroup>
+						<SettingsRow label={t("sync.scopePdf")} htmlFor="sync-scope-pdf">
+							<span className="flex items-center gap-2">
+								{scopeSizes ? (
+									<span className="text-muted-foreground text-xs tabular-nums">
+										{formatBytes(scopeSizes.pdf)}
+									</span>
+								) : null}
+								<Switch
+									id="sync-scope-pdf"
+									checked={scope.pdf}
+									onCheckedChange={(checked) => patchScope("pdf", checked)}
+								/>
 							</span>
-						) : null}
-						<Switch
-							id="sync-scope-pdf"
-							checked={scope.pdf}
-							onCheckedChange={(checked) => patchScope("pdf", checked)}
-						/>
-					</span>
-				</SettingsRow>
-				<SettingsRow label={t("sync.scopeSource")} htmlFor="sync-scope-source">
-					<span className="flex items-center gap-2">
-						{scopeSizes ? (
-							<span className="text-muted-foreground text-xs tabular-nums">
-								{formatBytes(scopeSizes.source)}
+						</SettingsRow>
+						<SettingsRow
+							label={t("sync.scopeSource")}
+							htmlFor="sync-scope-source"
+						>
+							<span className="flex items-center gap-2">
+								{scopeSizes ? (
+									<span className="text-muted-foreground text-xs tabular-nums">
+										{formatBytes(scopeSizes.source)}
+									</span>
+								) : null}
+								<Switch
+									id="sync-scope-source"
+									checked={scope.source}
+									onCheckedChange={(checked) => patchScope("source", checked)}
+								/>
 							</span>
-						) : null}
-						<Switch
-							id="sync-scope-source"
-							checked={scope.source}
-							onCheckedChange={(checked) => patchScope("source", checked)}
-						/>
-					</span>
-				</SettingsRow>
-				<SettingsRow
-					label={t("sync.scopeAttachments")}
-					htmlFor="sync-scope-attachments"
-				>
-					<span className="flex items-center gap-2">
-						{scopeSizes ? (
-							<span className="text-muted-foreground text-xs tabular-nums">
-								{formatBytes(scopeSizes.attachments)}
+						</SettingsRow>
+						<SettingsRow
+							label={t("sync.scopeAttachments")}
+							htmlFor="sync-scope-attachments"
+						>
+							<span className="flex items-center gap-2">
+								{scopeSizes ? (
+									<span className="text-muted-foreground text-xs tabular-nums">
+										{formatBytes(scopeSizes.attachments)}
+									</span>
+								) : null}
+								<Switch
+									id="sync-scope-attachments"
+									checked={scope.attachments}
+									onCheckedChange={(checked) =>
+										patchScope("attachments", checked)
+									}
+								/>
 							</span>
-						) : null}
-						<Switch
-							id="sync-scope-attachments"
-							checked={scope.attachments}
-							onCheckedChange={(checked) => patchScope("attachments", checked)}
-						/>
-					</span>
-				</SettingsRow>
-			</SettingsGroup>
+						</SettingsRow>
+					</SettingsGroup>
+				</>
+			) : null}
 
-			{!isWebdav ? (
+			{!isWebdav && !isGit ? (
 				<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
 					<CollapsibleTrigger asChild>
 						<button

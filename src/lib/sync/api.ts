@@ -23,7 +23,7 @@ export type SyncScope = {
 };
 
 /** Storage backend discriminator; legacy configs without one are S3. */
-export type SyncBackendKind = "s3" | "webdav";
+export type SyncBackendKind = "s3" | "webdav" | "git";
 
 export type SyncBackendConfig = {
 	backend: SyncBackendKind;
@@ -40,6 +40,10 @@ export type SyncBackendConfig = {
 	webdavUsername: string;
 	/** Masked like the S3 secret key. */
 	webdavPassword: string;
+	/** Git remote URL or local path; credentials come from system Git. */
+	gitRemote: string;
+	/** Branch synced by the Git backend (default `main`). */
+	gitBranch: string;
 	/** Background sync: on open, after 30s quiet, and every intervalMinutes. */
 	autoSync: boolean;
 	intervalMinutes: number;
@@ -105,6 +109,8 @@ export const emptySyncConfig = (
 	webdavUrl: "",
 	webdavUsername: "",
 	webdavPassword: "",
+	gitRemote: "",
+	gitBranch: "main",
 	autoSync: true,
 	intervalMinutes: 30,
 	conditionalWrites: true,
@@ -146,6 +152,8 @@ function configFromWire(config: SyncBackendConfigWire): SyncBackendConfig {
 		webdavUrl: config.webdavUrl ?? "",
 		webdavUsername: config.webdavUsername ?? "",
 		webdavPassword: config.webdavPassword ?? "",
+		gitRemote: config.gitRemote ?? "",
+		gitBranch: config.gitBranch ?? "main",
 		autoSync: config.autoSync ?? true,
 		intervalMinutes: config.intervalMinutes ?? 30,
 		conditionalWrites: config.conditionalWrites ?? true,

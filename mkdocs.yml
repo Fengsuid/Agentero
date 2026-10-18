@@ -81,7 +81,7 @@ nav:
       - Vault Doctor: backend/doctor.md
       - 遥测: backend/telemetry.md
       - 内置模型服务: backend/builtin-provider.md
-      - 云同步（S3）: backend/sync.md
+      - 云同步（S3 / WebDAV / Git）: backend/sync.md
       - CLI: backend/cli.md
       - API 全表: backend/api.md
 
@@ -95,7 +95,7 @@ nav:
       - 广场订阅（Feeds）— MVP: development/plaza-feeds.md
       - 使用记录总结 (#239): development/usage-analytics.md
       - 生命周期事件系统（Lifecycle Events）: development/lifecycle-events.md
-      - 云同步（S3）设计草稿: development/cloud-sync-s3.md
+      - 云同步设计草稿: development/cloud-sync-s3.md
       - A2A 本机与远端协作: development/A2A.md
       - Agent DX（CLI / MCP / Skill）: development/agent-dx.md
       - Crate 拆分路线图: development/crate-split-roadmap.md

@@ -25,7 +25,7 @@
 //! manifest can vouch for until `HEAD` moves.
 
 use crate::error::AppError;
-use crate::features::sync::config::SyncBackendConfig;
+use crate::features::sync::config::{SyncBackendConfig, SyncBackendKind};
 use crate::features::sync::local::{self, SyncMeta};
 use crate::features::sync::snapshot::{self, FileEntry, Manifest};
 use crate::features::sync::store::{PutCondition, PutOutcome, RemoteStore, SyncStore};
@@ -78,7 +78,11 @@ pub type Progress<'a> = &'a (dyn Fn(&str, usize, usize) + Send + Sync);
 /// conditional-write support so backends that reject or ignore conditional
 /// PUTs (Aliyun OSS, most WebDAV servers) degrade to plain PUTs before the
 /// first real sync instead of failing mid-pass.
-pub async fn test_connection(cfg: &SyncBackendConfig) -> Result<bool, AppError> {
+pub async fn test_connection(vault: &Path, cfg: &SyncBackendConfig) -> Result<bool, AppError> {
+    if cfg.backend == SyncBackendKind::Git {
+        crate::features::sync::git::test_connection(vault, cfg).await?;
+        return Ok(true);
+    }
     // The probe must measure the server, not echo the persisted verdict: a
     // config re-saved with a different address (or after the server's
     // behavior changed) must re-evaluate conditional-write support instead
@@ -95,6 +99,9 @@ pub async fn sync_vault(
     cfg: &SyncBackendConfig,
     progress: Progress<'_>,
 ) -> Result<SyncOutcome, AppError> {
+    if cfg.backend == SyncBackendKind::Git {
+        return crate::features::sync::git::sync_vault(vault, cfg, progress).await;
+    }
     let client = SyncStore::new(cfg)?;
     run_sync(vault, cfg, &client, progress).await
 }
@@ -619,7 +626,7 @@ async fn apply_local<S: RemoteStore>(
 }
 
 /// Downloaded sidecars / deleted paper folders must be reflected in catalog.
-async fn refresh_catalog_if_needed(vault: &Path, outcome: &SyncOutcome) {
+pub(super) async fn refresh_catalog_if_needed(vault: &Path, outcome: &SyncOutcome) {
     if outcome.downloaded == 0 && outcome.deleted_local == 0 {
         return;
     }
@@ -1228,7 +1235,9 @@ mod tests {
         };
         // Mirror sync_configure: reachability (creates the directory) plus
         // the conditional-write probe that seeds the persisted flag.
-        let probed = test_connection(&cfg).await.expect("webdav test_connection");
+        let probed = test_connection(Path::new("."), &cfg)
+            .await
+            .expect("webdav test_connection");
         cfg.conditional_writes = probed;
         eprintln!("webdav conditional writes: {probed}");
 

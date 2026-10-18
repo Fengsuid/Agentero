@@ -17,7 +17,7 @@ Headless Vault / Catalog / Wiki 接口；**不含** BYOA / paper-reader。
 |---|---|
 | `open` | 在桌面 App 打开本地目录为 Vault（`agentero open <PATH>`；简写 `agentero <PATH>`） |
 | `vault` | create / list 等 |
-| `sync` | 云同步（S3/R2、WebDAV）：configure / status / test / now / disconnect，与桌面端共用引擎（见下） |
+| `sync` | 云同步（S3/R2、WebDAV、Git）：configure / status / test / now / disconnect，与桌面端共用引擎（见下） |
 | `describe` | Agent 自省：策展型 op 目录与单 op 的 input/output/errors/examples（机器契约真源） |
 | `paper` | list/get、tag list/set/add/rm、move、open、download/parse… |
 | `import` | 标识符入库 |
@@ -308,7 +308,7 @@ agentero paper open papers/nlp/attention --json
 
 ## 云同步（`sync`）
 
-无桌面环境（服务器等）下的双向 Vault 同步；与桌面端共用 `agentero-core::features::sync` 引擎与 XDG `sync.json` 绑定，冲突处理（三方合并 + 冲突副本）、条件写降级、断点续传与空转短路语义完全一致（实现细节见 [sync.md](sync.md)）。
+无桌面环境（服务器等）下的双向 Vault 同步；与桌面端共用 `agentero-core::features::sync` 引擎与 XDG `sync.json` 绑定。S3/WebDAV 的冲突处理（三方合并 + 冲突副本）、条件写降级、断点续传与空转短路语义完全一致；Git 后端走独立的 work-tree 同步（原生 merge、冲突 abort），见 [sync.md](sync.md#git-后端)。
 
 ```bash
 # 服务器首次接入已有远端库（vault 从未同步过时自动采纳远端 vaultId 完成加入）
@@ -320,13 +320,19 @@ agentero sync now --vault ~/papers --json      # cron / 助理调用，退出码
 agentero sync status --vault ~/papers --json   # lastError 给出上次失败原因
 agentero sync test --vault ~/papers --json     # 凭据/桶/条件写连通测试
 agentero sync disconnect --vault ~/papers -y   # 解绑（远端数据不动）
+
+# Git：Vault 即 work tree；认证走系统 credential helper / SSH agent
+agentero sync configure --vault ~/papers \
+  --backend git --git-remote git@github.com:you/papers.git --git-branch main
+agentero sync now --vault ~/papers --json
 ```
 
 - **凭据安全**：secret 不进 argv——flag 只收 endpoint/bucket/prefix 等非敏感字段；secret 来源为 `AGENTERO_SYNC_ACCESS_KEY` / `AGENTERO_SYNC_SECRET_KEY` / `AGENTERO_SYNC_WEBDAV_PASSWORD`、TTY 交互提示（`--json` / 管道下绝不提示），或 `--stdin` 读完整配置 JSON（camelCase，脚本友好，不落 shell history）。所有输出经掩码（`*`），日志与 `remoteIdentity()` 均不含密钥；`sync.json` 以 0600 落盘。
 - **并发**：`sync now` 经 `.agentero/sync/lock` 跨进程文件锁与桌面端（及 cron）在同一 Vault 上互斥，冲突时返回 `sync_busy`（退出码 1）；进程崩溃锁自动释放。
 - **状态与错误码**：未配置 → `sync_not_configured`；配置非法（缺 secret 等，非交互下无法补提示时错误里附 secret 传入门径）→ `sync_config_invalid`；引擎错误透传 `AppError` 域码。`status` 输出 `configured` / `config`（掩码）/ `lastSyncAt` / `lastVersion` / `lastError`。
 - **进度**：`now` 的阶段进度（scan/pull/download/upload/finalize）打 stderr，stdout 始终纯 JSON；text 模式默认显示，`--progress` 在 `--json` 下开启。
-- **同步范围**：`configure --exclude pdf,source,attachments` 排除大体积可再生资产（与设置页「同步范围」一致）；笔记、sidecar、marks 永远同步。
+- **同步范围**：`configure --exclude pdf,source,attachments` 排除大体积可再生资产（与设置页「同步范围」一致）；笔记、sidecar、marks 永远同步。Git 是全量同步，不支持 `--exclude`。
+- **Git**：`--backend git --git-remote <url|path> [--git-branch main]`；不接收 secret flag、不做 TTY 提示，使用系统 Git 凭据。Vault 已有仓库时要求当前分支与 `--git-branch` 一致、`origin` 与配置一致，否则报错。冲突、`.agentero` 被跟踪、历史重写等分别返回 `sync_conflict` / `git_agentero_tracked` / `git_history_rewritten`；推送被非 fast-forward 拒绝会自动重试 fetch+merge+push。
 
 ## Doctor
 

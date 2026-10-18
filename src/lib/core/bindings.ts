@@ -4928,6 +4928,16 @@ export type SyncBackendConfig = {
 	/**  Masked (`*`) on the way to the WebView, like the S3 secret key. */
 	webdavPassword?: string,
 	/**
+	 *  Git remote URL or local path. Credentials are never stored here; the
+	 *  system credential helper / SSH agent is used.
+	 */
+	gitRemote?: string,
+	/**
+	 *  Branch to sync. Defaults to `main`; the vault's current branch must
+	 *  already match when it is an existing repository.
+	 */
+	gitBranch?: string,
+	/**
 	 *  Automatic background sync: once on scheduler start (vault open), after
 	 *  30s of vault quiet, and every `interval_minutes`.
 	 */
@@ -4950,7 +4960,7 @@ export type SyncBackendConfig = {
  *  Which remote storage backend a vault syncs through. Legacy `sync.json`
  *  entries without the field deserialize as [`SyncBackendKind::S3`].
  */
-export type SyncBackendKind = "s3" | "webdav";
+export type SyncBackendKind = "s3" | "webdav" | "git";
 
 export type SyncConfigureArgs = {
 	vaultPath: string,

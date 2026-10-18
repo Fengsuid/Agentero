@@ -119,7 +119,7 @@ src-tauri/src/
 | Agent Host | [agent.md](agent.md) |
 | 研究上下文 | [context.md](context.md) |
 | 远程 Vault | [remote.md](remote.md) |
-| 云同步（S3） | [sync.md](sync.md) |
+| 云同步（S3 / WebDAV / Git） | [sync.md](sync.md) |
 | 搜索 | [search.md](search.md) |
 | 设置 | [settings.md](settings.md) |
 | 本地桌面应用检测 | [desktop-apps.md](desktop-apps.md) |

@@ -117,6 +117,77 @@ fn sync_configure_rejects_plain_http_endpoint_via_stdin() {
         .stdout(predicate::str::contains("must use https"));
 }
 
+fn git_available() -> bool {
+    std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+#[test]
+fn sync_configure_git_pushes_to_a_local_bare_remote() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempdir().unwrap();
+    let vault = tmp.path().join("vault");
+    create_vault(&vault);
+    let home = tmp.path().join(".test-home");
+    let remote = tmp.path().join("remote.git");
+    let init = std::process::Command::new("git")
+        .args(["init", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+
+    fs::write(vault.join("note.md"), "# hi\n").unwrap();
+
+    agentero()
+        .env("HOME", &home)
+        .args([
+            "sync",
+            "configure",
+            "--vault",
+            vault.to_str().unwrap(),
+            "--backend",
+            "git",
+            "--git-remote",
+            remote.to_str().unwrap(),
+            "--git-branch",
+            "main",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"backend\":\"git\""))
+        .stdout(predicate::str::contains("\"configured\":true"));
+
+    agentero()
+        .env("HOME", &home)
+        .args(["sync", "now", "--vault", vault.to_str().unwrap(), "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ok\":true"));
+
+    let tree = std::process::Command::new("git")
+        .args([
+            "--git-dir",
+            remote.to_str().unwrap(),
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "main",
+        ])
+        .output()
+        .unwrap();
+    assert!(tree.status.success());
+    let tree = String::from_utf8_lossy(&tree.stdout);
+    assert!(tree.contains("note.md"), "{tree}");
+    assert!(!tree.contains(".agentero"), "{tree}");
+}
+
 #[test]
 fn sync_test_and_disconnect_without_binding_fail_fast() {
     let tmp = tempdir().unwrap();

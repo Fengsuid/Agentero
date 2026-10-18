@@ -60,6 +60,9 @@ impl SyncStore {
         match cfg.backend {
             SyncBackendKind::S3 => Ok(Self::S3(S3Client::new(cfg)?)),
             SyncBackendKind::Webdav => Ok(Self::Webdav(WebdavClient::new(cfg)?)),
+            SyncBackendKind::Git => Err(AppError::message(
+                "git sync does not use the blob/manifest store",
+            )),
         }
     }
 }

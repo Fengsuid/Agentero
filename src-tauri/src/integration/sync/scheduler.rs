@@ -71,6 +71,16 @@ impl SyncService {
             if !cfg.auto_sync {
                 continue;
             }
+            // Git commits/pushes can exceed the 5s exit budget; interrupting
+            // one may leave index.lock behind. The next launch or interval
+            // picks the work up instead.
+            if cfg.backend == config::SyncBackendKind::Git {
+                log::info!(
+                    target: "agentero::sync",
+                    "exit flush {key}: git backend skipped (next pass will push)"
+                );
+                continue;
+            }
             let dir = PathBuf::from(&key);
             if !dir.is_dir() {
                 continue;

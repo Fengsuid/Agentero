@@ -10,7 +10,7 @@ use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Which remote storage backend a vault syncs through. Legacy `sync.json`
 /// entries without the field deserialize as [`SyncBackendKind::S3`].
@@ -20,6 +20,7 @@ pub enum SyncBackendKind {
     #[default]
     S3,
     Webdav,
+    Git,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, specta::Type)]
@@ -54,6 +55,14 @@ pub struct SyncBackendConfig {
     /// Masked (`*`) on the way to the WebView, like the S3 secret key.
     #[serde(default)]
     pub webdav_password: String,
+    /// Git remote URL or local path. Credentials are never stored here; the
+    /// system credential helper / SSH agent is used.
+    #[serde(default)]
+    pub git_remote: String,
+    /// Branch to sync. Defaults to `main`; the vault's current branch must
+    /// already match when it is an existing repository.
+    #[serde(default = "default_git_branch")]
+    pub git_branch: String,
     /// Automatic background sync: once on scheduler start (vault open), after
     /// 30s of vault quiet, and every `interval_minutes`.
     #[serde(default = "default_true")]
@@ -81,6 +90,10 @@ fn default_true() -> bool {
 
 fn default_interval_minutes() -> u32 {
     30
+}
+
+fn default_git_branch() -> String {
+    "main".into()
 }
 
 /// Interval choices offered by the settings UI; anything else snaps to 30.
@@ -129,6 +142,10 @@ impl SyncBackendConfig {
                 }
                 require_https("server url", &self.webdav_url)
             }
+            SyncBackendKind::Git => {
+                validate_git_remote(&self.git_remote)?;
+                validate_branch(&self.git_branch)
+            }
         }
     }
 
@@ -145,6 +162,16 @@ impl SyncBackendConfig {
         self.webdav_url = normalize_webdav_url(&self.webdav_url);
         self.webdav_username = self.webdav_username.trim().to_string();
         self.webdav_password = self.webdav_password.trim().to_string();
+        self.git_remote = self.git_remote.trim().to_string();
+        self.git_branch = self.git_branch.trim().to_string();
+        if self.git_branch.is_empty() {
+            self.git_branch = default_git_branch();
+        }
+        if self.backend == SyncBackendKind::Git {
+            // Git is a full-vault mirror; the partial scope filter has no
+            // meaning there (and is hidden in the settings UI).
+            self.scope = SyncScope::all();
+        }
         if !INTERVAL_CHOICES.contains(&self.interval_minutes) {
             self.interval_minutes = default_interval_minutes();
         }
@@ -185,6 +212,9 @@ impl SyncBackendConfig {
                 normalize_webdav_url(&self.webdav_url),
                 self.webdav_username
             ),
+            SyncBackendKind::Git => {
+                format!("git|{}|{}", self.git_remote.trim(), self.git_branch.trim())
+            }
         }
     }
 }
@@ -218,13 +248,129 @@ pub(crate) fn normalize_webdav_url(raw: &str) -> String {
 fn require_https(label: &str, raw: &str) -> Result<(), AppError> {
     let url = url::Url::parse(raw.trim())
         .map_err(|_| AppError::message(format!("{label} is not a valid URL")))?;
-    let host = url.host_str().unwrap_or_default();
-    let loopback = host == "localhost"
-        || host == "127.0.0.1"
-        || host.trim_start_matches('[').trim_end_matches(']') == "::1";
-    if url.scheme() != "https" && !(url.scheme() == "http" && loopback) {
+    if url.scheme() != "https"
+        && !(url.scheme() == "http" && is_loopback_host(url.host_str().unwrap_or_default()))
+    {
         return Err(AppError::message(format!(
             "{label} must use https (plain http is only allowed for localhost)"
+        )));
+    }
+    Ok(())
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host == "localhost"
+        || host == "127.0.0.1"
+        || host.trim_start_matches('[').trim_end_matches(']') == "::1"
+}
+
+/// Git remotes cannot carry secrets in `sync.json`. Allow the transports the
+/// system git binary understands without a custom remote helper.
+fn validate_git_remote(raw: &str) -> Result<(), AppError> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err(AppError::message("repository url is required"));
+    }
+    if value.starts_with('-') || value.chars().any(char::is_control) {
+        return Err(AppError::message("repository url is invalid"));
+    }
+    if value.contains("://") {
+        if value.chars().any(char::is_whitespace) {
+            return Err(AppError::message("repository url is invalid"));
+        }
+        let url = url::Url::parse(value)
+            .map_err(|_| AppError::message("repository url is not a valid URL"))?;
+        match url.scheme() {
+            "https" | "http" => {
+                if url.host_str().is_none() {
+                    return Err(AppError::message("repository url has no host"));
+                }
+                if url.scheme() == "http"
+                    && !is_loopback_host(url.host_str().unwrap_or_default())
+                {
+                    return Err(AppError::message(
+                        "repository url must use https (plain http is only allowed for localhost)",
+                    ));
+                }
+                if !url.username().is_empty() || url.password().is_some() {
+                    return Err(AppError::message(
+                        "repository url must not embed credentials; use the system Git credential helper or SSH",
+                    ));
+                }
+            }
+            "ssh" => {
+                if url.host_str().is_none() {
+                    return Err(AppError::message("repository url has no host"));
+                }
+                if url.password().is_some() {
+                    return Err(AppError::message(
+                        "repository url must not embed a password; use the SSH agent",
+                    ));
+                }
+            }
+            "file" => {
+                url.to_file_path()
+                    .map_err(|_| AppError::message("repository url is not a valid file URL"))?;
+            }
+            other => {
+                return Err(AppError::message(format!(
+                    "repository url scheme '{other}' is not supported (use https, ssh, file, or a local path)"
+                )))
+            }
+        }
+        return Ok(());
+    }
+    // A local bare repo / NAS mount is a valid Git remote and keeps the
+    // headless tests offline. Absolute paths may contain spaces.
+    if Path::new(value).is_absolute() {
+        return Ok(());
+    }
+    if is_scp_like_git_remote(value) {
+        return Ok(());
+    }
+    Err(AppError::message(
+        "repository url must be an absolute path, file:// URL, https/ssh URL, or git@host:path",
+    ))
+}
+
+fn is_scp_like_git_remote(value: &str) -> bool {
+    if value.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let Some((user_host, path)) = value.split_once(':') else {
+        return false;
+    };
+    if path.is_empty() {
+        return false;
+    }
+    let Some((user, host)) = user_host.rsplit_once('@') else {
+        return false;
+    };
+    !user.is_empty() && !host.is_empty() && !host.contains(':')
+}
+
+fn validate_branch(raw: &str) -> Result<(), AppError> {
+    let branch = raw.trim();
+    let invalid = branch.is_empty()
+        || branch == "HEAD"
+        || branch == "@"
+        || branch.starts_with('-')
+        || branch.starts_with('/')
+        || branch.ends_with('/')
+        || branch.ends_with('.')
+        || branch.ends_with(".lock")
+        || branch.contains("..")
+        || branch.contains("@{")
+        || branch.contains("//")
+        || branch
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || "~^:?*[\\".contains(c))
+        || branch
+            .split('/')
+            .any(|component| component.is_empty() || component.starts_with('.'));
+    if invalid {
+        return Err(AppError::message(format!(
+            "invalid Git branch name: {branch}"
         )));
     }
     Ok(())
@@ -469,5 +615,116 @@ mod tests {
         assert!(cfg.validate().is_ok());
         cfg.endpoint = "not a url".into();
         assert!(cfg.validate().is_err());
+    }
+
+    fn git_config(remote: &str, branch: &str) -> SyncBackendConfig {
+        SyncBackendConfig {
+            backend: SyncBackendKind::Git,
+            git_remote: remote.into(),
+            git_branch: branch.into(),
+            ..SyncBackendConfig::default()
+        }
+    }
+
+    #[test]
+    fn git_config_roundtrips_defaults_and_normalizes() {
+        let cfg: SyncBackendConfig = serde_json::from_str(r#"{"backend":"git"}"#).unwrap();
+        assert_eq!(cfg.backend, SyncBackendKind::Git);
+        assert_eq!(cfg.git_branch, "main");
+        assert!(cfg.git_remote.is_empty());
+
+        let cfg = git_config("  https://github.com/u/papers.git  ", "").normalized();
+        assert_eq!(cfg.git_remote, "https://github.com/u/papers.git");
+        assert_eq!(cfg.git_branch, "main");
+        assert!(cfg.scope.is_all());
+        assert_eq!(
+            cfg.remote_identity(),
+            "git|https://github.com/u/papers.git|main"
+        );
+    }
+
+    #[test]
+    fn git_remote_validation_accepts_supported_transports() {
+        for remote in [
+            "https://github.com/u/papers.git",
+            "ssh://git@example.com/u/papers.git",
+            "git@github.com:u/papers.git",
+            "file:///tmp/papers.git",
+            "/tmp/papers.git",
+            "http://127.0.0.1:9000/papers.git",
+        ] {
+            assert!(
+                git_config(remote, "main").validate().is_ok(),
+                "remote {remote:?} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn git_remote_validation_rejects_secrets_and_helpers() {
+        for remote in [
+            "https://user:secret@github.com/u/papers.git",
+            "https://user@github.com/u/papers.git",
+            "ssh://git:secret@example.com/u/papers.git",
+            "ext::sh -c echo",
+            "git://github.com/u/papers.git",
+            "http://example.com/papers.git",
+            "relative/path",
+            "-uhttps://github.com/u/papers.git",
+            "",
+        ] {
+            assert!(
+                git_config(remote, "main").validate().is_err(),
+                "remote {remote:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn git_branch_validation_rejects_invalid_refs() {
+        for branch in [
+            "",
+            "HEAD",
+            "@",
+            "-main",
+            "/main",
+            "main/",
+            "main.",
+            "main.lock",
+            "a..b",
+            "a@{b",
+            "a//b",
+            "a b",
+            ".main",
+            "a/.b",
+            "a\\b",
+            "a~b",
+        ] {
+            assert!(
+                git_config("https://example.com/r.git", branch)
+                    .validate()
+                    .is_err(),
+                "branch {branch:?} must be rejected"
+            );
+        }
+        for branch in ["main", "feature/sync", "release-2026.10"] {
+            assert!(
+                git_config("https://example.com/r.git", branch)
+                    .validate()
+                    .is_ok(),
+                "branch {branch:?} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn git_config_forces_full_scope() {
+        let mut cfg = git_config("https://example.com/r.git", "main");
+        cfg.scope = SyncScope {
+            pdf: false,
+            source: false,
+            attachments: false,
+        };
+        assert!(cfg.normalized().scope.is_all());
     }
 }

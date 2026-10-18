@@ -1,6 +1,6 @@
-# 云同步（S3 / WebDAV）设计草稿
+# 云同步（S3 / WebDAV / Git）设计草稿
 
-> 状态：Phase 0–2（自动同步部分）已落地（实现说明见 [../backend/sync.md](../backend/sync.md)），Phase 2+ 为草稿。多设备间同步整个 Vault，存储后端为 S3 兼容对象存储（AWS S3 / Cloudflare R2 / 阿里 OSS / MinIO / B2）或 WebDAV（坚果云 / Nextcloud / NAS 等），经 `store.rs` 的 `SyncStore` 枚举分发，引擎不感知具体后端。同一套引擎同时服务两种模式：用户自带 bucket（BYO）与将来的官方托管服务。
+> 状态：Phase 0–2（自动同步部分）已落地（实现说明见 [../backend/sync.md](../backend/sync.md)），Phase 2+ 为草稿；Git 全量同步 v1 已落地（#781），按论文按需拉取仍为草稿。多设备间同步整个 Vault，存储后端为 S3 兼容对象存储（AWS S3 / Cloudflare R2 / 阿里 OSS / MinIO / B2）、WebDAV（坚果云 / Nextcloud / NAS 等）或 Git 远端，经 `store.rs` 的 `SyncStore` 枚举分发（Git 走独立的 `git.rs`），引擎不感知具体 S3/WebDAV 后端。同一套引擎同时服务两种模式：用户自带 bucket（BYO）与将来的官方托管服务。
 
 ## 目标与非目标
 
@@ -149,8 +149,29 @@ watcher、vault、import、remote 均不改。
 | 0 ✅ | catalog sidecar 化 + `.agentero/vault.json` UUID | 删库后 rescan 能恢复 tags/is_read |
 | 1 ✅ | sync 模块 MVP：配置 UI、手动同步、manifest/blob/CAS、冲突副本 | 两台设备经 MinIO/R2 双向同步收敛 |
 | 2 🚧 | 自动同步 ✅（打开/静置 30s/定时 + 退出尽力推送）；状态栏指示、GC、multipart 未做 | 日常使用无感同步 |
+| Git v1 ✅ | 全量 work-tree 同步（commit / fetch / merge / push，系统凭据） | #781 的 Git 部分；按需拉取留待 Phase 2 |
 | 3 | E2EE（口令派生密钥、blob/manifest 加密） | 远端只见密文 |
 | 4 | 官方托管：控制面（账号/配额/临时凭据签发）+ `Managed` provider | 应用侧仅新增 provider，engine 不动 |
+
+## Git 后端（v1 已落地）
+
+Git 不套用 blob/manifest 协议：远端就是仓库，历史、认证与合并都由 Git 负责。实现位于 `crates/agentero-core/src/features/sync/git.rs`，`engine` 按 backend 分派。
+
+- work tree = Vault 根；远端 `origin` + `gitBranch`；系统 credential helper / SSH agent，不落 token。
+- `.git/info/exclude` 排除 `.agentero/` 等；本地或远端跟踪 `.agentero` 直接拒绝。
+- pass = commit → `ls-remote` → fetch → merge → push；冲突 abort 并报 `sync_conflict`；非 fast-forward 自动重试。
+- 设置页 Git 隐藏 scope（全量）；CLI `--backend git` 不支持 `--exclude`。
+- 限制：PDF/TeX 留在 Git 历史、未接 LFS、无按需拉取；退出 flush 跳过 Git。
+
+### Phase 2：SQL / catalog 驱动的按论文按需拉取
+
+v1 全量同步意味着 clone 后所有文件都在本地，尚不需要“按 SQL 选论文下载”。若要实现 #781 的按需部分，推荐：
+
+1. 首次 clone 使用 partial clone：`git clone --filter=blob:none --sparse <remote>`，只检出笔记与 `metadata.json`。
+2. catalog 的 `papers.path` 作为选择键；打开或显式下载某篇论文时执行 `git sparse-checkout add papers/<id>`（或 `git checkout HEAD -- papers/<id>`），Git 按需拉取 blob，再触发 catalog refresh / caps 失效。
+3. 非 Git 后端可另加 `sync_fetch_papers(paths)`：读 HEAD manifest，只下载指定前缀的 blob，同样受 scope 的“失明”语义约束。
+
+该阶段需要额外处理 partial clone 可用性、Git LFS / 仓库体积、sparse-checkout 状态与 `SyncScope` 的关系；v1 不做。
 
 ## 风险与对策
 

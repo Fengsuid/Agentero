@@ -34,7 +34,7 @@
 | `features::translate` | 翻译 provider（free MT + LLM） |
 | `features::lifecycle` | paper 事实事件（`paper:imported` / `paper:assets-ready` / `paper:renamed`）的 payload 与 emit 入口 |
 | `features::open_request` | deep-link/CLI open-request 的解析、校验与请求文件读写 |
-| `features::sync` | 云同步引擎（S3/WebDAV 客户端、三方合并、CAS 协议、跨进程 pass 锁）：从 `src-tauri/src/integration/sync/` 下沉，桌面端与 `agentero sync` CLI 共用；Host 侧壳层（IPC 命令、调度器、`SyncService` 进程内租约）留守 `integration/sync/` |
+| `features::sync` | 云同步引擎（S3/WebDAV 客户端、三方合并、CAS 协议、Git work-tree 全量同步、跨进程 pass 锁）：从 `src-tauri/src/integration/sync/` 下沉，桌面端与 `agentero sync` CLI 共用；Host 侧壳层（IPC 命令、调度器、`SyncService` 进程内租约）留守 `integration/sync/` |
 | `app_handle` | `AppHandle` + `HostHooks`：宿主回调抽象（见下） |
 
 Host 侧桥接策略：原目录留 `mod.rs` 薄壳（`pub use agentero_core::…::*;` + 本地 desktop 子模块），`commands.rs` 等 tauri 壳留守原位；显式定义项遮蔽 glob（如 desktop 版 `refs::spawn_parse_after_import`）。

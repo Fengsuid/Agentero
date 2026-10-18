@@ -29,9 +29,11 @@ const ENV_WEBDAV_PASSWORD: &str = "AGENTERO_SYNC_WEBDAV_PASSWORD";
 pub(crate) enum BackendKind {
     S3,
     Webdav,
+    Git,
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 pub enum SyncCmd {
     /// Show the vault's sync binding and last-pass info.
     Status,
@@ -52,7 +54,7 @@ pub enum SyncCmd {
 
 #[derive(Debug, Args)]
 pub struct ConfigureArgs {
-    /// Backend store: `s3` (default) or `webdav`.
+    /// Backend store: `s3` (default), `webdav`, or `git`.
     #[arg(long = "backend", value_enum, default_value = "s3")]
     pub backend: BackendKind,
     /// S3-compatible endpoint, e.g. https://<account>.r2.cloudflarestorage.com
@@ -73,6 +75,12 @@ pub struct ConfigureArgs {
     /// WebDAV username.
     #[arg(long = "webdav-username", value_name = "NAME")]
     pub webdav_username: Option<String>,
+    /// Git remote URL or local path (uses the system credential helper / SSH).
+    #[arg(long = "git-remote", value_name = "URL")]
+    pub git_remote: Option<String>,
+    /// Git branch to sync (default main).
+    #[arg(long = "git-branch", value_name = "BRANCH")]
+    pub git_branch: Option<String>,
     /// Bulky asset categories to keep out of sync (comma list of
     /// pdf,source,attachments). Notes, sidecars and marks always sync.
     #[arg(long = "exclude", value_name = "LIST", value_delimiter = ',')]
@@ -139,6 +147,9 @@ fn status(vault: &Path, globals: &GlobalOpts) -> Result<Value, CliError> {
             let target = match cfg.backend {
                 SyncBackendKind::S3 => format!("s3 {} / {}", cfg.endpoint, cfg.bucket),
                 SyncBackendKind::Webdav => format!("webdav {}", cfg.webdav_url),
+                SyncBackendKind::Git => {
+                    format!("git {} ({})", cfg.git_remote, cfg.git_branch)
+                }
             };
             lines.push(format!("{} {target}", style.key("backend")));
             if !cfg.prefix.trim().is_empty() {
@@ -185,6 +196,7 @@ async fn configure(
     // A `*`-masked secret echoed back (e.g. a status payload pasted into
     // stdin JSON) restores the stored value instead of overwriting it.
     cfg.merge_mask(existing.as_ref());
+    cfg = cfg.normalized();
     cfg.validate().map_err(|e| {
         // Non-interactive callers cannot fill a missing secret via prompt;
         // point them at the secret channels explicitly.
@@ -199,7 +211,7 @@ async fn configure(
             ExitCode::Business,
         )
     })?;
-    cfg.conditional_writes = engine::test_connection(&cfg).await?;
+    cfg.conditional_writes = engine::test_connection(vault, &cfg).await?;
     sync_config::set(&key, cfg.clone())?;
 
     let style = globals.style;
@@ -213,6 +225,9 @@ async fn configure(
         let target = match cfg.backend {
             SyncBackendKind::S3 => format!("{}/{}", cfg.endpoint, cfg.bucket),
             SyncBackendKind::Webdav => cfg.webdav_url.clone(),
+            SyncBackendKind::Git => {
+                format!("{} ({})", cfg.git_remote, cfg.git_branch)
+            }
         };
         let mut lines = vec![format!("{} {target}", style.key("configured"))];
         lines.push(format!(
@@ -240,6 +255,7 @@ fn assemble_config(
     cfg.backend = match args.backend {
         BackendKind::S3 => SyncBackendKind::S3,
         BackendKind::Webdav => SyncBackendKind::Webdav,
+        BackendKind::Git => SyncBackendKind::Git,
     };
     if let Some(v) = &args.endpoint {
         cfg.endpoint = v.clone();
@@ -259,6 +275,12 @@ fn assemble_config(
     if let Some(v) = &args.webdav_username {
         cfg.webdav_username = v.clone();
     }
+    if let Some(v) = &args.git_remote {
+        cfg.git_remote = v.clone();
+    }
+    if let Some(v) = &args.git_branch {
+        cfg.git_branch = v.clone();
+    }
     if let Some(v) = env_non_empty(ENV_ACCESS_KEY) {
         cfg.access_key = v;
     }
@@ -268,7 +290,14 @@ fn assemble_config(
     if let Some(v) = env_non_empty(ENV_WEBDAV_PASSWORD) {
         cfg.webdav_password = v;
     }
-    if !args.exclude.is_empty() {
+    if cfg.backend == SyncBackendKind::Git {
+        if !args.exclude.is_empty() {
+            return Err(CliError::usage(
+                "--exclude is not supported for git (it always syncs the full vault)",
+            ));
+        }
+        cfg.scope = SyncScope::all();
+    } else if !args.exclude.is_empty() {
         cfg.scope = scope_from_excludes(&args.exclude)?;
     }
 
@@ -298,6 +327,9 @@ fn assemble_config(
                         .map_err(prompt_failed)?;
                 }
             }
+            // System credential helper / SSH agent only; the app never asks
+            // for or stores a Git secret.
+            SyncBackendKind::Git => {}
         }
     }
     Ok(cfg)
@@ -343,7 +375,7 @@ fn read_config_stdin() -> Result<SyncBackendConfig, CliError> {
 async fn test(vault: &Path) -> Result<Value, CliError> {
     let (_, cfg) = entry_for(vault);
     let cfg = cfg.ok_or_else(sync_not_configured)?;
-    let conditional = engine::test_connection(&cfg).await?;
+    let conditional = engine::test_connection(vault, &cfg).await?;
     Ok(json!({
         "ok": true,
         "conditionalWrites": conditional,
