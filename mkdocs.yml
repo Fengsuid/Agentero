@@ -141,6 +141,7 @@ nav:
       - Windows 启动与问题诊断弹出黑色控制台窗口: bug_fix/windows-console-window-flash.md
       - "Windows 安装 Skill 反复弹出 gh.exe 控制台窗口（#741）": bug_fix/windows-skill-import-gh-console-flash.md
       - "笔记正文 < 比较符截断后续内容（#533）": bug_fix/note-markdown-stray-less-than.md
+      - "笔记正文花括号截断后续内容（MDX 表达式）": bug_fix/note-markdown-mdx-brace-truncation.md
       - "macOS 首次精读弹出 Music / iCloud / 文件夹权限（#570）": bug_fix/macos-tcc-folder-prompts.md
       - "ACP 历史回放被 No response requested 占位": bug_fix/acp-replay-no-response-requested.md
       - Agent Composer 首次语音输入被吞: bug_fix/agent-composer-voice-input-first-token.md

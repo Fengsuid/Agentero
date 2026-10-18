@@ -29,6 +29,10 @@
 
 编辑器实际只支持 `<div>`、`<center>`、`<iframe>`、`<p>` / `<p align>`、`<br>`、`<u>`、`<sub>`、`<sup>`、`<mark>`、`<kbd>`、`<callout>`。同一预处理现在按这个白名单转义其余 `<`（代码块、公式、已闭合的原始 HTML 块内部除外）。不再为每一种占位标签单独打补丁。
 
+## 后续：别的 MDX 解析错误同样会绕过这里
+
+`escapeStrayLessThan` 只防住「`<` 让 micromark 抛错」这一种 MDX 失败。正文里的 `{` / `}`（例如 LaTeX 写法 `\max\{a,b\}`、`\(...\{...\}\)`）会让 acorn 抛错，Plate 的回退仍然会从某处 `<`（包括行内公式里的 `$\rho<1$`）把文档切成两段、丢掉后文。后续修复在预处理里实体化花括号，并在 MDX 仍失败时整篇改用无 MDX 管线重解析，见 [note-markdown-mdx-brace-truncation.md](note-markdown-mdx-brace-truncation.md)。
+
 ## 回归验证
 
 - `test/markdown-stray-less-than.test.ts`：转义 / 保留边界单元测试（何时转义、标签与注释原样保留、代码围栏与块公式跳过），issue 原文反序列化后全部块保留，以及 `\<` round-trip 不产生二次转义。

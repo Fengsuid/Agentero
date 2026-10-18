@@ -60,8 +60,10 @@ describe("prepareMarkdownForDeserialize", () => {
 	it("escapes an unclosed block-math fence", () => {
 		const source = "before\n$$\nbad _ {\n\nafter\n# heading";
 
+		// The repaired `$$` is no longer a math fence, so the stray `{` is prose
+		// and gets entity-escaped for MDX (remark decodes it back to `{`).
 		expect(prepareMarkdownForDeserialize(source)).toBe(
-			"before\n\\$$\nbad _ {\n\nafter\n# heading",
+			"before\n\\$$\nbad _ &#123;\n\nafter\n# heading",
 		);
 	});
 
