@@ -130,11 +130,29 @@ struct ToolLifecycleProgress {
 /// Windows builds use npm / PowerShell installers instead — keep these out of that target.
 #[cfg(not(target_os = "windows"))]
 const CLAUDE_INSTALL_UNIX: &str = "bash -c 'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o $tmp && bash $tmp; status=$?; rm -f $tmp; exit $status'";
+/// npm fallback for Claude Code. Unix uses the user prefix so a failed official
+/// installer does not fall through to the root-owned system prefix (#791).
+const CLAUDE_NPM_INSTALL_COMMAND: &str = if cfg!(windows) {
+    "npm i -g @anthropic-ai/claude-code@latest"
+} else {
+    "npm i -g @anthropic-ai/claude-code@latest --prefix \"$HOME/.local\""
+};
 #[cfg(not(target_os = "windows"))]
 const OPENCODE_INSTALL_UNIX: &str = "bash -c 'tmp=$(mktemp) && curl -fsSL https://opencode.ai/v2/install -o $tmp && bash $tmp; status=$?; rm -f $tmp; exit $status'";
-const OPENCODE_NPM_INSTALL_COMMAND: &str = "npm i -g @opencode/cli@latest";
+/// npm fallback for OpenCode, with the same user-prefix reasoning (#791).
+const OPENCODE_NPM_INSTALL_COMMAND: &str = if cfg!(windows) {
+    "npm i -g @opencode/cli@latest"
+} else {
+    "npm i -g @opencode/cli@latest --prefix \"$HOME/.local\""
+};
 #[cfg(not(target_os = "windows"))]
 const GROK_INSTALL_UNIX: &str = "bash -c 'tmp=$(mktemp) && curl -fsSL https://x.ai/cli/install.sh -o $tmp && bash $tmp; status=$?; rm -f $tmp; exit $status'";
+/// npm fallback for Grok Build (#791).
+const GROK_NPM_INSTALL_COMMAND: &str = if cfg!(windows) {
+    "npm i -g @xai-official/grok@latest"
+} else {
+    "npm i -g @xai-official/grok@latest --prefix \"$HOME/.local\""
+};
 #[cfg(not(target_os = "windows"))]
 const HERMES_INSTALL_UNIX: &str = "bash -c 'tmp=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh -o $tmp && bash $tmp; status=$?; rm -f $tmp; exit $status'";
 #[cfg(not(target_os = "windows"))]
@@ -147,14 +165,25 @@ const HERMES_UPDATE_UNIX: &str = "hermes update || bash -c 'tmp=$(mktemp) && cur
 const KIMI_INSTALL_UNIX: &str = "bash -c 'tmp=$(mktemp) && curl -fsSL https://code.kimi.com/kimi-code/install.sh -o $tmp && bash $tmp; status=$?; rm -f $tmp; exit $status'";
 
 /// npm fallback for Kimi Code (npm installs the same `kimi` binary).
-pub const KIMI_NPM_INSTALL_COMMAND: &str = "npm i -g @moonshot-ai/kimi-code@latest";
+/// Unix uses the user prefix so the fallback does not need a writable system
+/// prefix (#791).
+pub const KIMI_NPM_INSTALL_COMMAND: &str = if cfg!(windows) {
+    "npm i -g @moonshot-ai/kimi-code@latest"
+} else {
+    "npm i -g @moonshot-ai/kimi-code@latest --prefix \"$HOME/.local\""
+};
 
 /// Qoder CLI official installer. The script downloads a native `qodercli`
 /// and delegates to `qodercli install --force` (non-interactive). npm is only
 /// the Node compatibility build, so it stays the fallback.
 #[cfg(not(target_os = "windows"))]
 const QODER_INSTALL_UNIX: &str = "bash -c 'tmp=$(mktemp) && curl -fsSL https://qoder.com/install -o $tmp && bash $tmp; status=$?; rm -f $tmp; exit $status'";
-const QODER_NPM_INSTALL_COMMAND: &str = "npm i -g @qoder-ai/qodercli@latest";
+/// npm fallback for Qoder CLI (#791).
+const QODER_NPM_INSTALL_COMMAND: &str = if cfg!(windows) {
+    "npm i -g @qoder-ai/qodercli@latest"
+} else {
+    "npm i -g @qoder-ai/qodercli@latest --prefix \"$HOME/.local\""
+};
 
 #[cfg(target_os = "windows")]
 const GROK_INSTALL_WINDOWS_SCRIPT: &str = "irm https://x.ai/cli/install.ps1 | iex";
@@ -261,79 +290,58 @@ impl UninstallInfo {
     }
 }
 
+/// `npm uninstall -g` must target the same prefix the install used. On Unix that
+/// is always the user prefix (adapters and hosts), so a user-installed copy is
+/// actually removed instead of looking at the root-owned `/usr/local` (#791).
+fn npm_uninstall_global(package: &str) -> String {
+    if cfg!(windows) {
+        format!("npm uninstall -g {package}")
+    } else {
+        format!("npm uninstall -g {package} --prefix \"$HOME/.local\"")
+    }
+}
+
 pub fn uninstall_info(template_id: &str) -> Option<UninstallInfo> {
-    #[cfg(target_os = "windows")]
-    let claude_acp = "npm uninstall -g @agentclientprotocol/claude-agent-acp".to_string();
-    #[cfg(not(target_os = "windows"))]
-    let claude_acp =
-        "npm uninstall -g @agentclientprotocol/claude-agent-acp --prefix \"$HOME/.local\""
-            .to_string();
-    #[cfg(target_os = "windows")]
-    let pi_acp = "npm uninstall -g pi-acp".to_string();
-    #[cfg(not(target_os = "windows"))]
-    let pi_acp = "npm uninstall -g pi-acp --prefix \"$HOME/.local\"".to_string();
-    #[cfg(target_os = "windows")]
-    let zcode_acp = "npm uninstall -g zcode-acp-server".to_string();
-    #[cfg(not(target_os = "windows"))]
-    let zcode_acp = "npm uninstall -g zcode-acp-server --prefix \"$HOME/.local\"".to_string();
-    // Mirrors CODEX_ACP_INSTALL_COMMAND: uninstall must target the same prefix
-    // the install used, or a user-prefix adapter leaves an orphan on Unix.
-    let codex_acp = if cfg!(windows) {
-        "npm uninstall -g @agentclientprotocol/codex-acp".to_string()
-    } else {
-        "npm uninstall -g @agentclientprotocol/codex-acp --prefix \"$HOME/.local\"".to_string()
-    };
-    // Mirrors CODEX_HOST_INSTALL_COMMAND for the same reason (#791).
-    let codex_host = if cfg!(windows) {
-        "npm uninstall -g @openai/codex".to_string()
-    } else {
-        "npm uninstall -g @openai/codex --prefix \"$HOME/.local\"".to_string()
-    };
-    #[cfg(target_os = "windows")]
-    let dsh_host = "npm uninstall -g @deepseek-ai/dsh".to_string();
-    #[cfg(not(target_os = "windows"))]
-    let dsh_host = "npm uninstall -g @deepseek-ai/dsh --prefix \"$HOME/.local\"".to_string();
+    let claude_acp = npm_uninstall_global("@agentclientprotocol/claude-agent-acp");
+    let pi_acp = npm_uninstall_global("pi-acp");
+    let zcode_acp = npm_uninstall_global("zcode-acp-server");
+    // Mirrors CODEX_ACP_INSTALL_COMMAND and CODEX_HOST_INSTALL_COMMAND: install
+    // and uninstall must share the same prefix or user-prefix copies leak.
+    let codex_acp = npm_uninstall_global("@agentclientprotocol/codex-acp");
+    let codex_host = npm_uninstall_global("@openai/codex");
+    let dsh_host = npm_uninstall_global("@deepseek-ai/dsh");
 
     let (agent_commands, acp_commands): (Vec<String>, Vec<String>) = match template_id {
         // Single-package agents: host CLI and ACP are the same binary.
         "opencode" => (
             vec![
-                "npm uninstall -g @opencode/cli".to_string(),
-                "npm uninstall -g opencode-ai".to_string(),
+                npm_uninstall_global("@opencode/cli"),
+                npm_uninstall_global("opencode-ai"),
             ],
             Vec::new(),
         ),
         "claude-acp" => (
-            vec!["npm uninstall -g @anthropic-ai/claude-code".to_string()],
+            vec![npm_uninstall_global("@anthropic-ai/claude-code")],
             vec![claude_acp],
         ),
         "codex-acp" => (vec![codex_host], vec![codex_acp]),
         "pi" => (
-            vec!["npm uninstall -g @earendil-works/pi-coding-agent".to_string()],
+            vec![npm_uninstall_global("@earendil-works/pi-coding-agent")],
             vec![pi_acp],
         ),
-        "grok-build" => (
-            vec!["npm uninstall -g @xai-official/grok".to_string()],
-            Vec::new(),
-        ),
+        "grok-build" => (vec![npm_uninstall_global("@xai-official/grok")], Vec::new()),
         // npm covers the Node fallback. The official script writes the paths
         // in `qoder_managed_install_paths` (not the ~/.qoder session dir).
-        "qodercli" => (
-            vec!["npm uninstall -g @qoder-ai/qodercli".to_string()],
-            Vec::new(),
-        ),
+        "qodercli" => (vec![npm_uninstall_global("@qoder-ai/qodercli")], Vec::new()),
         // The ACP profile lives inside the umbrella CLI; the dir entry below
         // only cleans up the retired dsh-acp-demo launcher.
         "dsh" => (vec![dsh_host], Vec::new()),
         "kimi-code" => (
-            vec!["npm uninstall -g @moonshot-ai/kimi-code".to_string()],
+            vec![npm_uninstall_global("@moonshot-ai/kimi-code")],
             Vec::new(),
         ),
-        "minimax-code" => (
-            vec!["npm uninstall -g @minimax-ai/code".to_string()],
-            Vec::new(),
-        ),
-        "mimo-code" => (vec!["npm uninstall -g mimocode".to_string()], Vec::new()),
+        "minimax-code" => (vec![npm_uninstall_global("@minimax-ai/code")], Vec::new()),
+        "mimo-code" => (vec![npm_uninstall_global("mimocode")], Vec::new()),
         // The desktop app owns the ZCode host. Agentero only manages the ACP
         // bridge npm package, so uninstall must never imply that it removed
         // the user's desktop app or login data.
@@ -921,7 +929,7 @@ fn host_install_command(template_id: &str) -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
         match template_id {
-            "claude-acp" => Ok("npm i -g @anthropic-ai/claude-code@latest".to_string()),
+            "claude-acp" => Ok(CLAUDE_NPM_INSTALL_COMMAND.to_string()),
             "codex-acp" => Ok(CODEX_HOST_INSTALL_COMMAND.to_string()),
             "opencode" => Ok(OPENCODE_NPM_INSTALL_COMMAND.to_string()),
             "hermes" => Ok(hermes_install_windows_command()),
@@ -939,7 +947,7 @@ fn host_install_command(template_id: &str) -> Result<String, String> {
             "mimo-code" => Ok(MIMO_CODE_INSTALL_COMMAND.to_string()),
             "grok-build" => Ok(chain_or(
                 &grok_install_windows_command(),
-                "npm i -g @xai-official/grok@latest",
+                GROK_NPM_INSTALL_COMMAND,
             )),
             "zcode" => Err(
                 "ZCode desktop app is required; install it first, then install the ACP bridge"
@@ -951,10 +959,7 @@ fn host_install_command(template_id: &str) -> Result<String, String> {
     #[cfg(not(target_os = "windows"))]
     {
         match template_id {
-            "claude-acp" => Ok(chain_or(
-                CLAUDE_INSTALL_UNIX,
-                "npm i -g @anthropic-ai/claude-code@latest",
-            )),
+            "claude-acp" => Ok(chain_or(CLAUDE_INSTALL_UNIX, CLAUDE_NPM_INSTALL_COMMAND)),
             "codex-acp" => Ok(CODEX_HOST_INSTALL_COMMAND.to_string()),
             "opencode" => Ok(chain_or(
                 OPENCODE_INSTALL_UNIX,
@@ -967,10 +972,7 @@ fn host_install_command(template_id: &str) -> Result<String, String> {
             "kimi-code" => Ok(chain_or(KIMI_INSTALL_UNIX, KIMI_NPM_INSTALL_COMMAND)),
             "minimax-code" => Ok(MINIMAX_CODE_INSTALL_COMMAND.to_string()),
             "mimo-code" => Ok(MIMO_CODE_INSTALL_COMMAND.to_string()),
-            "grok-build" => Ok(chain_or(
-                GROK_INSTALL_UNIX,
-                "npm i -g @xai-official/grok@latest",
-            )),
+            "grok-build" => Ok(chain_or(GROK_INSTALL_UNIX, GROK_NPM_INSTALL_COMMAND)),
             "zcode" => Err(
                 "ZCode desktop app is required; install it first, then install the ACP bridge"
                     .to_string(),
@@ -988,19 +990,13 @@ fn host_update_command(template_id: &str) -> Result<String, String> {
         "claude-acp" => {
             #[cfg(target_os = "windows")]
             {
-                Ok(chain_or(
-                    "claude update",
-                    "npm i -g @anthropic-ai/claude-code@latest",
-                ))
+                Ok(chain_or("claude update", CLAUDE_NPM_INSTALL_COMMAND))
             }
             #[cfg(not(target_os = "windows"))]
             {
                 Ok(chain_or(
                     "claude update",
-                    &chain_or(
-                        CLAUDE_INSTALL_UNIX,
-                        "npm i -g @anthropic-ai/claude-code@latest",
-                    ),
+                    &chain_or(CLAUDE_INSTALL_UNIX, CLAUDE_NPM_INSTALL_COMMAND),
                 ))
             }
         }
@@ -1049,17 +1045,14 @@ fn host_update_command(template_id: &str) -> Result<String, String> {
             {
                 Ok(chain_or(
                     "grok update",
-                    &chain_or(
-                        &grok_install_windows_command(),
-                        "npm i -g @xai-official/grok@latest",
-                    ),
+                    &chain_or(&grok_install_windows_command(), GROK_NPM_INSTALL_COMMAND),
                 ))
             }
             #[cfg(not(target_os = "windows"))]
             {
                 Ok(chain_or(
                     "grok update",
-                    &chain_or(GROK_INSTALL_UNIX, "npm i -g @xai-official/grok@latest"),
+                    &chain_or(GROK_INSTALL_UNIX, GROK_NPM_INSTALL_COMMAND),
                 ))
             }
         }
@@ -1154,13 +1147,13 @@ pub fn manual_install_commands_text() -> String {
     {
         format!(
             r#"# Claude Code + ACP adapter
-npm i -g @anthropic-ai/claude-code@latest
+{claude_npm}
 {claude_acp}
 # Codex + ACP adapter
 {codex_host}
 {codex_acp}
 # OpenCode
-npm i -g @opencode/cli@latest
+{opencode_npm}
 # Pi + ACP adapter
 {pi_host}
 {pi_acp}
@@ -1168,26 +1161,31 @@ npm i -g @opencode/cli@latest
 {hermes}
 # Qoder CLI
 {qoder}
-# (or) npm i -g @qoder-ai/qodercli@latest
+# (or) {qoder_npm}
 # Grok Build
 {grok}
-# (or) npm i -g @xai-official/grok@latest
+# (or) {grok_npm}
 # Kimi Code
 {kimi}
-# (or) npm i -g @moonshot-ai/kimi-code@latest
+# (or) {kimi_npm}
 # MiniMax Code
 {minimax}
 # Dsh (DeepSeek Harness, ACP via dsh --profile acp)
 {dsh}"#,
+            claude_npm = CLAUDE_NPM_INSTALL_COMMAND,
             claude_acp = CLAUDE_ACP_INSTALL_COMMAND,
             codex_host = CODEX_HOST_INSTALL_COMMAND,
             codex_acp = CODEX_ACP_INSTALL_COMMAND,
+            opencode_npm = OPENCODE_NPM_INSTALL_COMMAND,
             pi_host = PI_HOST_INSTALL_COMMAND,
             pi_acp = PI_ACP_INSTALL_COMMAND,
             hermes = hermes_install_windows_command(),
             qoder = qoder_install_windows_command(),
+            qoder_npm = QODER_NPM_INSTALL_COMMAND,
             grok = grok_install_windows_command(),
+            grok_npm = GROK_NPM_INSTALL_COMMAND,
             kimi = kimi_install_windows_command(),
+            kimi_npm = KIMI_NPM_INSTALL_COMMAND,
             minimax = MINIMAX_CODE_INSTALL_COMMAND,
             dsh = DSH_INSTALL_COMMAND,
         )
@@ -1196,39 +1194,44 @@ npm i -g @opencode/cli@latest
     {
         format!(
             r#"# Claude Code + ACP adapter
-{claude_host} || npm i -g @anthropic-ai/claude-code@latest
+{claude_host} || {claude_npm}
 {claude_acp}
 # Codex + ACP adapter
 {codex_host}
 {codex_acp}
 # OpenCode
-{opencode} || npm i -g @opencode/cli@latest
+{opencode} || {opencode_npm}
 # Pi + ACP adapter
 {pi_host}
 {pi_acp}
 # Hermes Agent
 {hermes}
 # Qoder CLI
-{qoder} || npm i -g @qoder-ai/qodercli@latest
+{qoder} || {qoder_npm}
 # Grok Build
-{grok} || npm i -g @xai-official/grok@latest
+{grok} || {grok_npm}
 # Kimi Code
-{kimi} || npm i -g @moonshot-ai/kimi-code@latest
+{kimi} || {kimi_npm}
 # MiniMax Code
 {minimax}
 # Dsh (DeepSeek Harness, ACP via dsh --profile acp)
 {dsh}"#,
             claude_host = CLAUDE_INSTALL_UNIX,
+            claude_npm = CLAUDE_NPM_INSTALL_COMMAND,
             claude_acp = CLAUDE_ACP_INSTALL_COMMAND,
             codex_host = CODEX_HOST_INSTALL_COMMAND,
             codex_acp = CODEX_ACP_INSTALL_COMMAND,
             opencode = OPENCODE_INSTALL_UNIX,
+            opencode_npm = OPENCODE_NPM_INSTALL_COMMAND,
             pi_host = PI_HOST_INSTALL_COMMAND,
             pi_acp = PI_ACP_INSTALL_COMMAND,
             hermes = HERMES_INSTALL_UNIX,
             qoder = QODER_INSTALL_UNIX,
+            qoder_npm = QODER_NPM_INSTALL_COMMAND,
             grok = GROK_INSTALL_UNIX,
+            grok_npm = GROK_NPM_INSTALL_COMMAND,
             kimi = KIMI_INSTALL_UNIX,
+            kimi_npm = KIMI_NPM_INSTALL_COMMAND,
             minimax = MINIMAX_CODE_INSTALL_COMMAND,
             dsh = DSH_INSTALL_COMMAND,
         )
@@ -1841,6 +1844,70 @@ mod tests {
         }
     }
 
+    /// Every npm global install/uninstall on Unix must use the user prefix.
+    /// The macOS pkg installer leaves npm's prefix at the root-owned
+    /// `/usr/local`, where a bare `npm i -g` fails with EPERM (#791).
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn unix_npm_lifecycle_commands_use_the_user_prefix() {
+        let mut checked = 0;
+        let mut check = |command: &str| {
+            for segment in command.split(|c| ['&', '|', '\n', ';'].contains(&c)) {
+                let segment = segment.trim().trim_start_matches('#').trim();
+                if segment.starts_with("npm i -g")
+                    || segment.starts_with("npm install --global")
+                    || segment.starts_with("npm uninstall -g")
+                {
+                    checked += 1;
+                    assert!(
+                        segment.contains("--prefix \"$HOME/.local\""),
+                        "npm command must target the user prefix: {segment}"
+                    );
+                }
+            }
+        };
+
+        for id in [
+            "claude-acp",
+            "codex-acp",
+            "opencode",
+            "hermes",
+            "qodercli",
+            "grok-build",
+            "pi",
+            "dsh",
+            "kimi-code",
+            "minimax-code",
+            "mimo-code",
+            "zcode",
+        ] {
+            if let Ok(command) = host_install_command(id) {
+                check(&command);
+            }
+            if let Ok(command) = host_update_command(id) {
+                check(&command);
+            }
+            if let Some(info) = uninstall_info(id) {
+                for command in info
+                    .agent
+                    .npm_commands
+                    .iter()
+                    .chain(info.acp.npm_commands.iter())
+                {
+                    check(command);
+                }
+            }
+        }
+        for id in ["claude-acp", "codex-acp", "pi", "zcode"] {
+            check(&adapter_install_command(id).unwrap());
+        }
+        check(&manual_install_commands_text());
+        assert!(
+            checked >= 20,
+            "expected to inspect the full npm lifecycle matrix, saw {checked} commands"
+        );
+    }
+
     #[test]
     fn pi_update_keeps_host_and_adapter_in_sync() {
         let host_update = host_update_command("pi").expect("pi host update");
@@ -2089,7 +2156,7 @@ mod tests {
         let info = uninstall_info("mimo-code").expect("MiMo Code uninstall");
         assert_eq!(
             info.agent.npm_commands,
-            vec!["npm uninstall -g mimocode".to_string()]
+            vec![npm_uninstall_global("mimocode")]
         );
     }
 

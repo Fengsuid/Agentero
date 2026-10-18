@@ -81,7 +81,12 @@ pub const PI_ACP_INSTALL_COMMAND: &str = if cfg!(windows) {
 
 /// Host pi CLI. The official `pi.dev/install.sh` is an interactive TUI installer,
 /// so the silent lifecycle uses npm (what that script ultimately runs) everywhere.
-pub const PI_HOST_INSTALL_COMMAND: &str = "npm i -g @earendil-works/pi-coding-agent@latest";
+/// Unix needs the user prefix for the same reason as the adapters (#791).
+pub const PI_HOST_INSTALL_COMMAND: &str = if cfg!(windows) {
+    "npm i -g @earendil-works/pi-coding-agent@latest"
+} else {
+    "npm i -g @earendil-works/pi-coding-agent@latest --prefix \"$HOME/.local\""
+};
 
 /// Host dsh CLI (DeepSeek Harness). ACP ships as a built-in profile
 /// (`dsh --profile acp`, 0.1.2+); the standalone `@deepseek-ai/dsh-acp-demo`
@@ -95,7 +100,12 @@ pub const DSH_INSTALL_COMMAND: &str = if cfg!(windows) {
 
 /// MiniMax Code native ACP CLI (`mcode acp`). The package ships native SQLite
 /// dependencies, so npm must run install scripts and include optional deps.
-pub const MINIMAX_CODE_INSTALL_COMMAND: &str = "npm install --global @minimax-ai/code@latest --ignore-scripts=false --include=optional --allow-scripts=@minimax-ai/code,better-sqlite3 --registry https://registry.npmjs.org/ --foreground-scripts";
+/// Unix uses the user prefix so it does not need a writable `/usr/local` (#791).
+pub const MINIMAX_CODE_INSTALL_COMMAND: &str = if cfg!(windows) {
+    "npm install --global @minimax-ai/code@latest --ignore-scripts=false --include=optional --allow-scripts=@minimax-ai/code,better-sqlite3 --registry https://registry.npmjs.org/ --foreground-scripts"
+} else {
+    "npm install --global @minimax-ai/code@latest --prefix \"$HOME/.local\" --ignore-scripts=false --include=optional --allow-scripts=@minimax-ai/code,better-sqlite3 --registry https://registry.npmjs.org/ --foreground-scripts"
+};
 
 /// Default install directory of the official Kimi Code installer (single
 /// binary, written into the shell rc). Used for uninstall cleanup.
