@@ -128,6 +128,7 @@ import {
 	paperReadingPlacements,
 	patchFromTabResources,
 	patchTab,
+	type ReadingColumns,
 	readingPairCloseIds,
 	refreshPdfTab,
 	removeTab,
@@ -171,6 +172,14 @@ function withLibraryPresent(next: DocTab[]): DocTab[] {
  * (avoids onActivePanelChange recursion).
  */
 let readingSync = false;
+
+/**
+ * Anchors of the standard two-column reading layout, or null when the dock is
+ * not showing exactly two side-by-side columns.
+ */
+function readingColumns(): ReadingColumns | null {
+	return dockHandle()?.readingColumns() ?? null;
+}
 
 /**
  * Bring a paper body panel to front; if its NOTES panel is already open,
@@ -334,14 +343,16 @@ export function openTab(
 		nextTabs.find((t) => t.id === insertedId) ??
 		createPlaceholderTab(path, opts?.preferMode);
 
-	// Paper bodies use free dock placement; NOTES companion still prefers the
-	// notes column when present (see paperReadingPlacements).
+	// Paper bodies join the left column of an existing two-column reading layout;
+	// otherwise free dock placement keeps multi-paper splits working. NOTES still
+	// prefers the right (notes) column when present.
 	const initialPlacement = replaced
 		? null
 		: (opts?.placement ??
 			paperReadingPlacements(beforeTabs, {
 				paperId: insertedId,
 				activeId: getActiveTabId(),
+				columns: readingColumns(),
 			}).paper);
 
 	setTabs(nextTabs);
@@ -456,6 +467,7 @@ function openNotesForPaper(
 		paperId,
 		notesId: notesPane.id,
 		activeId: getActiveTabId(),
+		columns: readingColumns(),
 	});
 	setTabs((prev) => {
 		if (prev.some((t) => t.id === notesPane.id)) return prev;
@@ -981,6 +993,7 @@ export function setNotesSplit(
 		paperId: target.id,
 		notesId: notesPane.id,
 		activeId: getActiveTabId(),
+		columns: readingColumns(),
 	});
 	setTabs((prev) => {
 		if (prev.some((t) => t.id === notesPane.id)) return prev;
@@ -1017,6 +1030,7 @@ export function openTabNotes(tabId: string): void {
 		paperId: target.id,
 		notesId: notesPane.id,
 		activeId: getActiveTabId(),
+		columns: readingColumns(),
 	});
 	setTabs((prev) => {
 		if (prev.some((t) => t.id === notesPane.id)) return prev;

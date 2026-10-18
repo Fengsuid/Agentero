@@ -6,7 +6,11 @@
  * components — see .dependency-cruiser.cjs).
  */
 
-import type { DocTab, OpenPlacement } from "@/lib/workspace/tabs";
+import type {
+	DocTab,
+	OpenPlacement,
+	ReadingColumns,
+} from "@/lib/workspace/tabs";
 
 export type DockHandle = {
 	/** Add (or activate) a panel with optional split placement. */
@@ -28,6 +32,11 @@ export type DockHandle = {
 	/** Remember / restore the shared two-column PDF / Notes proportion. */
 	rememberNotesSplitWidth: (paperId: string, notesId: string) => void;
 	restoreNotesSplitWidth: (paperId: string, notesId: string) => void;
+	/**
+	 * Anchors of the standard two-column reading layout, or null when the dock
+	 * is not exactly two side-by-side columns.
+	 */
+	readingColumns: () => ReadingColumns | null;
 };
 
 let handle: DockHandle | null = null;

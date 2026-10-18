@@ -69,6 +69,16 @@ export type OpenPlacement = {
 	referencePanelId: string | null;
 } | null;
 
+/**
+ * Anchors of the standard two-column reading layout. While dockview shows
+ * exactly two side-by-side columns, new paper bodies join the left column and
+ * their NOTES companions join the right one, regardless of focus.
+ */
+export type ReadingColumns = {
+	leftAnchorId: string;
+	rightAnchorId: string;
+};
+
 /** Fields loadTabResources fills in on top of a placeholder tab. */
 export type TabResources = {
 	kind: DocTabKind;

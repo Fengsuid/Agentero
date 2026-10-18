@@ -45,6 +45,7 @@ export {
 export type {
 	DocTab,
 	OpenPlacement,
+	ReadingColumns,
 	SplitDirection,
 	TabResources,
 } from "@/lib/workspace/tabs/types";

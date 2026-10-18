@@ -6,6 +6,7 @@ import {
 	closeTab,
 	hydratePlaceholderTabs,
 	openPath,
+	openTab,
 	setNotesSplit,
 	syncUpdatedPaperTabs,
 } from "@/lib/workspace/actions";
@@ -718,6 +719,22 @@ describe("flat workspace helpers", () => {
 		});
 	});
 
+	it("paperReadingPlacements pins paper left and NOTES right in two columns", () => {
+		const place = paperReadingPlacements([], {
+			paperId: "paper-b",
+			notesId: "notes-b",
+			columns: { leftAnchorId: "paper-a", rightAnchorId: "notes-a" },
+		});
+		expect(place.paper).toEqual({
+			direction: "within",
+			referencePanelId: "paper-a",
+		});
+		expect(place.notes).toEqual({
+			direction: "within",
+			referencePanelId: "notes-a",
+		});
+	});
+
 	it("readingPairCloseIds pairs body→NOTES but not NOTES→body", () => {
 		const paper = makeTab("/vault/p", {
 			kind: "paper",
@@ -830,6 +847,7 @@ describe("Notes layout actions", () => {
 			remapPanel: vi.fn(),
 			activatePanel: vi.fn(),
 			canActivatePanel: vi.fn(() => true),
+			readingColumns: vi.fn(() => null),
 		};
 		registerDockHandle(handle as unknown as DockHandle);
 		const load = vi.spyOn(tabResources, "loadTabResources").mockResolvedValue(
@@ -875,6 +893,7 @@ describe("Notes layout actions", () => {
 			openPanel: vi.fn(),
 			rememberNotesSplitWidth: vi.fn(),
 			restoreNotesSplitWidth: vi.fn(),
+			readingColumns: vi.fn(() => null),
 		};
 		registerDockHandle(handle as unknown as DockHandle);
 		try {
@@ -897,6 +916,56 @@ describe("Notes layout actions", () => {
 			);
 		} finally {
 			registerDockHandle(null);
+		}
+	});
+
+	it("opens a new paper left and its NOTES right in a two-column layout", async () => {
+		const paper = makeTab("/vault/papers/a", {
+			kind: "paper",
+			mode: "pdf",
+			notesPath: "/vault/papers/a/NOTES.md",
+		});
+		const notes = createNotesSplitPane(paper);
+		if (!notes) throw new Error("Missing notes fixture");
+		const nextPaperPath = "/vault/papers/b";
+		const nextNotesPath = "/vault/papers/b/NOTES.md";
+		const handle = {
+			openPanel: vi.fn(),
+			activatePanel: vi.fn(),
+			canActivatePanel: vi.fn(() => true),
+			readingColumns: vi.fn(() => ({
+				leftAnchorId: paper.id,
+				rightAnchorId: notes.id,
+			})),
+		};
+		registerDockHandle(handle as unknown as DockHandle);
+		const load = vi.spyOn(tabResources, "loadTabResources").mockResolvedValue(
+			makeResources({
+				kind: "paper",
+				mode: "pdf",
+				notesPath: nextNotesPath,
+			}),
+		);
+		try {
+			setTabs([paper, notes]);
+			setActiveTabId(notes.id);
+			openTab(nextPaperPath, { preferMode: "pdf" });
+
+			expect(handle.openPanel).toHaveBeenNthCalledWith(
+				1,
+				expect.objectContaining({ path: nextPaperPath }),
+				{ direction: "within", referencePanelId: paper.id },
+			);
+			await vi.waitFor(() => expect(handle.openPanel).toHaveBeenCalledTimes(2));
+			expect(handle.openPanel).toHaveBeenNthCalledWith(
+				2,
+				expect.objectContaining({ id: tabIdForPath(nextNotesPath) }),
+				{ direction: "within", referencePanelId: notes.id },
+			);
+			expect(load).toHaveBeenCalledOnce();
+		} finally {
+			registerDockHandle(null);
+			vi.restoreAllMocks();
 		}
 	});
 });

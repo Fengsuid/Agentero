@@ -6,7 +6,11 @@ import {
 	normalizeTabPath,
 	tabIdForPath,
 } from "@/lib/workspace/tabs/model";
-import type { DocTab, OpenPlacement } from "@/lib/workspace/tabs/types";
+import type {
+	DocTab,
+	OpenPlacement,
+	ReadingColumns,
+} from "@/lib/workspace/tabs/types";
 import { viewerModeSpec } from "@/lib/workspace/viewer";
 
 export function tabNotesEligible(tab: DocTab | null): boolean {
@@ -94,10 +98,11 @@ export function findNotesColumnAnchor(
 /**
  * Where to place a newly opened paper body / NOTES companion.
  *
- * Paper bodies use normal dock placement (active group / default) so multi-paper
- * layouts can split freely — they are no longer forced into a single left column.
- * NOTES still prefer an existing notes column when present; otherwise open to the
- * right of the paper (first-paper reading default).
+ * Inside the standard two-column reading layout (`columns`) the paper body
+ * joins the left column and NOTES the right one, independent of focus. With
+ * any other layout paper bodies use normal dock placement (active group /
+ * default) so multi-paper layouts can split freely, and NOTES still prefer an
+ * existing notes column; otherwise they open to the right of the paper.
  */
 export function paperReadingPlacements(
 	tabs: DocTab[],
@@ -108,24 +113,40 @@ export function paperReadingPlacements(
 		activeId?: string | null;
 		/** Explicit placement from file-tree drop etc. wins for the paper body. */
 		forcedPaperPlacement?: OpenPlacement;
+		/** Anchors of an existing two-column reading layout (paper | notes). */
+		columns?: ReadingColumns | null;
 	},
 ): {
 	paper: OpenPlacement;
 	notes: OpenPlacement;
 } {
-	const notesAnchor = opts.notesId
-		? findNotesColumnAnchor(tabs, {
-				excludeId: opts.notesId,
-				preferId: opts.activeId,
-			})
-		: null;
-	const notes: OpenPlacement = notesAnchor
-		? { direction: "within", referencePanelId: notesAnchor.id }
-		: { direction: "right", referencePanelId: opts.paperId };
+	const notesAnchor = opts.columns
+		? null
+		: opts.notesId
+			? findNotesColumnAnchor(tabs, {
+					excludeId: opts.notesId,
+					preferId: opts.activeId,
+				})
+			: null;
+	const notes: OpenPlacement = opts.columns
+		? { direction: "within", referencePanelId: opts.columns.rightAnchorId }
+		: notesAnchor
+			? { direction: "within", referencePanelId: notesAnchor.id }
+			: { direction: "right", referencePanelId: opts.paperId };
 
 	if (opts.forcedPaperPlacement) {
 		return {
 			paper: opts.forcedPaperPlacement,
+			notes,
+		};
+	}
+
+	if (opts.columns) {
+		return {
+			paper: {
+				direction: "within",
+				referencePanelId: opts.columns.leftAnchorId,
+			},
 			notes,
 		};
 	}

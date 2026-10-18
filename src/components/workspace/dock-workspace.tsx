@@ -80,6 +80,7 @@ import {
 	type DocTab,
 	type OpenPlacement,
 	panelPersistParams,
+	type ReadingColumns,
 	type SplitDirection,
 	tabIdForPath,
 	tabNotesEligible,
@@ -173,6 +174,11 @@ export type DockWorkspaceHandle = {
 	/** Remember / restore the shared two-column PDF / Notes proportion. */
 	rememberNotesSplitWidth: (paperId: string, notesId: string) => void;
 	restoreNotesSplitWidth: (paperId: string, notesId: string) => void;
+	/**
+	 * Anchors of the standard two-column reading layout, or null when the dock
+	 * is not exactly two side-by-side columns.
+	 */
+	readingColumns: () => ReadingColumns | null;
 };
 
 type WorkspaceCtx = {
@@ -432,6 +438,38 @@ function addPanelWithPlacement(
 				}
 			: {}),
 	});
+}
+
+/**
+ * Anchors of the standard two-column reading layout: exactly two side-by-side
+ * grid groups. Actions use them to keep new papers on the left and NOTES on the
+ * right instead of following whichever group happens to hold focus.
+ */
+function readingColumnAnchors(api: DockviewApi): ReadingColumns | null {
+	const groups = api.groups.filter(
+		(group) => group.api.location.type === "grid" && group.panels.length > 0,
+	);
+	const [first, second] = groups;
+	if (groups.length !== 2 || !first || !second) return null;
+	const a = first.api.boundingBox;
+	const b = second.api.boundingBox;
+	if (
+		!a ||
+		!b ||
+		a.width <= 0 ||
+		b.width <= 0 ||
+		Math.abs(a.top - b.top) > 1 ||
+		Math.abs(a.height - b.height) > 1 ||
+		Math.abs(a.left - b.left) <= 1
+	) {
+		return null;
+	}
+	const left = a.left < b.left ? first : second;
+	const right = left === first ? second : first;
+	const leftAnchor = left.panels[0];
+	const rightAnchor = right.panels[0];
+	if (!leftAnchor || !rightAnchor) return null;
+	return { leftAnchorId: leftAnchor.id, rightAnchorId: rightAnchor.id };
 }
 
 function rebalanceGridGroupWidths(api: DockviewApi): void {
@@ -783,6 +821,10 @@ export const DockWorkspace = memo(
 				restoreNotesSplitWidth(paperId, notesId) {
 					const api = apiRef.current;
 					if (api) restoreNotesSplitWidth(api, paperId, notesId);
+				},
+				readingColumns() {
+					const api = apiRef.current;
+					return api ? readingColumnAnchors(api) : null;
 				},
 			}),
 			[endSync],
