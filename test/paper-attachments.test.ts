@@ -189,10 +189,8 @@ describe("paper attachment tree rows", () => {
 		]),
 	]);
 
-	it("surfaces root documents then attachment children and stays expandable", () => {
+	it("surfaces attachment children and stays expandable", () => {
 		expect(visibleTreeChildren(paper).map((n) => n.name)).toEqual([
-			"NOTES.md",
-			"PAPER.md",
 			"supplement.pdf",
 			"code",
 		]);
@@ -215,38 +213,38 @@ describe("paper attachment tree rows", () => {
 			),
 		).toBe("/v/papers/1706.03762/attachments/code/main.py");
 		expect(
-			resolveTreeHighlightPath("/v/papers/1706.03762/PAPER.md", byPathKey),
-		).toBe("/v/papers/1706.03762/PAPER.md");
-		expect(
 			resolveTreeHighlightPath("/v/papers/1706.03762/NOTES.md", byPathKey),
-		).toBe("/v/papers/1706.03762/NOTES.md");
+		).toBe("/v/papers/1706.03762");
+		expect(
+			resolveTreeHighlightPath("/v/papers/1706.03762/PAPER.md", byPathKey),
+		).toBe("/v/papers/1706.03762");
 		expect(
 			resolveTreeHighlightPath("/v/papers/1706.03762/attachments", byPathKey),
 		).toBe("/v/papers/1706.03762");
-	});
-
-	it("maps a hidden lone note back to the paper row", () => {
-		const lone = paperWith([]);
-		expect(
-			resolveTreeHighlightPath(`${lone.path}/NOTES.md`, indexByPathKey(lone)),
-		).toBe(lone.path);
 	});
 });
 
 describe("paper root document children", () => {
 	const paper = "/v/papers/1706.03762";
 
-	it("whitelists Markdown and HTML only", () => {
+	it("whitelists Markdown and HTML except the generated PAPER.md", () => {
 		expect(isPaperChildDocName("NOTES.md")).toBe(true);
 		expect(isPaperChildDocName("snapshot.HTML")).toBe(true);
 		expect(isPaperChildDocName("note.htm")).toBe(true);
+		expect(isPaperChildDocName("PAPER.md")).toBe(false);
+		expect(isPaperChildDocName("paper.MD")).toBe(false);
 		expect(isPaperChildDocName("1706.03762.pdf")).toBe(false);
 		expect(isPaperChildDocName("metadata.json")).toBe(false);
 		expect(isPaperChildDocName("README")).toBe(false);
 	});
 
-	it("hides a lone document but lists multiple documents", () => {
+	it("hides a lone document and ignores the generated PAPER.md", () => {
 		expect(paperRootDocChildren(paperWith([])).map((n) => n.name)).toEqual([]);
+		expect(
+			paperRootDocChildren(paperWith([file(`${paper}/PAPER.md`)])).map(
+				(n) => n.name,
+			),
+		).toEqual([]);
 		expect(
 			paperRootDocChildren(paperWith([file(`${paper}/snapshot.html`)])).map(
 				(n) => n.name,
@@ -262,7 +260,6 @@ describe("paper root document children", () => {
 		]);
 		expect(paperVisibleChildren(node).map((n) => n.name)).toEqual([
 			"NOTES.md",
-			"PAPER.md",
 			"snapshot.html",
 			"slides.pdf",
 		]);
@@ -273,6 +270,7 @@ describe("paper root document children", () => {
 	it("detects direct root document paths only", () => {
 		expect(isPaperChildDocPath(`${paper}/snapshot.html`, paper)).toBe(true);
 		expect(isPaperChildDocPath(`${paper}/NOTES.md`, paper)).toBe(true);
+		expect(isPaperChildDocPath(`${paper}/PAPER.md`, paper)).toBe(false);
 		expect(isPaperChildDocPath(`${paper}/notes/a.md`, paper)).toBe(false);
 		expect(isPaperChildDocPath(`${paper}/source/main.tex`, paper)).toBe(false);
 		expect(isPaperChildDocPath(`${paper}/1706.03762.pdf`, paper)).toBe(false);

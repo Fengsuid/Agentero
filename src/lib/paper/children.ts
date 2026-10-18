@@ -21,25 +21,33 @@ type NamedChild = {
  */
 const PAPER_CHILD_DOC_EXTS = new Set([".md", ".html", ".htm"]);
 
+/**
+ * Root documents never surfaced as paper children. `PAPER.md` is the derived
+ * body of the paper and is reached through the paper row's body view, so it
+ * would only duplicate that entry.
+ */
+const HIDDEN_PAPER_DOC_NAMES = new Set(["paper.md"]);
+
 function fileExtension(name: string): string {
 	const lower = name.toLowerCase();
 	const dot = lower.lastIndexOf(".");
 	return dot > 0 ? lower.slice(dot) : "";
 }
 
-/** Whitelisted extension: Markdown / HTML note documents. */
+/** Whitelisted extension and not a paper-owned generated document. */
 export function isPaperChildDocName(name: string): boolean {
+	if (HIDDEN_PAPER_DOC_NAMES.has(name.toLowerCase())) return false;
 	return PAPER_CHILD_DOC_EXTS.has(fileExtension(name));
 }
 
 /**
  * Root-level Markdown/HTML children of a paper folder.
  *
- * A single document is normally the paper's own `NOTES.md` (or `PAPER.md`),
- * already represented by the paper row, so it is not surfaced. Only when the
- * folder holds more than one whitelisted document do the rows appear, so
- * imported notes and web snapshots become visible without adding a chevron to
- * every paper.
+ * `PAPER.md` is the derived body and never listed. A single remaining document
+ * is normally the paper's own `NOTES.md`, already represented by the paper row,
+ * so it is not surfaced either. Only when the folder holds more than one
+ * displayable document do the rows appear, so imported notes and web snapshots
+ * become visible without adding a chevron to every paper.
  */
 export function paperRootDocChildren<T extends NamedChild>(
 	paper: { children?: T[] } | null | undefined,

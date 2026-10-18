@@ -19,7 +19,7 @@
 - 远程：`remote_list` 前端递归。
 - **全量递归**：`papers/`、`notes/`、`.agents/`；论文内 `source/` **懒加载**（`childrenPending` → `vault_tree_children`）。
 - 论文默认仍是叶子。满足任一条件时行上出现 chevron，展开后依次列出「根目录白名单文档」与 `attachments/` 子项：
-  - **根目录白名单文档**：`.md` / `.html` / `.htm`（扩展名大小写不敏感）。只有 1 个白名单文档时仍保持叶子（通常就是论文行已代表的 `NOTES.md` / `PAPER.md`）；**≥2 个**时全部列出，因此 Zotero / Connector 导入的额外笔记与 `snapshot.html` 会作为子节点出现（#738）。
+  - **根目录白名单文档**：`.md` / `.html` / `.htm`（扩展名大小写不敏感），但 **`PAPER.md` 永不显示**（论文行已代表派生正文）。只有 1 个可显示文档时仍保持叶子（通常就是 `NOTES.md`）；**≥2 个**时全部列出，因此 Zotero / Connector 导入的额外笔记与 `snapshot.html` 会作为子节点出现（#738）。
   - **附件**：`{paper}/attachments/` 内有文件时列出其子项，不显示 `attachments` 桶本身。
   - 以上两种情况都不显示 `source/` / `marks/` / `assets/` 等内部目录。
 - **应用自产 sidecar 不入树**：`{paper}/source/` 下的 `agentero-cite.json`、`agentero-figures.json` 与 `layout.json` / `layout-index.json` / `layout-translate.json` 都是可重建的应用资产，树永不列出。因此即便某文件夹没有被识别成论文单元（论文被移出 `papers/`、从外部拷贝进来、组织夹里残留等），只要其 `source/` 只装这些文件，整个 `source/` 目录也不会出现（#747）。
@@ -83,7 +83,7 @@
 - 树内状态：`src/components/sidebar/file-tree/hooks/`（`use-tree-model` 路径索引与扁平行、`use-tree-expansion` 展开与懒加载、`use-tree-selection` 多选、`use-tree-reveal` 虚拟化与定位、`use-tree-drag-drop`、`use-paper-row-actions`、`use-tree-context-menu`、`use-move-picker`）
 - 逻辑：`src/lib/vault/`（store、tree、fs-watch、reveal）
 - 附件：`src/lib/paper/attachments.ts`、`paths.ts`（`attachments/` 约定）
-- 论文可见子项：`src/lib/paper/children.ts`（根目录 `.md`/`.html`/`.htm` 白名单 + `attachments/` 合成）
+- 论文可见子项：`src/lib/paper/children.ts`（根目录 `.md`/`.html`/`.htm` 白名单，排除 `PAPER.md`，再与 `attachments/` 合成）
 - 标签/排序：`src/lib/paper/tree-label.ts`、`tree-modes.ts`
 
 ## 开发注意
