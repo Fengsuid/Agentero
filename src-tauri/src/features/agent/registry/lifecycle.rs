@@ -2327,8 +2327,20 @@ mod tests {
         assert!(stdout.contains("HTTP_PROXY=http://127.0.0.1:7890"));
         assert!(stdout.contains("HTTPS_PROXY=http://127.0.0.1:7890"));
         assert!(stdout.contains("ALL_PROXY=http://127.0.0.1:7890"));
-        // Loopback bypass keeps localhost traffic out of the proxy.
-        assert!(stdout.contains("NO_PROXY=127.0.0.1,localhost,::1"));
+        // Loopback bypass keeps localhost traffic out of the proxy. The ambient
+        // NO_PROXY list is preserved, so only assert membership, not order.
+        let no_proxy = stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("NO_PROXY="))
+            .expect("NO_PROXY is set");
+        for host in ["127.0.0.1", "localhost", "::1"] {
+            assert!(
+                no_proxy
+                    .split(',')
+                    .any(|entry| entry.eq_ignore_ascii_case(host)),
+                "NO_PROXY must bypass {host}: {no_proxy}"
+            );
+        }
     }
 
     #[test]
