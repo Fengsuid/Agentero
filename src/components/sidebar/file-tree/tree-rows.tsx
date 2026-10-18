@@ -95,42 +95,34 @@ export function PaperTreeRow({
 			className={cn(isCut && "opacity-50")}
 		>
 			{expandable ? (
-				<Tooltip disableHoverableContent>
-					<TooltipTrigger asChild>
-						<button
-							type="button"
-							aria-expanded={expanded}
-							aria-label={expandLabel}
-							className={cn(
-								"group/attachment relative flex size-4 shrink-0 items-center justify-center rounded-sm",
-								"text-muted-foreground hover:bg-muted/80",
-								"focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-							)}
-							onClick={(e) => {
-								e.stopPropagation();
-								e.preventDefault();
-								togglePath(node.path);
-							}}
-							onPointerDown={(e) => e.stopPropagation()}
-							onKeyDown={(e) => e.stopPropagation()}
-						>
-							<ScrollText
-								className="size-4 transition-opacity group-hover/attachment:opacity-0 group-focus-visible/attachment:opacity-0"
-								aria-hidden
-							/>
-							<ChevronRight
-								className={cn(
-									"pointer-events-none absolute size-4 opacity-0 transition-[opacity,transform] group-hover/attachment:opacity-100 group-focus-visible/attachment:opacity-100",
-									expanded && "rotate-90",
-								)}
-								aria-hidden
-							/>
-						</button>
-					</TooltipTrigger>
-					<TooltipContent side="right" className="select-none cursor-default">
-						{expandLabel}
-					</TooltipContent>
-				</Tooltip>
+				<button
+					type="button"
+					aria-expanded={expanded}
+					aria-label={expandLabel}
+					className={cn(
+						"group/attachment relative flex size-4 shrink-0 items-center justify-center",
+						"text-muted-foreground focus-visible:outline-none",
+					)}
+					onClick={(e) => {
+						e.stopPropagation();
+						e.preventDefault();
+						togglePath(node.path);
+					}}
+					onPointerDown={(e) => e.stopPropagation()}
+					onKeyDown={(e) => e.stopPropagation()}
+				>
+					<ScrollText
+						className="size-4 transition-opacity group-hover/attachment:opacity-0 group-focus-visible/attachment:opacity-0"
+						aria-hidden
+					/>
+					<ChevronRight
+						className={cn(
+							"pointer-events-none absolute size-4 opacity-0 transition-[opacity,transform] group-hover/attachment:opacity-100 group-focus-visible/attachment:opacity-100",
+							expanded && "rotate-90",
+						)}
+						aria-hidden
+					/>
+				</button>
 			) : (
 				<ScrollText
 					className="size-4 shrink-0 text-muted-foreground"
