@@ -83,7 +83,15 @@ function mountController(vaultPath: string | null = null) {
 	return { shell, widths, controller };
 }
 
+let resizeHandlers: Set<() => void>;
+
+function dispatchWindowResize(): void {
+	for (const handler of resizeHandlers) handler();
+}
+
 beforeEach(() => {
+	vi.useFakeTimers();
+	resizeHandlers = new Set();
 	const data = new Map<string, string>();
 	vi.stubGlobal("localStorage", {
 		getItem: (key: string) => data.get(key) ?? null,
@@ -92,12 +100,23 @@ beforeEach(() => {
 	vi.stubGlobal("window", {
 		innerWidth: 1200,
 		matchMedia: () => ({ matches: true }),
+		addEventListener: (type: string, handler: () => void) => {
+			if (type === "resize") resizeHandlers.add(handler);
+		},
+		removeEventListener: (type: string, handler: () => void) => {
+			if (type === "resize") resizeHandlers.delete(handler);
+		},
+		setTimeout: (handler: () => void, ms?: number) => setTimeout(handler, ms),
+		clearTimeout: (id?: number) => clearTimeout(id),
 	});
 	vi.stubGlobal("document", { getElementById: () => null });
 	loadShellLayoutPrefs();
 	initShellLayoutFromPrefs();
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	vi.useRealTimers();
+});
 
 describe("shell layout restoration", () => {
 	it("keeps the width owner when customizing a preset restored from older prefs", () => {
@@ -227,5 +246,31 @@ describe("shell layout restoration", () => {
 		controller.setLeftCollapsed(false);
 		controller.setRightCollapsed(false);
 		expect(widths).toEqual({ left: 300, right: 450 });
+	});
+
+	it("reapplies remembered ratios after a post-boot window resize settles", () => {
+		commitShellRailWidths({ leftRatio: 0.2, rightRatio: 0.35 }, "custom", 1200);
+		setRightSidebarOpenState(true);
+		const { widths } = mountController();
+		expect(widths).toEqual({ left: 240, right: 420 });
+		// macOS finishes restoring/maximizing the window after React's first
+		// paint; the stale boot pixel widths must be replaced by the ratios.
+		window.innerWidth = 1600;
+		dispatchWindowResize();
+		vi.advanceTimersByTime(150);
+		expect(widths).toEqual({ left: 320, right: 560 });
+	});
+
+	it("stops mirroring the window once the boot settle window ends", () => {
+		commitShellRailWidths({ leftRatio: 0.2, rightRatio: 0.35 }, "custom", 1200);
+		setRightSidebarOpenState(true);
+		const { widths } = mountController();
+		vi.advanceTimersByTime(2100);
+		expect(resizeHandlers.size).toBe(0);
+		// Later window resizes keep the current pixel widths (panel default).
+		window.innerWidth = 1600;
+		dispatchWindowResize();
+		vi.advanceTimersByTime(200);
+		expect(widths).toEqual({ left: 240, right: 420 });
 	});
 });

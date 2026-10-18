@@ -69,6 +69,9 @@ export type ShellLayout = {
 
 /** Keep in sync with --motion-duration-normal in index.css. */
 const RAIL_ANIMATION_MS = 200;
+/** Wait for the post-boot window restore/maximize animation to settle. */
+const RAIL_BOOT_RESIZE_DEBOUNCE_MS = 150;
+const RAIL_BOOT_RESIZE_LISTEN_MS = 2000;
 
 export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 	const sidebarPanelRef = usePanelRef();
@@ -383,6 +386,49 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 		});
 		return () => cancelAnimationFrame(frame);
 	}, [vaultPath, sidebarPanelRef]);
+
+	useEffect(() => {
+		// macOS restores (and maximizes) the main window asynchronously: the
+		// zoom animation can finish after React's first paint, so `bootWidths`
+		// may have been seeded from the pre-restore viewport and
+		// `preserve-pixel-size` then keeps that stale pixel width. Re-apply the
+		// remembered ratios once the resize settles; outside this boot window
+		// the rails keep their pixel widths when the window is resized.
+		let settleTimer = 0;
+		const applyRememberedWidths = () => {
+			const state = uiStore.getState();
+			const saved = railWidthsForSlot(
+				getShellLayoutPrefs(),
+				state.lastAppliedPreset ?? "custom",
+				window.innerWidth,
+				LEFT_LIMITS,
+				RIGHT_LIMITS,
+			);
+			if (!state.sidebarCollapsed && saved.leftPx !== undefined) {
+				sidebarPanelRef.current?.resize(saved.leftPx);
+			}
+			if (state.rightSidebarOpen && saved.rightPx !== undefined) {
+				rightSidebarPanelRef.current?.resize(saved.rightPx);
+			}
+		};
+		const onResize = () => {
+			window.clearTimeout(settleTimer);
+			settleTimer = window.setTimeout(
+				applyRememberedWidths,
+				RAIL_BOOT_RESIZE_DEBOUNCE_MS,
+			);
+		};
+		const stopTimer = window.setTimeout(() => {
+			window.removeEventListener("resize", onResize);
+			window.clearTimeout(settleTimer);
+		}, RAIL_BOOT_RESIZE_LISTEN_MS);
+		window.addEventListener("resize", onResize);
+		return () => {
+			window.removeEventListener("resize", onResize);
+			window.clearTimeout(settleTimer);
+			window.clearTimeout(stopTimer);
+		};
+	}, [sidebarPanelRef, rightSidebarPanelRef]);
 
 	return {
 		sidebarPanelRef,
