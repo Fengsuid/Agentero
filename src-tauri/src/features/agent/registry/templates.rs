@@ -61,6 +61,16 @@ pub const CODEX_ACP_INSTALL_COMMAND: &str = if cfg!(windows) {
     "npm i -g @agentclientprotocol/codex-acp@latest --prefix \"$HOME/.local\""
 };
 
+/// Codex host CLI (`@openai/codex`). Unlike the official installers used by
+/// Claude/OpenCode/Grok/Kimi, this package only has the npm path on Unix, so it
+/// needs the same user-prefix treatment as the adapters: the default npm prefix
+/// on macOS pkg-installed Node is the root-owned `/usr/local` (#791).
+pub const CODEX_HOST_INSTALL_COMMAND: &str = if cfg!(windows) {
+    "npm i -g @openai/codex@latest"
+} else {
+    "npm i -g @openai/codex@latest --prefix \"$HOME/.local\""
+};
+
 /// Community `pi-acp` adapter — pi itself has no native ACP mode, the adapter
 /// spawns `pi --mode rpc`. Same prefix reasoning as the Claude adapter above.
 pub const PI_ACP_INSTALL_COMMAND: &str = if cfg!(windows) {

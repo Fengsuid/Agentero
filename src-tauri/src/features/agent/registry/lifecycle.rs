@@ -10,9 +10,10 @@ use crate::features::agent::registry::discovery::path_entries;
 use crate::features::agent::registry::discovery::resolve_command;
 use crate::features::agent::registry::templates::{
     antigravity_install_dir, antigravity_server_name, kimi_launcher_dir, template_info,
-    zcode_host_path, CLAUDE_ACP_INSTALL_COMMAND, CODEX_ACP_INSTALL_COMMAND, DSH_INSTALL_COMMAND,
-    MIMO_CODE_INSTALL_COMMAND, MINIMAX_CODE_INSTALL_COMMAND, PI_ACP_INSTALL_COMMAND,
-    PI_HOST_INSTALL_COMMAND, ZCODE_ACP_INSTALL_COMMAND,
+    zcode_host_path, CLAUDE_ACP_INSTALL_COMMAND, CODEX_ACP_INSTALL_COMMAND,
+    CODEX_HOST_INSTALL_COMMAND, DSH_INSTALL_COMMAND, MIMO_CODE_INSTALL_COMMAND,
+    MINIMAX_CODE_INSTALL_COMMAND, PI_ACP_INSTALL_COMMAND, PI_HOST_INSTALL_COMMAND,
+    ZCODE_ACP_INSTALL_COMMAND,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -282,6 +283,12 @@ pub fn uninstall_info(template_id: &str) -> Option<UninstallInfo> {
     } else {
         "npm uninstall -g @agentclientprotocol/codex-acp --prefix \"$HOME/.local\"".to_string()
     };
+    // Mirrors CODEX_HOST_INSTALL_COMMAND for the same reason (#791).
+    let codex_host = if cfg!(windows) {
+        "npm uninstall -g @openai/codex".to_string()
+    } else {
+        "npm uninstall -g @openai/codex --prefix \"$HOME/.local\"".to_string()
+    };
     #[cfg(target_os = "windows")]
     let dsh_host = "npm uninstall -g @deepseek-ai/dsh".to_string();
     #[cfg(not(target_os = "windows"))]
@@ -300,10 +307,7 @@ pub fn uninstall_info(template_id: &str) -> Option<UninstallInfo> {
             vec!["npm uninstall -g @anthropic-ai/claude-code".to_string()],
             vec![claude_acp],
         ),
-        "codex-acp" => (
-            vec!["npm uninstall -g @openai/codex".to_string()],
-            vec![codex_acp],
-        ),
+        "codex-acp" => (vec![codex_host], vec![codex_acp]),
         "pi" => (
             vec!["npm uninstall -g @earendil-works/pi-coding-agent".to_string()],
             vec![pi_acp],
@@ -918,7 +922,7 @@ fn host_install_command(template_id: &str) -> Result<String, String> {
     {
         match template_id {
             "claude-acp" => Ok("npm i -g @anthropic-ai/claude-code@latest".to_string()),
-            "codex-acp" => Ok("npm i -g @openai/codex@latest".to_string()),
+            "codex-acp" => Ok(CODEX_HOST_INSTALL_COMMAND.to_string()),
             "opencode" => Ok(OPENCODE_NPM_INSTALL_COMMAND.to_string()),
             "hermes" => Ok(hermes_install_windows_command()),
             "qodercli" => Ok(chain_or(
@@ -951,7 +955,7 @@ fn host_install_command(template_id: &str) -> Result<String, String> {
                 CLAUDE_INSTALL_UNIX,
                 "npm i -g @anthropic-ai/claude-code@latest",
             )),
-            "codex-acp" => Ok("npm i -g @openai/codex@latest".to_string()),
+            "codex-acp" => Ok(CODEX_HOST_INSTALL_COMMAND.to_string()),
             "opencode" => Ok(chain_or(
                 OPENCODE_INSTALL_UNIX,
                 OPENCODE_NPM_INSTALL_COMMAND,
@@ -1000,7 +1004,7 @@ fn host_update_command(template_id: &str) -> Result<String, String> {
                 ))
             }
         }
-        "codex-acp" => Ok("npm i -g @openai/codex@latest".to_string()),
+        "codex-acp" => Ok(CODEX_HOST_INSTALL_COMMAND.to_string()),
         "pi" => {
             // pi is a host CLI plus a community ACP adapter. Updating only the
             // host frequently leaves the adapter out of sync after a `pi` release,
@@ -1153,7 +1157,7 @@ pub fn manual_install_commands_text() -> String {
 npm i -g @anthropic-ai/claude-code@latest
 {claude_acp}
 # Codex + ACP adapter
-npm i -g @openai/codex@latest
+{codex_host}
 {codex_acp}
 # OpenCode
 npm i -g @opencode/cli@latest
@@ -1176,6 +1180,7 @@ npm i -g @opencode/cli@latest
 # Dsh (DeepSeek Harness, ACP via dsh --profile acp)
 {dsh}"#,
             claude_acp = CLAUDE_ACP_INSTALL_COMMAND,
+            codex_host = CODEX_HOST_INSTALL_COMMAND,
             codex_acp = CODEX_ACP_INSTALL_COMMAND,
             pi_host = PI_HOST_INSTALL_COMMAND,
             pi_acp = PI_ACP_INSTALL_COMMAND,
@@ -1194,7 +1199,7 @@ npm i -g @opencode/cli@latest
 {claude_host} || npm i -g @anthropic-ai/claude-code@latest
 {claude_acp}
 # Codex + ACP adapter
-npm i -g @openai/codex@latest
+{codex_host}
 {codex_acp}
 # OpenCode
 {opencode} || npm i -g @opencode/cli@latest
@@ -1215,6 +1220,7 @@ npm i -g @openai/codex@latest
 {dsh}"#,
             claude_host = CLAUDE_INSTALL_UNIX,
             claude_acp = CLAUDE_ACP_INSTALL_COMMAND,
+            codex_host = CODEX_HOST_INSTALL_COMMAND,
             codex_acp = CODEX_ACP_INSTALL_COMMAND,
             opencode = OPENCODE_INSTALL_UNIX,
             pi_host = PI_HOST_INSTALL_COMMAND,
@@ -1814,6 +1820,25 @@ mod tests {
             uninstall.contains("--prefix"),
             "codex-acp uninstall must mirror the install prefix: {uninstall}"
         );
+    }
+
+    /// The host CLI is a separate npm package from the adapter. `@openai/codex`
+    /// kept the bare global install after 7c76448a4 fixed the adapter, so macOS
+    /// users with the root-owned `/usr/local` prefix still hit EPERM (#791).
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn codex_host_commands_share_the_user_prefix() {
+        let uninstall = uninstall_info("codex-acp").unwrap().agent.npm_commands[0].clone();
+        for command in [
+            host_install_command("codex-acp").unwrap(),
+            host_update_command("codex-acp").unwrap(),
+            uninstall,
+        ] {
+            assert!(
+                command.contains("@openai/codex") && command.contains("--prefix \"$HOME/.local\""),
+                "codex host install/update/uninstall must all target the user prefix: {command}"
+            );
+        }
     }
 
     #[test]

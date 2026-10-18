@@ -1680,6 +1680,7 @@ Host 作为 ACP Client：按注册表 spawn 用户本机 Agent（`cwd` = 当前 
   - 安装子进程运行期间，Host 以 `agent-lifecycle:progress` 推送 `agent-lifecycle-*` phase tick，供设置页行内进度条消费，避免快捷下载脚本长时间停在无进度状态。
   - 若传入 `taskId`，等待 lifecycle 锁和执行安装子进程时会检查 agent 域内的 lifecycle 取消注册表（`agent_lifecycle_cancel` 写入，命令出口清理）；取消是尽力而为，不回滚已完成的包管理器写入。设置页 Agent 目录行与引导页 Agent 卡片在行内进度条上提供取消（X）按钮，点击即以本次 lifecycle 的 `taskId` 调 `agent_lifecycle_cancel`（参数 `{ taskId: string }`）；取消为静默处理（不弹错误 toast、不显示错误条）。
   - macOS/Linux：注入 login shell 的 `PATH`（GUI 窄 PATH）。
+  - macOS/Linux：npm 全局安装/卸载统一带 `--prefix "$HOME/.local"`（含 Codex host `@openai/codex` 与 ACP 适配器），避开 `/usr/local` 这类 root-owned npm prefix 的 EPERM（#791）；Windows 仍用 npm 默认全局目录。
   - Windows：写唯一临时 `.bat` + `CREATE_NO_WINDOW` + `call` 前缀；安装进程 PATH 合并 npm/pnpm/WinGet/Scoop shim；批处理切到 UTF-8，错误输出按 UTF-8 优先、GBK 回退解码。
   - 在 `spawn_blocking` 中执行，避免卡住 async runtime。
 - **实现**：`src-tauri/src/features/agent/registry/lifecycle.rs`
