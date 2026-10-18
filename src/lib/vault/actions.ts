@@ -44,10 +44,13 @@ import {
 	openNewWindow,
 	pickCreateVaultDirectory,
 	pickVaultDirectory,
+	planVaultRename,
 	removeRecentVault,
 	removeTreeNode,
+	removeVaultPath,
 	saveVaultPath,
 	seededSkillIdsFromCreated,
+	treeFindNode,
 	vaultPathExists,
 	vaultRelativePath,
 	writeVaultFile,
@@ -888,12 +891,29 @@ export async function confirmRenamePath(
 	const parent = fromRel.includes("/")
 		? fromRel.slice(0, fromRel.lastIndexOf("/"))
 		: "";
-	const toRel = parent ? `${parent}/${trimmed}` : trimmed;
+	const node = treeFindNode(vaultStore.getState().tree, path);
+	const plan = planVaultRename({
+		parentRel: parent,
+		currentName,
+		nextName: trimmed,
+		kind: node?.kind ?? "directory",
+	});
+	const toRel = plan.toRel;
 	const toAbs = joinVaultPath(vaultPath, toRel);
-	const pendingEventPaths = [path, toAbs];
+	const folderAbs = plan.folderRel
+		? joinVaultPath(vaultPath, plan.folderRel)
+		: null;
+	const pendingEventPaths = folderAbs
+		? [path, folderAbs, toAbs]
+		: [path, toAbs];
 	trackInternalRenamePaths(pendingEventPaths, Number.POSITIVE_INFINITY);
 	setVaultBusy(true);
+	let createdFolder = false;
 	try {
+		if (folderAbs && !(await vaultPathExists(folderAbs))) {
+			await createVaultDirectory(folderAbs);
+			createdFolder = true;
+		}
 		const result = await moveVaultPath(
 			vaultPath,
 			fromRel,
@@ -910,6 +930,15 @@ export async function confirmRenamePath(
 			}),
 		);
 	} catch (error) {
+		if (createdFolder && folderAbs) {
+			// Do not leave an empty folder behind when the move is rejected.
+			try {
+				await removeVaultPath(folderAbs);
+				await refreshTree(vaultPath);
+			} catch {
+				// Best-effort cleanup; the original error is more useful.
+			}
+		}
 		trackInternalRenamePaths(pendingEventPaths, Date.now() + 2000);
 		notifyError(
 			error instanceof Error

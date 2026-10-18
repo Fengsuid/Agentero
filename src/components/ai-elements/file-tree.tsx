@@ -31,6 +31,11 @@ interface FileTreeContextType {
 	onSelect?: (path: string) => void;
 	onDoubleClickPath?: (path: string) => void;
 	onContextMenuPath?: (path: string, event: MouseEvent) => void;
+	/**
+	 * Enter starts renaming this row. Returns `false` for rows without a
+	 * rename target (virtual nodes), which keeps Enter as row activation.
+	 */
+	onRenamePath?: (path: string) => boolean;
 	/** Multi-selection set (row highlight). No checkboxes — modifier-click only. */
 	selectedPaths?: Set<string>;
 	/** Row click carrying modifier keys (files + modifier-clicked folders). */
@@ -63,6 +68,7 @@ export type FileTreeProps = Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> & {
 	onDoubleClickPath?: (path: string) => void;
 	/** Right-click a tree row (file or folder). */
 	onContextMenuPath?: (path: string, event: MouseEvent) => void;
+	onRenamePath?: (path: string) => boolean;
 	onExpandedChange?: (expanded: Set<string>) => void;
 	selectedPaths?: Set<string>;
 	onSelectRow?: (path: string, mods: SelectMods) => void;
@@ -80,6 +86,7 @@ export const FileTree = ({
 	onSelect,
 	onDoubleClickPath,
 	onContextMenuPath,
+	onRenamePath,
 	selectedPaths,
 	onSelectRow,
 	dropTargetPath,
@@ -120,6 +127,7 @@ export const FileTree = ({
 			onSelect,
 			onDoubleClickPath,
 			onContextMenuPath,
+			onRenamePath,
 			selectedPath,
 			selectedPaths,
 			onSelectRow,
@@ -135,6 +143,7 @@ export const FileTree = ({
 			onSelect,
 			onDoubleClickPath,
 			onContextMenuPath,
+			onRenamePath,
 			selectedPath,
 			selectedPaths,
 			onSelectRow,
@@ -247,6 +256,7 @@ export const FileTreeFolderRow = ({
 		onSelectRow,
 		onDoubleClickPath,
 		onContextMenuPath,
+		onRenamePath,
 		dropTargetPath,
 		onRowDragStart,
 		onRowDragOver,
@@ -269,6 +279,9 @@ export const FileTreeFolderRow = ({
 				className,
 			)}
 			onClick={(e) => {
+				// Keep the row focused so Enter can start inline rename right
+				// after a click (WebKit does not focus buttons on click).
+				e.currentTarget.focus();
 				if ((e.metaKey || e.ctrlKey || e.shiftKey) && onSelectRow) {
 					onSelectRow(path, {
 						meta: e.metaKey,
@@ -290,6 +303,11 @@ export const FileTreeFolderRow = ({
 				e.preventDefault();
 				e.stopPropagation();
 				onDoubleClickPath?.(path);
+			}}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" && onRenamePath?.(path)) {
+					e.preventDefault();
+				}
 			}}
 			onContextMenu={(e) => onContextMenuPath?.(path, e)}
 			onDragStart={(e) => onRowDragStart?.(path, e)}
@@ -345,6 +363,7 @@ export const FileTreeFile = ({
 		onSelect,
 		onDoubleClickPath,
 		onContextMenuPath,
+		onRenamePath,
 		selectedPaths,
 		onSelectRow,
 		dropTargetPath,
@@ -359,6 +378,9 @@ export const FileTreeFile = ({
 
 	const handleClick = useCallback(
 		(e: MouseEvent) => {
+			// Keep the row focused so Enter can start inline rename right after
+			// a click (matches VS Code / Finder tree behavior).
+			(e.currentTarget as HTMLElement).focus();
 			if (onSelectRow) {
 				onSelectRow(path, {
 					meta: e.metaKey,
@@ -390,6 +412,12 @@ export const FileTreeFile = ({
 
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent<HTMLDivElement>) => {
+			// Enter on a real row starts inline rename (Finder-style); virtual
+			// rows decline and keep Enter as activation.
+			if (e.key === "Enter" && onRenamePath?.(path)) {
+				e.preventDefault();
+				return;
+			}
 			if (e.key === "Enter" || e.key === " ") {
 				e.preventDefault();
 				if (onSelectRow) {
@@ -403,7 +431,7 @@ export const FileTreeFile = ({
 				}
 			}
 		},
-		[onSelect, onSelectRow, path],
+		[onRenamePath, onSelect, onSelectRow, path],
 	);
 
 	const fileContextValue = useMemo(() => ({ name, path }), [name, path]);

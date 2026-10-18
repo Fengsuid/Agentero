@@ -34,7 +34,7 @@ import { useTreeReveal } from "./hooks/use-tree-reveal";
 import { useTreeSelection } from "./hooks/use-tree-selection";
 import { MovePickerPopover } from "./move-picker-popover";
 import { TreeContextMenuPortal } from "./tree-context-menu";
-import { pathKey } from "./tree-helpers";
+import { isVirtualTreePath, pathKey } from "./tree-helpers";
 import { TreeCreateInput } from "./tree-inputs";
 import { LoadingRows, PlazaRow, PlazaSourceRow, TrashRow } from "./tree-rows";
 import { TreeRowsViewport } from "./tree-rows-viewport";
@@ -279,6 +279,16 @@ export const FileTree = memo(
 			onSelectionChange,
 		});
 
+		const handleRenamePath = useCallback(
+			(path: string) => {
+				if (!onStartRename || createDraft || renameDraft) return false;
+				if (isVirtualTreePath(path)) return false;
+				onStartRename(path);
+				return true;
+			},
+			[createDraft, onStartRename, renameDraft],
+		);
+
 		const { treeScrollRef, rowVirtualizer } = useTreeReveal({
 			treeSelectedPath,
 			flatRows,
@@ -442,6 +452,7 @@ export const FileTree = memo(
 									expanded={expansion.expanded}
 									onExpandedChange={expansion.setExpandedFromTree}
 									onContextMenuPath={handleContextMenuPath}
+									onRenamePath={handleRenamePath}
 									onSelectRow={selection.handleSelectRow}
 								>
 									{trashRow}
@@ -462,6 +473,7 @@ export const FileTree = memo(
 								expanded={expansion.expanded}
 								onExpandedChange={expansion.setExpandedFromTree}
 								onContextMenuPath={handleContextMenuPath}
+								onRenamePath={handleRenamePath}
 								onSelectRow={selection.handleSelectRow}
 								dropTargetPath={dragDrop.dropTarget}
 								onRowDragStart={dragDrop.handleRowDragStart}

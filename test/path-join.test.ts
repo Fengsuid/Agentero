@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { displayPath, joinPath } from "@/lib/core/path";
-import { joinVaultPath } from "@/lib/vault";
+import { joinVaultPath, planVaultRename } from "@/lib/vault";
 
 describe("displayPath", () => {
 	it.each([
@@ -59,6 +59,56 @@ describe("joinPath", () => {
 	it("returns the parent when the child is empty", () => {
 		expect(joinPath("C:\\vault", "")).toBe("C:\\vault");
 		expect(joinPath("C:\\vault\\", "/")).toBe("C:\\vault");
+	});
+});
+
+describe("planVaultRename", () => {
+	it("turns a file renamed without an extension into a folder (#759)", () => {
+		expect(
+			planVaultRename({
+				parentRel: "notes",
+				currentName: "foo.md",
+				nextName: "bar",
+				kind: "file",
+			}),
+		).toEqual({
+			toRel: "notes/bar/bar.md",
+			folderize: true,
+			folderRel: "notes/bar",
+		});
+	});
+
+	it("keeps every original suffix inside the new folder", () => {
+		expect(
+			planVaultRename({
+				parentRel: "",
+				currentName: "archive.tar.gz",
+				nextName: "backup",
+				kind: "file",
+			}).toRel,
+		).toBe("backup/backup.tar.gz");
+	});
+
+	it("keeps a normal rename when the new name has an extension", () => {
+		expect(
+			planVaultRename({
+				parentRel: "notes",
+				currentName: "foo.md",
+				nextName: "bar.md",
+				kind: "file",
+			}),
+		).toEqual({ toRel: "notes/bar.md", folderize: false });
+	});
+
+	it("never folderizes directories", () => {
+		expect(
+			planVaultRename({
+				parentRel: "notes",
+				currentName: "foo",
+				nextName: "bar",
+				kind: "directory",
+			}),
+		).toEqual({ toRel: "notes/bar", folderize: false });
 	});
 });
 

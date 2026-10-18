@@ -10,14 +10,17 @@ export {
 	writeVaultBytes,
 	writeVaultFile,
 } from "@/lib/vault/fs";
+export type { VaultRenamePlan } from "@/lib/vault/path";
 export {
 	collectDirectoryRelPaths,
 	collectMarkdownRelPaths,
+	hasVaultFileExtension,
 	isPapersParent,
 	isValidVaultEntryName,
 	joinVaultPath,
 	normalizePathKey,
 	paperRelFromNotes,
+	planVaultRename,
 	resolveCreateParent,
 	treeFindNode,
 	vaultDisplayName,
