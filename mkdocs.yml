@@ -97,6 +97,7 @@ nav:
       - 生命周期事件系统（Lifecycle Events）: development/lifecycle-events.md
       - 云同步设计草稿: development/cloud-sync-s3.md
       - A2A 本机与远端协作: development/A2A.md
+      - 面板 resize 性能调研（同类项目做法）: development/resize-performance-research.md
       - Agent DX（CLI / MCP / Skill）: development/agent-dx.md
       - Crate 拆分路线图: development/crate-split-roadmap.md
       - Import 学术 API 抽象层: development/import-api-abstraction.md
@@ -117,6 +118,7 @@ nav:
       - 标题双链稳定性: bug_fix/wikilink-heading-reference-stability.md
       - 拖动 Dockview 分隔条时 PDF 卡顿: bug_fix/dockview-sash-pdf-resize-jank.md
       - Markdown 长文阅读卡顿: bug_fix/markdown-read-jank-offscreen-blocks.md
+      - 笔记滚动条拖动卡顿（TOC observer 每 scroll 重建）: bug_fix/toc-scroll-observer-rebuild.md
       - PDF 切换视觉截图与后台 ONNX: bug_fix/pdf-switch-visual-crop-layout-onnx.md
       - 远端 ACP PATH / SSH: bug_fix/remote-acp-path-ssh.md
       - 远程 Vault 文件树懒加载: bug_fix/remote-vault-tree-lazy.md
@@ -139,6 +141,7 @@ nav:
       - Windows 启动与问题诊断弹出黑色控制台窗口: bug_fix/windows-console-window-flash.md
       - "Windows 安装 Skill 反复弹出 gh.exe 控制台窗口（#741）": bug_fix/windows-skill-import-gh-console-flash.md
       - "笔记正文 < 比较符截断后续内容（#533）": bug_fix/note-markdown-stray-less-than.md
+      - "笔记正文花括号截断后续内容（MDX 表达式）": bug_fix/note-markdown-mdx-brace-truncation.md
       - "macOS 首次精读弹出 Music / iCloud / 文件夹权限（#570）": bug_fix/macos-tcc-folder-prompts.md
       - "ACP 历史回放被 No response requested 占位": bug_fix/acp-replay-no-response-requested.md
       - Agent Composer 首次语音输入被吞: bug_fix/agent-composer-voice-input-first-token.md

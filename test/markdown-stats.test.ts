@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { countChars, countWords } from "@/lib/markdown/stats";
+import {
+	countChars,
+	countWords,
+	plateDocumentText,
+} from "@/lib/markdown/stats";
 
 describe("markdown stats", () => {
 	it("counts English words and whitespace-separated tokens", () => {
@@ -41,6 +45,33 @@ describe("markdown stats", () => {
 		for (let i = 0; i < 5; i += 1) {
 			expect(countWords(sample)).toBe(first);
 		}
+	});
+
+	it("includes math source in the document text walked by the status bar", () => {
+		// Equation nodes are void and keep their TeX in `texExpression`; a walk
+		// over `text` leaves alone drops every formula from the count.
+		const nodes = [
+			{
+				type: "p",
+				children: [
+					{ text: "before " },
+					{
+						children: [{ text: "" }],
+						texExpression: "x^2",
+						type: "inline_equation",
+					},
+					{ text: " after" },
+				],
+			},
+			{
+				children: [{ text: "" }],
+				texExpression: "\\frac{a}{b}",
+				type: "equation",
+			},
+		];
+		const text = plateDocumentText(nodes);
+		expect(text).toBe("before x^2 after\n\\frac{a}{b}");
+		expect(countWords(text)).toBe(7);
 	});
 
 	it("computes stats over a large document in one bounded pass (perf smoke)", () => {

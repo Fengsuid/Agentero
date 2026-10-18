@@ -1,7 +1,6 @@
 "use client";
 
 import { Link2 } from "lucide-react";
-import { NodeApi } from "platejs";
 import { useEditorRef, useEditorSelector } from "platejs/react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,7 +13,11 @@ import {
 import { useWikiStore } from "@/hooks/use-app-stores";
 import { useDebouncedValue } from "@/hooks/use-debounce";
 import { cn } from "@/lib/core/utils";
-import { countChars, countWords } from "@/lib/markdown/stats";
+import {
+	countChars,
+	countWords,
+	plateDocumentText,
+} from "@/lib/markdown/stats";
 import { isMarkdownPath } from "@/lib/vault/fs";
 import { getBacklinks, type ResolvedLink } from "@/lib/wiki";
 import { navigateWiki } from "@/lib/workspace/actions";
@@ -28,9 +31,7 @@ const STATS_DEBOUNCE_MS = 400;
 type DocumentStats = { words: number; chars: number };
 
 function computeDocumentStats(children: readonly unknown[]): DocumentStats {
-	const text = children
-		.map((node) => NodeApi.string(node as Parameters<typeof NodeApi.string>[0]))
-		.join("\n");
+	const text = plateDocumentText(children);
 	return { words: countWords(text), chars: countChars(text) };
 }
 
