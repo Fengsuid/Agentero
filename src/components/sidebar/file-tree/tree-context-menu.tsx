@@ -288,7 +288,7 @@ export function TreeContextMenuPortal({
 							<span>{t("fileTree.addToChat")}</span>
 						</button>
 					) : null}
-					{menuCount === 1 && onNewFile && !isPaperMenu ? (
+					{menuCount === 1 && onNewFile ? (
 						<button
 							type="button"
 							role="menuitem"
