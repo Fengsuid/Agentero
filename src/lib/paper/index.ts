@@ -14,6 +14,14 @@ export {
 	paperHasVisibleAttachments,
 } from "@/lib/paper/attachments";
 export {
+	isPaperChildDocName,
+	isPaperChildDocPath,
+	paperHasVisibleChildren,
+	paperRootDocChildren,
+	paperSurfacesChildPath,
+	paperVisibleChildren,
+} from "@/lib/paper/children";
+export {
 	collectPaperFoldersFromTree,
 	detectPaperDirectory,
 	directoryHasPaperMarkers,

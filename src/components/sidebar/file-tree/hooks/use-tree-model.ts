@@ -6,11 +6,11 @@ import { useCallback, useMemo } from "react";
 import {
 	isPaperDirectory,
 	isPapersRoot,
-	isUnderPaperAttachments,
 	type PaperMetadata,
 	type PaperTreeLabelMode,
 	type PaperTreeSortMode,
 	paperAttachmentsNode,
+	paperSurfacesChildPath,
 	sortFileTreeNodes,
 } from "@/lib/paper";
 import { LIBRARY_VIRTUAL_PATH } from "@/lib/paper/api";
@@ -35,7 +35,8 @@ export type TreeIndex = {
 	/**
 	 * Row to highlight / scroll to:
 	 * - virtual Library / Trash as-is;
-	 * - a surfaced attachment under `{paper}/attachments/` → that file/folder;
+	 * - a surfaced paper child (root Markdown/HTML note, or a file/folder under
+	 *   `{paper}/attachments/`) → that row;
 	 * - any other path under a paper folder → that paper;
 	 * - otherwise the path itself if present, else nearest existing ancestor.
 	 */
@@ -144,7 +145,7 @@ export function resolveTreeHighlightPath(
 			node.kind === "directory" &&
 			isPaperDirectory(node.path, node.children)
 		) {
-			if (isUnderPaperAttachments(selectedPath, node.path)) {
+			if (paperSurfacesChildPath(selectedPath, node)) {
 				const exact = byPathKey.get(pathKey(selectedPath));
 				if (exact) return exact.path;
 				let up = selectedPath.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -152,7 +153,7 @@ export function resolveTreeHighlightPath(
 					const idx = up.lastIndexOf("/");
 					if (idx <= 0) break;
 					up = up.slice(0, idx);
-					if (!isUnderPaperAttachments(up, node.path)) break;
+					if (!paperSurfacesChildPath(up, node)) break;
 					const found = byPathKey.get(pathKey(up));
 					if (found) return found.path;
 				}

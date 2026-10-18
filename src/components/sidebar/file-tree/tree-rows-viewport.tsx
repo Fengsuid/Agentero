@@ -11,7 +11,7 @@ import {
 	type PaperMetadata,
 	type PaperTreeLabelMode,
 	paperAssetDownloadReasons,
-	paperHasVisibleAttachments,
+	paperHasVisibleChildren,
 	paperNeedsRead,
 } from "@/lib/paper";
 import { PLAZA_VIRTUAL_PATH } from "@/lib/plaza";
@@ -83,7 +83,7 @@ function PaperLeafRow({
 				actions.downloadingAll ||
 				Boolean(actions.readingPath)
 			}
-			expandable={paperHasVisibleAttachments(node)}
+			expandable={paperHasVisibleChildren(node)}
 			expanded={ctx.expanded.has(node.path)}
 			onDownload={showDownload ? () => actions.downloadPaper(node) : undefined}
 			onRead={showRead ? () => actions.readPaper(node) : undefined}

@@ -18,7 +18,10 @@
 - 本地：Host `vault_tree_build` **一次 IPC** 递归（`features/vault/tree.rs`）。
 - 远程：`remote_list` 前端递归。
 - **全量递归**：`papers/`、`notes/`、`.agents/`；论文内 `source/` **懒加载**（`childrenPending` → `vault_tree_children`）。
-- 论文默认仍是叶子。若 `{paper}/attachments/` 内有文件，行上出现 chevron；展开后只列出该目录的子项（不显示 `attachments` 桶本身，也不显示 `source/` / `marks/` / `NOTES.md` 等内部文件）。
+- 论文默认仍是叶子。满足任一条件时行上出现 chevron，展开后依次列出「根目录白名单文档」与 `attachments/` 子项：
+  - **根目录白名单文档**：`.md` / `.html` / `.htm`（扩展名大小写不敏感）。只有 1 个白名单文档时仍保持叶子（通常就是论文行已代表的 `NOTES.md` / `PAPER.md`）；**≥2 个**时全部列出，因此 Zotero / Connector 导入的额外笔记与 `snapshot.html` 会作为子节点出现（#738）。
+  - **附件**：`{paper}/attachments/` 内有文件时列出其子项，不显示 `attachments` 桶本身。
+  - 以上两种情况都不显示 `source/` / `marks/` / `assets/` 等内部目录。
 - **应用自产 sidecar 不入树**：`{paper}/source/` 下的 `agentero-cite.json`、`agentero-figures.json` 与 `layout.json` / `layout-index.json` / `layout-translate.json` 都是可重建的应用资产，树永不列出。因此即便某文件夹没有被识别成论文单元（论文被移出 `papers/`、从外部拷贝进来、组织夹里残留等），只要其 `source/` 只装这些文件，整个 `source/` 目录也不会出现（#747）。
 - 其它根目录（包括旧 Vault 中可能存在的 `plans/`）只 list 一层，展开再 list。
 - **缺失目录**：本地 `read_dir` 失败返回空列表；远程 list 的 `NoSuchFile` 同样按空处理（`isPathMissingError`），避免删除后刷新把整棵树清空。删除成功后会先 `removeTreeNode` 乐观剪枝，再 `refreshTree`。
@@ -43,7 +46,7 @@
 |---|---|
 | 标签 | 默认「标题 · 作者」；`paperTreeLabelMode` 可改（展示用，不改磁盘名）。标题中的 `$\\pi$` / `\\(...\\)` 等经 KaTeX 内联渲染（`MathText`） |
 | 排序 | `paperTreeSortMode`：默认 `folder` 模式下组织文件夹始终排在论文文件夹之前，再按显示标签 A–Z；其他模式按标题/作者/年份/添加时间排序 |
-| Chevron | 仅当 `{paper}/attachments/` 非空时出现。点三角展开/收起附件；点行仍打开论文 |
+| Chevron | 仅当有可见子项时出现：根目录白名单文档 ≥2 个，或 `{paper}/attachments/` 非空。点三角展开/收起子项；点行仍打开论文 |
 | Download | 缺 PDF，或既无 TeX 也无 `PAPER.md`（`source/` 为懒壳时按其 `hasTex` 标记判定）；指向有效普通文件的 PDF 软链接也视为本地 PDF |
 | NotebookPen | 资源齐且 `is_read === false` → paper-reader |
 
@@ -58,7 +61,7 @@
 | 删除 | 右键 / `⌘⌫` → 回收站（无确认） |
 | 编辑元数据 | Paper 行右键（仅本地 Vault；查 `paperMetaByRelPath` 打开与 Library 相同的编辑对话框） |
 | 多选与批量操作 | ⌘/Ctrl 单击切换、Shift 单击范围选择；选择后复用 Vault 的固定 `PaneHeader` 显示数量、移动、删除与清除，不在树内插入或悬浮工具条，因此树的高度、滚动位置和可见范围不变。右键已选行作用于整组；右键未选行会先收敛为该单项。Esc 清除，Enter/Space 可用键盘激活。父目录与后代同时进入范围时只保留父目录这个语义目标，避免重复移动/删除。|
-| 多选拖拽 | 从已选行拖动整组到目标文件夹（内部拖动带 `application/x-agentero-vault-paths`，Composer / Library 不抢成图片或 PDF 导入）；拖动时高亮落点夹。论文单元是叶子，拖到论文行 = 落到它的父目录（`dropDirFor`）；两端都在 `papers/` 下走 `paper_move`，否则 `wiki_move` |
+| 多选拖拽 | 从已选行拖动整组到目标文件夹（内部拖动带 `application/x-agentero-vault-paths`，Composer / Library 不抢成图片或 PDF 导入）；拖动时高亮落点夹。论文单元在移动/删除时仍作为原子单位（展开出的笔记/附件行除外），拖到论文行 = 落到它的父目录（`dropDirFor`）；两端都在 `papers/` 下走 `paper_move`，否则 `wiki_move` |
 | 外部 PDF | 拖到 `papers/` 组织夹，或拖到中间栏 Library 表（[#309](https://github.com/poco-ai/Agentero/issues/309)） |
 | 折叠 | `⌘←` 选中夹；`⇧⌘←` 折叠至默认 |
 | 定位 | 激活文档变化时展开祖先并 `scrollToIndex`（VS Code `List.reveal` 语义：`align: "auto"` 最小滚动，行已可见则不滚，从不居中）；同一目标只定位一次，导入后台阶段引起的树刷新不再重复滚动；用户折叠包含当前选中的目录后不会被自动定位立即重新展开（#576） |
@@ -80,6 +83,7 @@
 - 树内状态：`src/components/sidebar/file-tree/hooks/`（`use-tree-model` 路径索引与扁平行、`use-tree-expansion` 展开与懒加载、`use-tree-selection` 多选、`use-tree-reveal` 虚拟化与定位、`use-tree-drag-drop`、`use-paper-row-actions`、`use-tree-context-menu`、`use-move-picker`）
 - 逻辑：`src/lib/vault/`（store、tree、fs-watch、reveal）
 - 附件：`src/lib/paper/attachments.ts`、`paths.ts`（`attachments/` 约定）
+- 论文可见子项：`src/lib/paper/children.ts`（根目录 `.md`/`.html`/`.htm` 白名单 + `attachments/` 合成）
 - 标签/排序：`src/lib/paper/tree-label.ts`、`tree-modes.ts`
 
 ## 开发注意

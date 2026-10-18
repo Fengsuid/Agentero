@@ -12,7 +12,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { isPaperDirectory, isUnderPaperAttachments } from "@/lib/paper";
+import { isPaperDirectory, paperSurfacesChildPath } from "@/lib/paper";
 import type { FileNode } from "@/lib/vault";
 import {
 	ancestorPaths,
@@ -214,10 +214,11 @@ export function useTreeExpansion({
 				for (const parent of parents) {
 					const node = byPathKey.get(pathKey(parent));
 					if (node?.kind !== "directory") continue;
-					// Papers stay collapsed unless we are revealing an attachment.
+					// Papers stay collapsed unless we are revealing a surfaced child
+					// (root Markdown/HTML note or an attachment).
 					if (
 						isPaperDirectory(node.path, node.children) &&
-						!isUnderPaperAttachments(target, node.path)
+						!paperSurfacesChildPath(target, node)
 					) {
 						continue;
 					}

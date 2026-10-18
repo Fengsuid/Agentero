@@ -9,6 +9,7 @@ This file is the L0 map for agents working in this Agentero research vault.
 ```text
 papers/<id>/
 ├── NOTES.md          # human / agent working notes
+├── <note>.md|html    # extra literature notes / web snapshots (shown in tree)
 ├── metadata.json     # catalog row projection (do not invent by hand)
 ├── <id>.pdf          # optional main PDF
 ├── PAPER.md          # derived body when no TeX (regenerable)
@@ -18,8 +19,10 @@ papers/<id>/
 └── attachments/      # supporting materials only (supplements, slides, code)
 ```
 
-  Create `attachments/` only when adding files. Do not put extras at the paper
-  root or into `source/`. Do not invent empty `attachments/` folders.
+  Additional Markdown/HTML notes may live at the paper root (the file tree
+  shows them as child rows); everything else belongs in `attachments/`, never
+  in `source/`. Create `attachments/` only when adding files. Do not invent
+  empty `attachments/` folders.
 
 - `notes/` — free-form concept notes (`[[wikilinks]]`, embeds, Mermaid, callouts).
 - `data/` — datasets and artifacts synced from a remote server; keep them out of `papers/`.

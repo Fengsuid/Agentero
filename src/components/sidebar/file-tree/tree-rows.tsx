@@ -80,8 +80,8 @@ export function PaperTreeRow({
 	const { t } = useTranslation("sidebar");
 	const { togglePath } = useFileTree();
 	const expandLabel = expanded
-		? t("fileTree.collapseAttachments")
-		: t("fileTree.expandAttachments");
+		? t("fileTree.collapseChildren")
+		: t("fileTree.expandChildren");
 	const showDownload = Boolean(onDownload) && downloadReasons.length > 0;
 	const showRead = Boolean(onRead) && !showDownload;
 	const reasonTip = downloadReasons.length

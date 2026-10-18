@@ -1,9 +1,9 @@
 import {
 	isPaperDirectory,
 	isPapersRoot,
-	paperAttachmentChildren,
-	paperHasVisibleAttachments,
+	paperHasVisibleChildren,
 	paperNeedsAssetDownload,
+	paperVisibleChildren,
 } from "@/lib/paper";
 import { LIBRARY_VIRTUAL_PATH, TRASH_VIRTUAL_PATH } from "@/lib/paper/api";
 import { isPlazaVirtualPath, PLAZA_VIRTUAL_PATH } from "@/lib/plaza";
@@ -109,21 +109,22 @@ export function collectPapersRootOnlyExpanded(
 
 /**
  * Children shown when a directory row is expanded.
- * Papers surface `{paper}/attachments/*` only — never source/marks/NOTES.
+ * Papers surface root Markdown/HTML notes plus `{paper}/attachments/*` only —
+ * never source/marks internals.
  */
 export function visibleTreeChildren(node: FileNode): FileNode[] {
 	if (node.kind !== "directory") return [];
 	if (isPaperDirectory(node.path, node.children)) {
-		return paperAttachmentChildren(node);
+		return paperVisibleChildren(node);
 	}
 	return node.children ?? [];
 }
 
-/** Directory that can show a chevron (org folder, or paper with attachments). */
+/** Directory that can show a chevron (org folder, or paper with visible children). */
 export function isTreeExpandableDirectory(node: FileNode): boolean {
 	if (node.kind !== "directory") return false;
 	if (isPaperDirectory(node.path, node.children)) {
-		return paperHasVisibleAttachments(node);
+		return paperHasVisibleChildren(node);
 	}
 	return true;
 }
