@@ -21,7 +21,11 @@ import {
 	useWorkspaceStore,
 } from "@/hooks/use-app-stores";
 import type { PaperTag } from "@/lib/paper";
-import { resolvePapersParentDir } from "@/lib/paper";
+import {
+	isPaperDirectory,
+	paperDirFromPath,
+	resolvePapersParentDir,
+} from "@/lib/paper";
 import {
 	dropLocalPdfs,
 	importLocalPdf,
@@ -38,7 +42,12 @@ import {
 	readPaper,
 } from "@/lib/paper/library-actions";
 import { setZoteroOpen, setZoteroSyncOpen } from "@/lib/shell/ui-store";
-import { joinVaultPath, vaultDisplayName } from "@/lib/vault";
+import {
+	joinVaultPath,
+	treeFindNode,
+	vaultDisplayName,
+	vaultRelativePath,
+} from "@/lib/vault";
 import {
 	cancelCreate,
 	cancelRenamePath,
@@ -117,6 +126,7 @@ export function VaultSidebar() {
 	const tree = useVaultStore((s) => s.tree);
 	const treeLoading = useVaultStore((s) => s.treeLoading);
 	const treeSelectedPath = useVaultStore((s) => s.treeSelectedPath);
+	const paperFolders = useVaultStore((s) => s.paperFolders);
 	const createDraft = useVaultStore((s) => s.createDraft);
 	const renameDraft = useVaultStore((s) => s.renameDraft);
 	const busy = useVaultStore((s) => s.busy);
@@ -129,13 +139,32 @@ export function VaultSidebar() {
 	const hoveredPaperPath = useUiStore((s) => s.hoveredPaperPath);
 	const paperTreeLabelMode = useSettings((s) => s.paperTreeLabelMode);
 	const paperTreeSortMode = useSettings((s) => s.paperTreeSortMode);
-	const paperMeta = useWorkspaceStore(
-		(s) => s.tabs.find((tab) => tab.id === s.activeTabId)?.paperMeta ?? null,
+	const activeTab = useWorkspaceStore(
+		(s) => s.tabs.find((tab) => tab.id === s.activeTabId) ?? null,
 	);
+	const paperMeta = activeTab?.paperMeta ?? null;
+
+	// While a paper / note tab hydrates, its own `paperMeta` is still null.
+	// Resolve the owning paper from the tree/path so Paper Info does not
+	// unmount/remount and resize the tree viewport mid-open (WebKit
+	// blank-until-scroll, #738).
+	const fallbackPaperRel = useMemo(() => {
+		if (!activeTab || !vaultPath || activeTab.paperMeta) return null;
+		const treeNode = treeFindNode(tree, activeTab.path);
+		const paperAbs =
+			treeNode?.kind === "directory" &&
+			isPaperDirectory(treeNode.path, treeNode.children)
+				? treeNode.path
+				: paperDirFromPath(activeTab.path, paperFolders);
+		if (!paperAbs) return null;
+		return normalizePaperRelPath(vaultRelativePath(vaultPath, paperAbs));
+	}, [activeTab, vaultPath, paperFolders, tree]);
 
 	// Prefer the catalog snapshot: library tag edits update it while the open
 	// tab may still hold an older copy.
-	const activePaperPath = normalizePaperRelPath(paperMeta?.path);
+	const activePaperPath = normalizePaperRelPath(
+		paperMeta?.path ?? fallbackPaperRel,
+	);
 	const activePaperMeta = activePaperPath
 		? (paperMetaByRelPath.get(activePaperPath) ?? paperMeta)
 		: paperMeta;

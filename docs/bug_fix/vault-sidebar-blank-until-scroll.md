@@ -46,3 +46,13 @@ style={{ transform: `translateY(${vi.start}px)` }}
 该问题依赖 WKWebView 合成行为，纯浏览器 `pnpm dev` 不一定复现。回归时用 `pnpm tauri dev`：打开带 PDF 的论文、切换标签、导入后观察左侧树是否仍会黑屏；故意滚一下应不再是「唯一恢复手段」。
 
 #607 的修复（去掉整区 `transform-gpu`）必须用 `pnpm tauri dev` 在 macOS WKWebView 上验证——Chromium 下侧栏本就不会出现该合成层漏标，无法作为回归证据。验证清单：打开论文 / 切换标签 / 导入后，左侧树应直接完整绘制，无需滚动；同时确认侧栏与 PDF 之间没有出现新的层叠/穿透问题。
+
+---
+
+## 5. 后续加固（#738）
+
+打开另一篇论文笔记（Notes 面板原位替换）时仍能复现：`openTab` 先插入 `paperMeta: null` 的占位 tab，Paper Info 因此卸载 → 树视口变高；资源加载后 Paper Info 重新挂载 → 视口变矮。两次高度变化 + `remapPanel` 的 dock 布局变更叠加，WebKit 静默钳制 `scrollTop`，virtualizer 空窗口，表现为被点的树行消失、滑动才回来。
+
+- **Paper Info 不再闪断**：`vault-sidebar.tsx` 在当前 tab 尚未加载出 `paperMeta` 时，先用活动路径（论文目录或论文内文件）+ 文件树 / catalog 反查所属论文，保持 Paper Info 挂载、树视口高度不变。覆盖打开论文与打开笔记两条路径。
+- **空窗口自愈**：`use-tree-reveal.ts` 增加 watchdog——行集合或选中项变化、Resize 同步后，若 `flatRows` 非空但 `getVirtualItems()` 为空，则把 DOM `scrollTop`（必要时先钳到最大滚动范围）写回 virtualizer，无需用户滚动即可恢复。仅补渲染窗口，不改变正常滚动行为。
+

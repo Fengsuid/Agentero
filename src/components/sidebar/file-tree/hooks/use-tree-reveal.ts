@@ -3,7 +3,7 @@
  * document and scroll the matching row into view after tree refreshes.
  */
 import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
-import { type RefObject, useEffect, useMemo, useRef } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef } from "react";
 import { scrollBehavior } from "@/lib/core/motion";
 import { TRASH_VIRTUAL_PATH } from "@/lib/paper/api";
 import { PLAZA_VIRTUAL_PATH } from "@/lib/plaza";
@@ -66,6 +66,45 @@ export function useTreeReveal({
 		rowVirtualizer.measure();
 	}, [uiScale, rowVirtualizer]);
 
+	/**
+	 * WebKit can clamp the DOM `scrollTop` without firing `scroll` after ANY
+	 * layout change (Paper Info mount, dock panel replace, layout preset, tree
+	 * refresh). The virtualizer then keeps a stale offset and renders an empty
+	 * window → the sidebar looks blank until the user scrolls. Self-heal: when
+	 * rows exist but the virtualizer reports none, re-read the DOM offset (and
+	 * clamp a too-large value) so the next render window is non-empty.
+	 */
+	const flatRowCount = flatRows.length;
+	const resyncRafRef = useRef<number | null>(null);
+	const resyncIfEmpty = useCallback(() => {
+		if (resyncRafRef.current !== null) return;
+		resyncRafRef.current = requestAnimationFrame(() => {
+			resyncRafRef.current = null;
+			const el = treeScrollRef.current;
+			if (!el || flatRowCount === 0) return;
+			if (rowVirtualizer.getVirtualItems().length > 0) return;
+			const max = Math.max(0, el.scrollHeight - el.clientHeight);
+			const offset = Math.min(el.scrollTop, max);
+			if (offset !== el.scrollTop) el.scrollTop = offset;
+			rowVirtualizer.scrollToOffset(offset);
+		});
+	}, [flatRowCount, rowVirtualizer]);
+
+	useEffect(
+		() => () => {
+			if (resyncRafRef.current !== null) {
+				cancelAnimationFrame(resyncRafRef.current);
+			}
+		},
+		[],
+	);
+
+	// Any flat-row/selection change can leave the virtualizer one layout behind.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: rerun on row/selection changes
+	useEffect(() => {
+		resyncIfEmpty();
+	}, [flatRows, treeSelectedPath, resyncIfEmpty]);
+
 	// WebKit may clamp scrollTop without firing `scroll` when the tree viewport
 	// HEIGHT changes (Paper Info opens/closes); re-sync the virtualizer from
 	// the DOM then, or it keeps a stale offset and getVirtualItems() returns an
@@ -100,6 +139,7 @@ export function useTreeReveal({
 			if (heightChanged || reopened) {
 				savedScrollTop = el.scrollTop;
 				rowVirtualizer.scrollToOffset(el.scrollTop);
+				resyncIfEmpty();
 			}
 		});
 		ro.observe(el);
@@ -107,7 +147,7 @@ export function useTreeReveal({
 			ro.disconnect();
 			el.removeEventListener("scroll", onScroll);
 		};
-	}, [rowVirtualizer]);
+	}, [rowVirtualizer, resyncIfEmpty]);
 
 	const pendingRevealPathRef = useRef<string | null>(null);
 	/** Target that armed the current reveal; guards against effect-identity churn. */
@@ -169,9 +209,10 @@ export function useTreeReveal({
 					align: "auto",
 					behavior: scrollBehavior(),
 				});
+				resyncIfEmpty();
 			});
 		});
-	}, [flatRows, rowVirtualizer, treeSelectedPath]);
+	}, [flatRows, rowVirtualizer, treeSelectedPath, resyncIfEmpty]);
 
 	return { treeScrollRef, rowVirtualizer };
 }
