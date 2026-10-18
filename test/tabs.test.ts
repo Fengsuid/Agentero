@@ -5,6 +5,7 @@ import { vaultStore } from "@/lib/vault/store";
 import {
 	closeTab,
 	hydratePlaceholderTabs,
+	openPath,
 	setNotesSplit,
 	syncUpdatedPaperTabs,
 } from "@/lib/workspace/actions";
@@ -18,6 +19,7 @@ import {
 	createPlaceholderTab,
 	type DocTab,
 	extractTabsFromLayout,
+	findNotesPaneForReplacement,
 	insertPlaceholderTab,
 	loadPersistedTabs,
 	panelPersistParams,
@@ -34,6 +36,8 @@ import {
 	syncTabSeedsForPath,
 	type TabResources,
 	tabHasNotesSplit,
+	tabIdForPath,
+	tabIsPaperNoteDocument,
 	tabIsPaperNotes,
 	tabNotesEligible,
 } from "@/lib/workspace/tabs";
@@ -609,6 +613,45 @@ describe("flat workspace helpers", () => {
 		expect(tabIsPaperNotes(rootTab)).toBe(true);
 	});
 
+	it("recognizes extra notes as reusable paper-note documents", () => {
+		const extra = makeTab("/vault/papers/a/reading-notes.md", {
+			kind: "file",
+			mode: "markdown",
+			notesPath: "/vault/papers/a/NOTES.md",
+		});
+		expect(tabIsPaperNotes(extra)).toBe(false);
+		expect(tabIsPaperNoteDocument(extra)).toBe(true);
+		expect(
+			tabIsPaperNoteDocument(
+				makeTab("/vault/notes/free.md", { mode: "markdown" }),
+			),
+		).toBe(false);
+	});
+
+	it("picks the notes pane a newly opened note should replace", () => {
+		const paperA = makeTab("/vault/papers/a", {
+			kind: "paper",
+			mode: "pdf",
+			notesPath: "/vault/papers/a/NOTES.md",
+		});
+		const notesA = createNotesSplitPane(paperA);
+		if (!notesA) throw new Error("Missing notes fixture");
+		const extra = makeTab("/vault/papers/a/reading-notes.md", {
+			kind: "file",
+			mode: "markdown",
+			notesPath: "/vault/papers/a/NOTES.md",
+		});
+		const plain = makeTab("/vault/notes/free.md", { mode: "markdown" });
+
+		expect(
+			findNotesPaneForReplacement([paperA, notesA, plain], paperA.id)?.id,
+		).toBe(notesA.id);
+		expect(
+			findNotesPaneForReplacement([paperA, notesA, extra], extra.id)?.id,
+		).toBe(extra.id);
+		expect(findNotesPaneForReplacement([plain], plain.id)).toBeNull();
+	});
+
 	it("tabNotesEligible accepts a paper body that has notesPath even without catalog metadata", () => {
 		const pdfBody = makeTab("/vault/p", {
 			kind: "paper",
@@ -772,6 +815,54 @@ describe("flat workspace helpers", () => {
 });
 
 describe("Notes layout actions", () => {
+	it("openPath replaces the open notes pane instead of adding a tab", async () => {
+		const paper = makeTab("/vault/papers/a", {
+			kind: "paper",
+			mode: "pdf",
+			notesPath: "/vault/papers/a/NOTES.md",
+		});
+		const notes = createNotesSplitPane(paper);
+		if (!notes) throw new Error("Missing notes fixture");
+		const nextNotesPath = "/vault/papers/b/NOTES.md";
+		const nextNotesId = tabIdForPath(nextNotesPath);
+		const handle = {
+			openPanel: vi.fn(),
+			remapPanel: vi.fn(),
+			activatePanel: vi.fn(),
+			canActivatePanel: vi.fn(() => true),
+		};
+		registerDockHandle(handle as unknown as DockHandle);
+		const load = vi.spyOn(tabResources, "loadTabResources").mockResolvedValue(
+			makeResources({
+				kind: "file",
+				mode: "markdown",
+				notesPath: nextNotesPath,
+				notesSeed: "# B",
+			}),
+		);
+		try {
+			setTabs([paper, notes]);
+			setActiveTabId(paper.id);
+			openPath(nextNotesPath);
+
+			expect(handle.openPanel).not.toHaveBeenCalled();
+			expect(handle.remapPanel).toHaveBeenCalledExactlyOnceWith(
+				notes.id,
+				expect.objectContaining({ id: nextNotesId }),
+			);
+			expect(handle.activatePanel).toHaveBeenCalledWith(nextNotesId);
+			expect(getTabs().map((t) => t.id)).not.toContain(notes.id);
+			expect(getTabs().map((t) => t.id)).toContain(nextNotesId);
+			await vi.waitFor(() =>
+				expect(getTabs().find((t) => t.id === nextNotesId)?.loaded).toBe(true),
+			);
+			expect(load).toHaveBeenCalledOnce();
+		} finally {
+			registerDockHandle(null);
+			vi.restoreAllMocks();
+		}
+	});
+
 	it("preserves an existing split and remembers/restores it across close and reopen", () => {
 		const paper = makeTab("/vault/p", {
 			kind: "paper",

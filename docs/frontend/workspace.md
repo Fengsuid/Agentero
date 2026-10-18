@@ -20,6 +20,7 @@
 | Split pane | `⌘\` / `Ctrl+\` 向右新增 pane；当前论文未开 NOTES 时默认打开 NOTES，否则复制当前 pane；横向 pane 重新等宽 |
 | NOTES 开关 | Layout 菜单；优先叠右列。重复打开保持比例；重建标准 PDF / Notes 双列时恢复共用比例，没有记录时使用 Dockview 默认分配 |
 | 打开笔记 | 论文 tab 右键 /文件树论文行右键 → NOTES 进右侧阅读列（已开则聚焦；菜单显示 `⌘\` / `Ctrl+\`） |
+| 切换笔记 | 已有 Notes 列时，从文件树或链接打开另一篇论文笔记（`papers/**` 下的 Markdown）默认**原位替换**当前 Notes 面板：保留分栏位置与宽度、不新增 tab；目标笔记已在别处打开时只聚焦它（#738） |
 | 关光文档 | 回到常驻的全库 Library panel |
 
 标题栏 Layout 菜单中的窗口布局预设改变当前论文的 Notes 分屏、外层 Agent panel 和左侧 Vault sidebar：Agent 模式为 PDF / Agent `2:1` 并展开左侧栏，笔记模式关闭左右侧栏并显示 PDF / Notes，阅读模式关闭 Notes、Agent 与左侧栏，只保留 PDF 阅读界面。其它 PDF tab 保持打开。

@@ -16,6 +16,7 @@ export {
 } from "@/lib/workspace/tabs/model";
 export {
 	createNotesSplitPane,
+	findNotesPaneForReplacement,
 	isPaperContentTab,
 	paperReadingPlacements,
 	readingPairCloseIds,
@@ -23,6 +24,7 @@ export {
 	seedTabs,
 	syncTabSeedsForPath,
 	tabHasNotesSplit,
+	tabIsPaperNoteDocument,
 	tabIsPaperNotes,
 	tabNotesEligible,
 } from "@/lib/workspace/tabs/notes-split";

@@ -39,6 +39,41 @@ export function tabIsPaperNotes(tab: DocTab | null): boolean {
 }
 
 /**
+ * Markdown tab that represents a paper note: canonical `NOTES.md` (or the paper
+ * root markdown tab) plus any extra note opened from inside the paper folder.
+ * Broader than {@link tabIsPaperNotes} so a replaced notes column keeps being
+ * recognized after showing an extra note.
+ */
+export function tabIsPaperNoteDocument(tab: DocTab | null): boolean {
+	if (tab?.mode !== "markdown" || !tab.notesPath || tab.kind === "paper") {
+		return false;
+	}
+	const paperDir = normalizeTabPath(tab.notesPath).replace(/\/notes\.md$/, "");
+	const tabPath = normalizeTabPath(tab.path);
+	return (
+		tabPath === normalizeTabPath(tab.notesPath) ||
+		tabPath === paperDir ||
+		tabPath.startsWith(`${paperDir}/`)
+	);
+}
+
+/**
+ * Notes panel a newly opened note should replace instead of stacking another
+ * tab in the reading column. Prefers the active notes pane, then the notes
+ * companion of the active paper body, then the first open notes pane.
+ */
+export function findNotesPaneForReplacement(
+	tabs: DocTab[],
+	activeId?: string | null,
+): DocTab | null {
+	const active = tabs.find((t) => t.id === activeId) ?? null;
+	if (tabIsPaperNoteDocument(active)) return active;
+	const companion = findReadingCompanion(tabs, active);
+	if (tabIsPaperNoteDocument(companion)) return companion;
+	return tabs.find((t) => tabIsPaperNoteDocument(t)) ?? null;
+}
+
+/**
  * Anchor for stacking another NOTES panel into the right reading column.
  */
 export function findNotesColumnAnchor(

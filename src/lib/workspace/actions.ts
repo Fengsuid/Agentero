@@ -119,6 +119,7 @@ import {
 	createTranslationSplitPane,
 	type DocTab,
 	ensureFullLibraryTab,
+	findNotesPaneForReplacement,
 	insertPlaceholderTab,
 	isPaperContentTab,
 	loadTabResources,
@@ -277,6 +278,12 @@ export function openTab(
 		skipDefaultNotes?: boolean;
 		/** Open the NOTES companion even when autoOpenPaperNotes is off. */
 		forceNotes?: boolean;
+		/**
+		 * Replace this notes panel in place instead of adding another tab.
+		 * Used when the reading layout already shows a notes column and the
+		 * user opens another note.
+		 */
+		replaceNotesPaneId?: string | null;
 	},
 ): void {
 	const id = tabIdForPath(path);
@@ -303,7 +310,21 @@ export function openTab(
 		return;
 	}
 
-	const beforeTabs = getTabs();
+	const replaceId = opts?.replaceNotesPaneId ?? null;
+	const candidate =
+		replaceId != null
+			? (getTabs().find((t) => t.id === replaceId) ?? null)
+			: null;
+	// Only replace a panel this dock can actually see; unreachable restored
+	// panes fall back to a normal open.
+	const replaced =
+		candidate && dockHandle()?.canActivatePanel(candidate.id) === true
+			? candidate
+			: null;
+
+	const beforeTabs = replaced
+		? getTabs().filter((t) => t.id !== replaced.id)
+		: getTabs();
 	const { tabs: nextTabs, id: insertedId } = insertPlaceholderTab(
 		beforeTabs,
 		path,
@@ -315,16 +336,22 @@ export function openTab(
 
 	// Paper bodies use free dock placement; NOTES companion still prefers the
 	// notes column when present (see paperReadingPlacements).
-	const initialPlacement =
-		opts?.placement ??
-		paperReadingPlacements(beforeTabs, {
-			paperId: insertedId,
-			activeId: getActiveTabId(),
-		}).paper;
+	const initialPlacement = replaced
+		? null
+		: (opts?.placement ??
+			paperReadingPlacements(beforeTabs, {
+				paperId: insertedId,
+				activeId: getActiveTabId(),
+			}).paper);
 
 	setTabs(nextTabs);
 	setActiveTabId(insertedId);
-	dockHandle()?.openPanel(placeholder, initialPlacement);
+	if (replaced) {
+		dockHandle()?.remapPanel(replaced.id, placeholder);
+		dockHandle()?.activatePanel(insertedId);
+	} else {
+		dockHandle()?.openPanel(placeholder, initialPlacement);
+	}
 
 	void (async () => {
 		const vaultState = vaultStore.getState();
@@ -1044,8 +1071,16 @@ export function openRemoteArxivPaper(item: RemotePaperItem): void {
 
 /** Open any path with the mode inferred from its extension. */
 export function openPath(absoluteOrDemoPath: string): void {
+	const preferMode = preferredModeForPath(absoluteOrDemoPath);
+	// Reading layout: a note clicked while a notes pane is open replaces that
+	// pane instead of stacking another note tab in the same column.
+	const replaceNotes =
+		preferMode === "markdown" && isUnderPapers(absoluteOrDemoPath)
+			? findNotesPaneForReplacement(getTabs(), getActiveTabId())
+			: null;
 	openTab(absoluteOrDemoPath, {
-		preferMode: preferredModeForPath(absoluteOrDemoPath),
+		preferMode,
+		replaceNotesPaneId: replaceNotes?.id,
 	});
 }
 
