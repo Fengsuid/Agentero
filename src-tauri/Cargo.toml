@@ -37,6 +37,7 @@ desktop = [
   "dep:tauri-plugin-updater",
   "dep:tauri-plugin-process",
   "dep:tauri-plugin-single-instance",
+  "dep:tauri-plugin-window-state",
   "dep:tauri-specta",
   "dep:specta-typescript",
   "dep:posthog-rs",
@@ -123,6 +124,7 @@ fontdb = "0.23"
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"], optional = true }
+tauri-plugin-window-state = { version = "2", optional = true }
 # Blocking client: telemetry flush happens in the synchronous RunEvent::Exit callback.
 posthog-rs = { version = "0.23", default-features = false, optional = true }
 

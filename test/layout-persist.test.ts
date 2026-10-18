@@ -35,7 +35,7 @@ function makeStorage(initialPrefs?: unknown) {
 }
 
 describe("normalizeShellLayoutPrefs", () => {
-	it("passes a valid payload through", () => {
+	it("passes a valid payload through and migrates legacy Agent widths", () => {
 		const prefs = normalizeShellLayoutPrefs({
 			lastMode: "agent",
 			widths: { agent: { left: 0.2, right: 0.35 }, custom: { left: 0.25 } },
@@ -43,9 +43,32 @@ describe("normalizeShellLayoutPrefs", () => {
 		});
 		expect(prefs).toEqual({
 			lastMode: "agent",
-			widths: { agent: { left: 0.2, right: 0.35 }, custom: { left: 0.25 } },
+			widths: { agent: { left: 0.2 }, custom: { left: 0.25 } },
+			aiWidth: 0.35,
 			customRails: { leftCollapsed: true, rightOpen: false },
 		});
+	});
+
+	it("keeps a global Agent width and ignores per-slot legacy values", () => {
+		const prefs = normalizeShellLayoutPrefs({
+			lastMode: "notes",
+			aiWidth: 0.28,
+			widths: { notes: { left: 0.2, right: 0.4 } },
+		});
+		expect(prefs.aiWidth).toBe(0.28);
+		expect(prefs.widths.notes).toEqual({ left: 0.2 });
+	});
+
+	it("migrates the legacy right width from the active preset slot", () => {
+		const prefs = normalizeShellLayoutPrefs({
+			lastMode: "custom",
+			lastPreset: "reading",
+			widths: {
+				custom: { right: 0.24 },
+				reading: { right: 0.42 },
+			},
+		});
+		expect(prefs.aiWidth).toBe(0.42);
 	});
 
 	it("falls back to an empty custom layout on corrupt roots", () => {
@@ -67,7 +90,9 @@ describe("normalizeShellLayoutPrefs", () => {
 		});
 		expect(prefs.widths.agent).toBeUndefined();
 		expect(prefs.widths.notes).toBeUndefined();
-		expect(prefs.widths.reading).toEqual({ right: 0.3 });
+		expect(prefs.widths.reading).toBeUndefined();
+		// The only valid legacy right width becomes the global Agent width.
+		expect(prefs.aiWidth).toBe(0.3);
 	});
 
 	it("drops unknown slots and empty entries", () => {
@@ -115,12 +140,16 @@ describe("railPxFromRatio", () => {
 });
 
 describe("railWidthsForSlot / seedBootWidths", () => {
-	it("restores the slot's remembered widths clamped to the viewport", () => {
+	it("restores the slot's left width and the global Agent width", () => {
 		const prefs = normalizeShellLayoutPrefs({
 			widths: { agent: { left: 0.25, right: 0.4 } },
 		});
 		expect(railWidthsForSlot(prefs, "agent", 1000, LEFT, RIGHT)).toEqual({
 			leftPx: 250,
+			rightPx: 400,
+		});
+		// The Agent width is shared: another slot still gets the same right px.
+		expect(railWidthsForSlot(prefs, "notes", 1000, LEFT, RIGHT)).toEqual({
 			rightPx: 400,
 		});
 		// Narrow window: the ratio re-derives smaller pixel widths that stay
@@ -147,6 +176,22 @@ describe("railWidthsForSlot / seedBootWidths", () => {
 		).toEqual({ leftPx: 250, rightPx: 400 });
 	});
 
+	it("restores the global Agent width for any layout slot", () => {
+		const prefs = normalizeShellLayoutPrefs({
+			lastMode: "custom",
+			lastPreset: "reading",
+			aiWidth: 0.42,
+			widths: { custom: { left: 0.25 } },
+		});
+		// Left still falls back to the custom slot; AI keeps its global width.
+		expect(
+			seedBootWidths(prefs, 1000, LEFT, RIGHT, {
+				leftPx: 200,
+				rightPx: 320,
+			}),
+		).toEqual({ leftPx: 250, rightPx: 420 });
+	});
+
 	it("falls back to defaults when nothing is remembered", () => {
 		expect(
 			seedBootWidths(normalizeShellLayoutPrefs(null), 1000, LEFT, RIGHT, {
@@ -158,7 +203,7 @@ describe("railWidthsForSlot / seedBootWidths", () => {
 });
 
 describe("commitShellRailWidths", () => {
-	it("writes user-resized widths into the given slot only", () => {
+	it("stores the left width per slot and the Agent width globally", () => {
 		const { storage, read } = makeStorage();
 		commitShellRailWidths(
 			{ leftRatio: 0.2, rightRatio: 0.35 },
@@ -168,7 +213,18 @@ describe("commitShellRailWidths", () => {
 		);
 		expect(JSON.parse(read() ?? "{}")).toEqual({
 			lastMode: "custom",
-			widths: { agent: { left: 0.2, right: 0.35 } },
+			widths: { agent: { left: 0.2 } },
+			aiWidth: 0.35,
+		});
+	});
+
+	it("keeps one Agent width across layout slots", () => {
+		const { storage, read } = makeStorage();
+		commitShellRailWidths({ rightRatio: 0.4 }, "agent", 1000, storage);
+		commitShellRailWidths({ rightRatio: 0.45 }, "notes", 1000, storage);
+		expect(JSON.parse(read() ?? "{}")).toMatchObject({
+			widths: {},
+			aiWidth: 0.45,
 		});
 	});
 
@@ -184,10 +240,9 @@ describe("commitShellRailWidths", () => {
 			1000,
 			storage,
 		);
-		expect(JSON.parse(read() ?? "{}").widths.agent).toEqual({
-			left: 0.25,
-			right: 0.35,
-		});
+		const persisted = JSON.parse(read() ?? "{}");
+		expect(persisted.widths.agent).toEqual({ left: 0.25 });
+		expect(persisted.aiWidth).toBe(0.35);
 	});
 
 	it("does not rewrite storage when nothing changed", () => {

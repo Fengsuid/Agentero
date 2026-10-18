@@ -4,5 +4,5 @@
 	"description": "Desktop-only capabilities: in-app updater and process relaunch",
 	"windows": ["main", "agentero-*", "settings"],
 	"platforms": ["macOS", "windows", "linux"],
-	"permissions": ["updater:default", "process:default"]
+	"permissions": ["updater:default", "process:default", "window-state:default"]
 }

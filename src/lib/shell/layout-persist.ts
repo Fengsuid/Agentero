@@ -1,9 +1,10 @@
 /**
  * Persisted shell rail widths (localStorage, best-effort).
  *
- * Widths are stored as fractions of the window width, one entry per layout
- * mode, so a remembered drag survives both preset round-trips and app
- * restarts on a differently sized window. Follows the hand-rolled persist
+ * Widths are stored as fractions of the window width. The left Vault rail
+ * keeps one entry per layout mode; the Agent/right rail uses a single global
+ * `aiWidth` so opening it always returns the width the user last dragged,
+ * regardless of the active layout preset. Follows the hand-rolled persist
  * modules (workspace tabs, paper info height): strict normalize on read,
  * silent best-effort writes, no store middleware.
  */
@@ -19,7 +20,9 @@ export const SHELL_LAYOUT_STORAGE_KEY = "agentero.shellLayout.v1";
 
 /** Rail width as a fraction of the window width (0.02–0.6, 3 decimals). */
 export type RailWidthPrefs = {
+	/** Left Vault rail width for this layout slot. */
 	left?: number;
+	/** Legacy per-slot Agent rail width; migrated into `aiWidth` on read. */
 	right?: number;
 };
 export type LayoutWidthSlot = LayoutPresetMode | "custom";
@@ -32,7 +35,10 @@ export type ShellLayoutPrefs = {
 	lastMode: LayoutWidthSlot;
 	/** Width owner survives manual changes (which switch lastMode to custom). */
 	lastPreset?: LayoutPresetMode;
+	/** Left Vault rail width, per layout slot. */
 	widths: Partial<Record<LayoutWidthSlot, RailWidthPrefs>>;
+	/** Agent/right rail width, shared by every layout slot. */
+	aiWidth?: number;
 	customRails?: CustomRailsState;
 };
 
@@ -60,6 +66,25 @@ export function normalizeRailRatio(value: unknown): number | null {
 	return Math.round(value * 1000) / 1000;
 }
 
+/**
+ * Older payloads kept a `right` width per layout slot. Seed the new global
+ * width from the slot the user was last in, then custom, then any slot.
+ */
+function legacyAiWidth(
+	rawWidths: Record<string, unknown>,
+	lastMode: LayoutWidthSlot,
+	lastPreset: LayoutPresetMode | undefined,
+): number | null {
+	const preferred = lastMode === "custom" ? (lastPreset ?? "custom") : lastMode;
+	for (const slot of new Set<string>([preferred, "custom", ...SLOTS])) {
+		const entry = rawWidths[slot];
+		if (typeof entry !== "object" || entry === null) continue;
+		const width = normalizeRailRatio((entry as Record<string, unknown>).right);
+		if (width !== null) return width;
+	}
+	return null;
+}
+
 /** Self-heal any stored payload; never throws, unknown fields are dropped. */
 export function normalizeShellLayoutPrefs(raw: unknown): ShellLayoutPrefs {
 	const fallback: ShellLayoutPrefs = { lastMode: "custom", widths: {} };
@@ -68,30 +93,29 @@ export function normalizeShellLayoutPrefs(raw: unknown): ShellLayoutPrefs {
 	const lastMode = SLOTS.includes(rec.lastMode as LayoutWidthSlot)
 		? (rec.lastMode as LayoutWidthSlot)
 		: "custom";
-	const widths: Partial<Record<LayoutWidthSlot, RailWidthPrefs>> = {};
-	if (typeof rec.widths === "object" && rec.widths !== null) {
-		for (const slot of SLOTS) {
-			const entry = (rec.widths as Record<string, unknown>)[slot];
-			if (typeof entry !== "object" || entry === null) continue;
-			const next: RailWidthPrefs = {};
-			const left = normalizeRailRatio((entry as Record<string, unknown>).left);
-			if (left !== null) next.left = left;
-			const right = normalizeRailRatio(
-				(entry as Record<string, unknown>).right,
-			);
-			if (right !== null) next.right = right;
-			if (next.left !== undefined || next.right !== undefined)
-				widths[slot] = next;
-		}
-	}
-	const prefs: ShellLayoutPrefs = { lastMode, widths };
-	if (
+	const lastPreset: LayoutPresetMode | undefined =
 		rec.lastPreset === "agent" ||
 		rec.lastPreset === "notes" ||
 		rec.lastPreset === "reading"
-	) {
-		prefs.lastPreset = rec.lastPreset;
+			? rec.lastPreset
+			: undefined;
+	const rawWidths =
+		typeof rec.widths === "object" && rec.widths !== null
+			? (rec.widths as Record<string, unknown>)
+			: {};
+	const widths: Partial<Record<LayoutWidthSlot, RailWidthPrefs>> = {};
+	for (const slot of SLOTS) {
+		const entry = rawWidths[slot];
+		if (typeof entry !== "object" || entry === null) continue;
+		const left = normalizeRailRatio((entry as Record<string, unknown>).left);
+		if (left !== null) widths[slot] = { left };
 	}
+	const prefs: ShellLayoutPrefs = { lastMode, widths };
+	if (lastPreset !== undefined) prefs.lastPreset = lastPreset;
+	const aiWidth =
+		normalizeRailRatio(rec.aiWidth) ??
+		legacyAiWidth(rawWidths, lastMode, lastPreset);
+	if (aiWidth !== null) prefs.aiWidth = aiWidth;
 	if (typeof rec.customRails === "object" && rec.customRails !== null) {
 		const rails = rec.customRails as Record<string, unknown>;
 		if (
@@ -121,7 +145,10 @@ export function railPxFromRatio(
 	);
 }
 
-/** Restored px widths for one layout slot (undefined side = not remembered). */
+/**
+ * Restored px widths for one layout slot (undefined side = not remembered).
+ * The right side is global; `slot` only selects the left rail preference.
+ */
 export function railWidthsForSlot(
 	prefs: ShellLayoutPrefs,
 	slot: LayoutWidthSlot,
@@ -129,18 +156,17 @@ export function railWidthsForSlot(
 	left: RailLimits,
 	right: RailLimits,
 ): { leftPx?: number; rightPx?: number } {
-	const entry = prefs.widths[slot];
 	const out: { leftPx?: number; rightPx?: number } = {};
-	const leftPx = railPxFromRatio(entry?.left, viewportPx, left);
+	const leftPx = railPxFromRatio(prefs.widths[slot]?.left, viewportPx, left);
 	if (leftPx !== null) out.leftPx = leftPx;
-	const rightPx = railPxFromRatio(entry?.right, viewportPx, right);
+	const rightPx = railPxFromRatio(prefs.aiWidth, viewportPx, right);
 	if (rightPx !== null) out.rightPx = rightPx;
 	return out;
 }
 
 /**
- * Boot seeding: prefer the restored mode's slot, then the custom slot (the
- * closest thing to a general width preference), then the static defaults.
+ * Boot seeding: for the left rail prefer the restored mode's slot, then the
+ * custom slot, then the static default. The Agent rail is one global width.
  */
 export function seedBootWidths(
 	prefs: ShellLayoutPrefs,
@@ -158,10 +184,7 @@ export function seedBootWidths(
 		left,
 		right,
 	);
-	const secondary =
-		prefs.lastMode === "custom"
-			? {}
-			: railWidthsForSlot(prefs, "custom", viewportPx, left, right);
+	const secondary = railWidthsForSlot(prefs, "custom", viewportPx, left, right);
 	return {
 		leftPx: primary.leftPx ?? secondary.leftPx ?? defaults.leftPx,
 		rightPx: primary.rightPx ?? secondary.rightPx ?? defaults.rightPx,
@@ -197,7 +220,8 @@ function currentPrefs(storage?: StorageLike | null): ShellLayoutPrefs {
 }
 
 /**
- * Record a completed user resize. Sides whose px equivalent collapsed below
+ * Record a completed user resize. Left widths stay per layout slot; the Agent
+ * rail width is global. Sides whose px equivalent collapsed below
  * RAIL_RECORD_MIN_PX keep the previously remembered width (dragging a rail
  * shut must not poison it); ratios outside sanity bounds are dropped.
  */
@@ -208,15 +232,14 @@ export function commitShellRailWidths(
 	storage?: StorageLike | null,
 ): void {
 	const prefs = currentPrefs(storage);
-	const entry: RailWidthPrefs = { ...prefs.widths[slot] };
 	let changed = false;
 	if (
 		widths.leftRatio !== undefined &&
 		widths.leftRatio * viewportPx >= RAIL_RECORD_MIN_PX
 	) {
 		const next = normalizeRailRatio(widths.leftRatio);
-		if (next !== null && next !== entry.left) {
-			entry.left = next;
+		if (next !== null && next !== prefs.widths[slot]?.left) {
+			prefs.widths[slot] = { left: next };
 			changed = true;
 		}
 	}
@@ -225,13 +248,12 @@ export function commitShellRailWidths(
 		widths.rightRatio * viewportPx >= RAIL_RECORD_MIN_PX
 	) {
 		const next = normalizeRailRatio(widths.rightRatio);
-		if (next !== null && next !== entry.right) {
-			entry.right = next;
+		if (next !== null && next !== prefs.aiWidth) {
+			prefs.aiWidth = next;
 			changed = true;
 		}
 	}
 	if (!changed) return;
-	prefs.widths[slot] = entry;
 	persist(prefs, storage);
 }
 

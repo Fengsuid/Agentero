@@ -102,7 +102,19 @@ pub fn run() {
     {
         builder = builder
             .plugin(tauri_plugin_updater::Builder::new().build())
-            .plugin(tauri_plugin_process::init());
+            .plugin(tauri_plugin_process::init())
+            // Only the main window remembers geometry; settings / feature /
+            // doc popouts keep their own fixed sizes.
+            .plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_state_flags(
+                        tauri_plugin_window_state::StateFlags::SIZE
+                            | tauri_plugin_window_state::StateFlags::POSITION
+                            | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                    )
+                    .with_filter(|label| label == "main")
+                    .build(),
+            );
     }
 
     #[cfg(not(target_os = "ios"))]

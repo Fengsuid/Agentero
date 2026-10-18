@@ -158,19 +158,20 @@ describe("shell layout restoration", () => {
 		expect(widths).toEqual({ left: 0, right: 0 });
 		controller.setLeftCollapsed(false);
 		controller.setRightCollapsed(false);
-		expect(widths).toEqual({ left: 240, right: 360 });
+		// Agent width is global: the last committed 0.4 wins over notes' 0.3.
+		expect(widths).toEqual({ left: 240, right: 480 });
 		controller.applyLayoutMode("agent");
 		expect(widths).toEqual({ left: 300, right: 480 });
 	});
 
-	it("uses sidebar defaults for an unvisited layout instead of the outgoing widths", () => {
+	it("uses the left default for an unvisited layout while keeping the global Agent width", () => {
 		commitShellRailWidths({ leftRatio: 0.25, rightRatio: 0.4 }, "agent", 1200);
 		const { controller, widths } = mountController();
 		controller.applyLayoutMode("agent");
 		controller.applyLayoutMode("reading");
 		controller.setLeftCollapsed(false);
 		controller.setRightCollapsed(false);
-		expect(widths).toEqual({ left: 200, right: 320 });
+		expect(widths).toEqual({ left: 200, right: 480 });
 	});
 
 	it("restores custom visibility and its preset width owner after a cold reload", () => {
@@ -203,7 +204,7 @@ describe("shell layout restoration", () => {
 			uiStore.getState().lastAppliedPreset ?? "custom",
 			1500,
 		);
-		expect(getShellLayoutPrefs().widths.notes?.right).toBe(0.32);
+		expect(getShellLayoutPrefs().aiWidth).toBe(0.32);
 	});
 
 	it("snapshots both rail flags when entering custom without a visibility change", () => {

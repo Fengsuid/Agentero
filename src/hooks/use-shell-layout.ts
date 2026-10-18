@@ -76,8 +76,9 @@ export function useShellLayout(vaultPath: string | null = null): ShellLayout {
 	const sourcePanelRef = usePanelRef();
 	const sidebarAsideRef = useRef<HTMLElement>(null);
 	const editorPaneRef = useRef<HTMLDivElement>(null);
-	// Seed from persisted per-layout ratios so the first paint already matches
-	// the remembered arrangement (see lib/shell/layout-persist.ts).
+	// Seed the left rail from its per-layout ratio and the Agent rail from its
+	// global width so the first paint already matches the remembered
+	// arrangement (see lib/shell/layout-persist.ts).
 	const bootWidths = useMemo(
 		() =>
 			seedBootWidths(
