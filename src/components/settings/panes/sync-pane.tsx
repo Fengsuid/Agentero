@@ -499,21 +499,16 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 			</div>
 
 			{isGit ? (
-				<>
-					<SettingsGroup>
-						<SettingsRow label={t("sync.gitRemote")} htmlFor="sync-gitRemote">
-							{field("gitRemote", {
-								placeholder: "git@github.com:you/papers.git",
-							})}
-						</SettingsRow>
-						<SettingsRow label={t("sync.gitBranch")} htmlFor="sync-gitBranch">
-							{field("gitBranch", { placeholder: "main" })}
-						</SettingsRow>
-					</SettingsGroup>
-					<p className="mt-2 text-muted-foreground text-xs">
-						{t("sync.gitAuthHint")} {t("sync.gitFullVaultHint")}
-					</p>
-				</>
+				<SettingsGroup>
+					<SettingsRow label={t("sync.gitRemote")} htmlFor="sync-gitRemote">
+						{field("gitRemote", {
+							placeholder: "git@github.com:you/papers.git",
+						})}
+					</SettingsRow>
+					<SettingsRow label={t("sync.gitBranch")} htmlFor="sync-gitBranch">
+						{field("gitBranch", { placeholder: "main" })}
+					</SettingsRow>
+				</SettingsGroup>
 			) : isWebdav ? (
 				<SettingsGroup>
 					<SettingsRow label={t("sync.serverUrl")} htmlFor="sync-webdavUrl">
