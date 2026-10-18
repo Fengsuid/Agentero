@@ -222,7 +222,7 @@ papers.cool 给几乎所有链接都加了 `target="_blank"`（单个分区页�
 
 **命令**：`recommend_arxiv`（算，含 stale 短路）、`recommend_arxiv_last`（只读存量）。`AppSettingsStore` 必须在 `.await` 之前读（managed state 不能跨 await）。
 
-> 这是 **profile 模式**（库画像 → 排序），依赖 catalog 与 embedding 端点。与之互补的 **query 模式**（关键词/分类/日期 → 确定性词法排序，无 Vault、无 key）已落在 `agentero-core` 的 `features::paper::discovery::discover`，经 `agentero discover arxiv` 暴露给 headless CLI / Agent（见 [../backend/cli.md](../backend/cli.md#发现discover)）。两者共用同一套 arXiv Atom 客户端（`scholar_api::sources::arxiv`），后续可收敛到统一的 `DiscoveryQuery` / source / ranker 抽象。
+> 这是 **profile 模式**（库画像 → 排序），依赖 catalog 与 embedding 端点。与之互补的 **query 模式**（关键词/分类/日期 → 确定性词法排序，无 Vault、无 key）已落在 `agentero-core` 的 `features::paper::discovery::discover`，经 `agentero discover arxiv` 暴露给 headless CLI / Agent（见 [../backend/cli.md](../backend/cli.md#discover)）。两者共用同一套 arXiv Atom 客户端（`scholar_api::sources::arxiv`），后续可收敛到统一的 `DiscoveryQuery` / source / ranker 抽象。
 
 **vault 打开自动刷新**：`src/lib/lifecycle/register.ts` 的 `vault:opened` handler 里 fire-and-forget 调 `recommendArxiv`，仅本地 vault。因为命令自身 stale-only + 未配置早退，这里不做任何判断——作用是**预热当天结果**，让面板下次秒开。
 

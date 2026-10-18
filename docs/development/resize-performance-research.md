@@ -41,7 +41,7 @@
 - **一手证据**：
   - VS Code 的编辑器容器尺寸观察者 `ElementSizeObserver` 注释明确写着「We want to react to the resize observer only once per animation frame」，实现用 `scheduleAtNextAnimationFrame` 做「本帧已处理过就推到下一帧」。[源码] [[elementSizeObserver.ts](https://github.com/microsoft/vscode/blob/main/src/vs/editor/browser/config/elementSizeObserver.ts)]
   - Dockview 7 的 sash 拖动是 **`pointermove` 直接同步 `resize() → layoutViews()`**（document 级监听，无 rAF、无 pointer capture）。[源码]（`splitview.js` 的 `onPointerMove`）
-  - 本项目已实现同层修补：`installDockviewSashFrameLoop()` 在每个显示帧只向 document 重放**最新**一个 pointermove，并在 pointerup 前 flush。[源码] [dockview-sash.ts](src/lib/workspace/dockview-sash.ts)
+  - 本项目已实现同层修补：`installDockviewSashFrameLoop()` 在每个显示帧只向 document 重放**最新**一个 pointermove，并在 pointerup 前 flush。[源码] [dockview-sash.ts](https://github.com/poco-ai/agentero/blob/main/src/lib/workspace/dockview-sash.ts)
 - **代价/限制**：必须保证手势结束前 flush 最后坐标，否则最终尺寸会差最后一帧；`pointercancel`/`blur`/`contextmenu` 都要收敛为结束路径（仓库已覆盖）。
 - **注意**：这条只覆盖 **sash 拖动**。窗口边缘拖动由系统驱动，不经过 pointermove，需要另配（见 §2.1）。
 
@@ -67,7 +67,7 @@
 
 ### 1.5 「拖动期间冻结内容宽度，松手再重排」的具体做法
 
-- **本项目已经实现**：`createMarkdownResizeFreeze()` 在 sash 手势开始时，把每个 live 编辑器内容盒 `style.width` 钉在拖动前的 `getBoundingClientRect().width`，并把滚动容器 `overflow-x` 设为 hidden；手势结束时还原，文档只重排一次。注释记录实测：4000 个 block 的整篇重排约 **16.5ms/次**——每帧一次就是持续掉帧。[源码] [markdown-resize-freeze.ts](src/lib/workspace/markdown-resize-freeze.ts)
+- **本项目已经实现**：`createMarkdownResizeFreeze()` 在 sash 手势开始时，把每个 live 编辑器内容盒 `style.width` 钉在拖动前的 `getBoundingClientRect().width`，并把滚动容器 `overflow-x` 设为 hidden；手势结束时还原，文档只重排一次。注释记录实测：4000 个 block 的整篇重排约 **16.5ms/次**——每帧一次就是持续掉帧。[源码] [markdown-resize-freeze.ts](https://github.com/poco-ai/agentero/blob/main/src/lib/workspace/markdown-resize-freeze.ts)
 - **外部对照**：没有找到 VS Code / Obsidian 官方源码里「钉宽度」的同名实现（Obsidian 用的是 debounce 内部回调，见 §1.4），但二者目标一致：**把 O(文档) 的工作从每帧降为每手势一次**。[推断]
 - **代价/限制**：
   1. 需要 `contain: paint`（或 hidden overflow）让超出部分被裁剪，否则会画出界；
@@ -124,7 +124,7 @@
 ### 1.12 用 CSS containment 隔离失效范围
 
 - **解决什么**：拖动期间让「重排/重绘」不跨面板传播，同时让面板内容溢出被裁剪（配合 §1.5 的钉宽度）。
-- **本项目已用**：拖动期间给 `.dv-view` / `.dv-render-overlay` 加 `contain: layout paint`。[源码] [index.css](src/index.css)
+- **本项目已用**：拖动期间给 `.dv-view` / `.dv-render-overlay` 加 `contain: layout paint`。[源码] [index.css](https://github.com/poco-ai/agentero/blob/main/src/index.css)
 - **平台注意事项**：`contain: layout` 会创建包含块/层叠上下文，可能影响 `position: fixed` 子元素、以及某些测量（`offsetParent`）；Dockview 的 `Resizable` 就用 `!element.offsetParent` 判定 `display:none`。[源码]
 - **[推断]** 对 WKWebView，`contain: paint` 的收益主要是「裁剪 + 减少重绘传播」；是否像 Chromium 那样显著减少 layout 工作量，需要实测（WKWebView 没有 Chromium 的 layout containment 快速路径的公开证据）。
 
@@ -132,7 +132,7 @@
 
 - **解决什么**：让视口外的顶层块跳过布局与绘制，长文档滚动/换行成本大幅下降（Chromium/Gecko）。
 - **WebKit 的反例**：WebKit #276735「[content-visibility] Consider using a threshold for `content-visibility: auto`」仍为 open/new。[一手] [[WebKit #276735](https://bugs.webkit.org/show_bug.cgi?id=276735)]
-- **本项目做法（值得保留）**：`html[data-offscreen-md-blocks]` 属性由 `initPaintOptimizations()` 按引擎开启，WebKit 下**不启用**；`contain-intrinsic-size: auto 4rem` 缓存实测高度。[源码] [paint-perf.ts](src/lib/core/paint-perf.ts)、[index.css](src/index.css)
+- **本项目做法（值得保留）**：`html[data-offscreen-md-blocks]` 属性由 `initPaintOptimizations()` 按引擎开启，WebKit 下**不启用**；`contain-intrinsic-size: auto 4rem` 缓存实测高度。[源码] [paint-perf.ts](https://github.com/poco-ai/agentero/blob/main/src/lib/core/paint-perf.ts)、[index.css](https://github.com/poco-ai/agentero/blob/main/src/index.css)
 - **代价**：首次出现的块用 fallback 高度会造成滚动条跳动；`:focus-within` 期间关闭以避免编辑/IME 语义变化（仓库已这么做）。
 
 ### 1.14 ResizeObserver 反馈环 / 抖动：已知陷阱与规避
@@ -146,7 +146,7 @@
   3. **不要让「写尺寸」的代码路径再次触发同一 observer**：例如 `content-visibility`/`contain` 造成的尺寸回写要用固定外框、不要用内容反推容器；
   4. **区分 box**：需要含边框用 `{ box: 'border-box' }`（TanStack Virtual 就这么做），避免 `contentRect` 与样式写入互相追赶；
   5. **加「拖动中」门闩**：拖动期间直接跳过一次回调（本项目 PDF gate 就是这么做的）。
-- **本项目已有对应实现**：`createPdfViewportResizeGate()` —— rAF 合并 + 拖动期间挂起 + 结束时只提交一次。[源码] [dockview-resize.ts](src/lib/pdf/dockview-resize.ts)
+- **本项目已有对应实现**：`createPdfViewportResizeGate()` —— rAF 合并 + 拖动期间挂起 + 结束时只提交一次。[源码] [dockview-resize.ts](https://github.com/poco-ai/agentero/blob/main/src/lib/pdf/dockview-resize.ts)
 
 ### 1.15 避免 React 因「每帧容器尺寸」重渲染
 

@@ -197,7 +197,7 @@ agentero import id 1706.03762 --parent papers/nlp --json
 
 `--parent` 是 **vault-relative** 的父目录，最终论文目录名由 resolver 根据论文 ID 决定，不是完全自定义路径。导入成功后会返回 `path`、`id`、`title` 以及 `pdf` / `tex` / `paperMd` 等资源旗标。
 
-付费文献 PDF 兜底：CLI 启动时读取桌面同一份 `settings.json` 的机构代理三字段（`institutionProxyType` / `institutionProxyPrefix` / `institutionProxyCookie`）并注入进程级下载链，因此 `import id` 与 `paper download` 在 OA 链路全未命中时会按桌面配置的 EZProxy/WebVPN 网关重写请求（见 [settings.md](settings.md#机构代理)）。未配置时保持直连、不带 Cookie。
+付费文献 PDF 兜底：CLI 启动时读取桌面同一份 `settings.json` 的机构代理三字段（`institutionProxyType` / `institutionProxyPrefix` / `institutionProxyCookie`）并注入进程级下载链，因此 `import id` 与 `paper download` 在 OA 链路全未命中时会按桌面配置的 EZProxy/WebVPN 网关重写请求（见 [settings.md](settings.md)）。未配置时保持直连、不带 Cookie。
 
 ### 导入本地 PDF
 
@@ -308,7 +308,7 @@ agentero paper open papers/nlp/attention --json
 
 ## 云同步（`sync`）
 
-无桌面环境（服务器等）下的双向 Vault 同步；与桌面端共用 `agentero-core::features::sync` 引擎与 XDG `sync.json` 绑定。S3/WebDAV 的冲突处理（三方合并 + 冲突副本）、条件写降级、断点续传与空转短路语义完全一致；Git 后端走独立的 work-tree 同步（原生 merge、冲突 abort），见 [sync.md](sync.md#git-后端)。
+无桌面环境（服务器等）下的双向 Vault 同步；与桌面端共用 `agentero-core::features::sync` 引擎与 XDG `sync.json` 绑定。S3/WebDAV 的冲突处理（三方合并 + 冲突副本）、条件写降级、断点续传与空转短路语义完全一致；Git 后端走独立的 work-tree 同步（原生 merge、冲突 abort），见 [sync.md](sync.md#git)。
 
 ```bash
 # 服务器首次接入已有远端库（vault 从未同步过时自动采纳远端 vaultId 完成加入）
