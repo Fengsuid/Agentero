@@ -189,4 +189,4 @@ agentero --help
 
 ## 开源许可证
 
-本项目基于 [MIT License](LICENSE) 协议开源。
+本项目基于 [MIT License](LICENSE) 协议开源。第三方组件与许可证清单见 [.github/THIRD_PARTY_NOTICES.md](.github/THIRD_PARTY_NOTICES.md)。
