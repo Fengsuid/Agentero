@@ -5,9 +5,6 @@ import { logger } from "@/lib/core/logger";
 import { enqueueTask, enqueueTaskSettled } from "@/lib/core/tasks";
 import { isTauri } from "@/lib/core/tauri";
 
-/** Wire shape from the generated bindings. */
-export type { LayoutModelStatus };
-
 /** Local custom-protocol URL for the XDG-cached ONNX (Host serves the file). */
 export function layoutModelLocalUrl(fileName = "pp-doclayoutv3.onnx"): string {
 	const origin = navigator.userAgent.includes("Windows")

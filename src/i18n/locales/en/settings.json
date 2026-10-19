@@ -482,11 +482,6 @@
 			"overlay": "Overlay on original PDF",
 			"dualPane": "Dual pane"
 		},
-		"dualPaneSource": {
-			"label": "Dual pane source",
-			"pdf": "PDF layout translation",
-			"latex": "Translated LaTeX source"
-		},
 		"providerConfig": {
 			"section": "API Services",
 			"confirm": "Confirm",

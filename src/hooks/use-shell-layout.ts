@@ -32,8 +32,8 @@ import { dockHandle } from "@/lib/workspace/dock-registry";
 import { getActiveTabId, getTabs } from "@/lib/workspace/store";
 import { tabHasNotesSplit, tabNotesEligible } from "@/lib/workspace/tabs";
 
-export const SIDEBAR_DEFAULT_PX = 200;
-export const RIGHT_SIDEBAR_DEFAULT_PX = 320;
+const SIDEBAR_DEFAULT_PX = 200;
+const RIGHT_SIDEBAR_DEFAULT_PX = 320;
 // Keep in sync with the Panel min/max constraints in App.tsx.
 export const SIDEBAR_MIN_PX = 160;
 export const SIDEBAR_MAX_RATIO = 0.3;
@@ -60,7 +60,7 @@ const RIGHT_LIMITS: RailLimits = {
 	maxRatio: RIGHT_SIDEBAR_MAX_RATIO,
 };
 
-export type ShellLayout = {
+type ShellLayout = {
 	sidebarPanelRef: ReturnType<typeof usePanelRef>;
 	rightSidebarPanelRef: ReturnType<typeof usePanelRef>;
 	sourcePanelRef: ReturnType<typeof usePanelRef>;

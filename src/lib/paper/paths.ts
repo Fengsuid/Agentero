@@ -59,12 +59,6 @@ export function isPaperAssetPath(path: string | null): boolean {
 	);
 }
 
-/** `{paperDir}/attachments` — optional extras bucket (not created empty). */
-export function attachmentsPathForPaper(paperDir: string): string {
-	const sep = paperDir.endsWith("/") ? "" : "/";
-	return `${paperDir}${sep}${PAPER_ATTACHMENTS_DIR}`;
-}
-
 /** `<paperDir>/NOTES.md` — structured notes for the paper. */
 export function notesPathForPaper(paperDir: string): string {
 	const sep = paperDir.endsWith("/") ? "" : "/";

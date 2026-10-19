@@ -38,10 +38,6 @@ export function layoutLabelToKind(label: string): PdfLayoutKind | null {
 	return LABEL_TO_KIND[key] ?? null;
 }
 
-export function isTargetLayoutLabel(label: string): boolean {
-	return layoutLabelToKind(label) !== null;
-}
-
 /** Sidebar “Figures” section: image + chart (same gallery group). */
 export function isFigureLayoutKind(kind: PdfLayoutKind): boolean {
 	return kind === "image" || kind === "chart";

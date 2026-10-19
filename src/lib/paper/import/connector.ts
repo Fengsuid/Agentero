@@ -4,7 +4,6 @@
  */
 
 import {
-	type ConnectorItemSaved,
 	type ConnectorProgress,
 	type ConnectorStatus,
 	commands,
@@ -13,7 +12,7 @@ import { callApi, callApiResult } from "@/lib/core/ipc";
 import { isTauri } from "@/lib/core/tauri";
 
 /** Wire shapes from the generated bindings (also the event payloads). */
-export type { ConnectorItemSaved, ConnectorProgress, ConnectorStatus };
+export type { ConnectorProgress, ConnectorStatus };
 
 export async function connectorGetStatus(): Promise<ConnectorStatus> {
 	if (!isTauri()) {

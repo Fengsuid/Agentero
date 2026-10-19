@@ -88,12 +88,6 @@ export type {
 	LayoutTranslateSentence,
 } from "@/lib/pdf/layout/types";
 
-export type LayoutTranslateJobStatus =
-	| "idle"
-	| "running"
-	| "done"
-	| "cancelled";
-
 export type LayoutTranslateCacheKey = {
 	providerId: TranslateProviderId;
 	sourceLang: string;

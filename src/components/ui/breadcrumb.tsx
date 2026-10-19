@@ -1,5 +1,4 @@
-import { ChevronRight, MoreHorizontal } from "lucide-react";
-import { Slot } from "radix-ui";
+import { ChevronRight } from "lucide-react";
 import type * as React from "react";
 
 import { cn } from "@/lib/core/utils";
@@ -38,24 +37,6 @@ function BreadcrumbItem({ className, ...props }: React.ComponentProps<"li">) {
 	);
 }
 
-function BreadcrumbLink({
-	asChild,
-	className,
-	...props
-}: React.ComponentProps<"a"> & {
-	asChild?: boolean;
-}) {
-	const Comp = asChild ? Slot.Root : "a";
-
-	return (
-		<Comp
-			data-slot="breadcrumb-link"
-			className={cn("transition-colors hover:text-foreground", className)}
-			{...props}
-		/>
-	);
-}
-
 function BreadcrumbPage({ className, ...props }: React.ComponentProps<"span">) {
 	return (
 		// biome-ignore lint/a11y/useFocusableInteractive: non-interactive current page marker
@@ -89,31 +70,9 @@ function BreadcrumbSeparator({
 	);
 }
 
-function BreadcrumbEllipsis({
-	className,
-	...props
-}: React.ComponentProps<"span">) {
-	return (
-		<span
-			data-slot="breadcrumb-ellipsis"
-			role="presentation"
-			aria-hidden="true"
-			className={cn(
-				"flex size-5 items-center justify-center [&>svg]:size-4",
-				className,
-			)}
-			{...props}
-		>
-			<MoreHorizontal className="size-4" />
-		</span>
-	);
-}
-
 export {
 	Breadcrumb,
-	BreadcrumbEllipsis,
 	BreadcrumbItem,
-	BreadcrumbLink,
 	BreadcrumbList,
 	BreadcrumbPage,
 	BreadcrumbSeparator,

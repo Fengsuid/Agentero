@@ -17,13 +17,10 @@ export {
 export {
 	applyChromeFontCss,
 	applyDocumentChrome,
-	DEFAULT_SANS_STACK,
 	FONT_STACK_PRESETS,
 	type FontRole,
 	type FontStackPreset,
-	fontFamilyDisplayKey,
 	GEIST_SANS_STACK,
-	invalidateSystemFontsCache,
 	isFontStackPreset,
 	listSystemFonts,
 	MONO_STACK,

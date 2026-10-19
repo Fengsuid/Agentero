@@ -24,13 +24,6 @@ export const MARKS_FOLDER = "marks";
 /** Aggregate EmbedPDF annotations file name under `marks/` (not a per-id mark). */
 export const ANNOTATIONS_JSON = "annotations.json";
 
-export type PdfMarkKind =
-	| "ask"
-	| "highlight"
-	| "translate"
-	| "visual"
-	| "agent-trace";
-
 export function marksDir(paperAbsPath: string): string {
 	return joinVaultPath(paperAbsPath, MARKS_FOLDER);
 }

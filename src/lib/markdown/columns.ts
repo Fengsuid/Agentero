@@ -40,14 +40,6 @@ type MdNode = {
 	children?: MdNode[];
 };
 
-export function isColumnGroup(node: TElement): boolean {
-	return node.type === COLUMN_GROUP_KEY;
-}
-
-export function isColumn(node: TElement): boolean {
-	return node.type === COLUMN_KEY;
-}
-
 function isContainerDirective(node: MdNode, name: string): boolean {
 	return node.type === "containerDirective" && node.name === name;
 }

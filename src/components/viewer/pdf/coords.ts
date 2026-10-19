@@ -42,18 +42,6 @@ export function rectTopCenterScreen(
 	};
 }
 
-export function rectRightScreen(
-	pageEl: HTMLElement,
-	rect: Rect,
-	zoom: number,
-): { x: number; y: number } {
-	const box = pageEl.getBoundingClientRect();
-	return {
-		x: box.left + (rect.origin.x + rect.size.width) * zoom + 8,
-		y: box.top + rect.origin.y * zoom,
-	};
-}
-
 export function rectBottomCenterScreen(
 	pageEl: HTMLElement,
 	rect: Rect,

@@ -117,16 +117,3 @@ export function nextHistoryIndexOnDown(
 	if (currentIndex >= promptCount - 1) return null;
 	return currentIndex + 1;
 }
-
-/** Place the caret at the end of a controlled textarea after React commits. */
-export function placeCaretAtEnd(el: HTMLTextAreaElement | null, text: string) {
-	if (!el) return;
-	const len = text.length;
-	requestAnimationFrame(() => {
-		try {
-			el.setSelectionRange(len, len);
-		} catch {
-			// ignore detached / non-focusable nodes
-		}
-	});
-}

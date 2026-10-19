@@ -6,7 +6,6 @@ export {
 	type SkillThemeId,
 } from "@/lib/plaza/skill-catalog";
 export {
-	isPlazaRootPath,
 	isPlazaVirtualPath,
 	PLAZA_SOURCES,
 	PLAZA_VIRTUAL_PATH,

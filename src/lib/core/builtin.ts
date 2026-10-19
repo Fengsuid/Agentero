@@ -12,7 +12,6 @@ import { isTauri } from "@/lib/core/tauri";
 
 /** Provider id literal, mirrored from the Host `BUILTIN_PROVIDER_ID`. */
 export const BUILTIN_PROVIDER_ID = "agentero" as const;
-export type BuiltinProviderId = typeof BUILTIN_PROVIDER_ID;
 
 /** Resolved status, or `null` when unavailable / not in a desktop build. */
 let cached: BuiltinProviderStatus | null | undefined;

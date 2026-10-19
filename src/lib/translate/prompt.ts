@@ -12,13 +12,6 @@
  * not replace the engine rules.
  */
 
-/** Placeholders a custom translate template may contain. */
-export const TRANSLATE_PROMPT_PLACEHOLDERS = [
-	"targetLang",
-	"sourceLang",
-	"text",
-] as const;
-
 const PLACEHOLDER_RE = /\{\{\s*([^{}]+?)\s*\}\}/g;
 
 /** Names of `{{…}}` tokens that are not targetLang / sourceLang / text. */

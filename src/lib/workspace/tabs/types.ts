@@ -97,7 +97,7 @@ export type TabResources = {
 	loaded: true;
 	/** Non-fatal message to surface (e.g. unpreviewable file). */
 	error?: string;
-	/** True when this load triggered `paper_download_assets` (tree may need refresh). */
+	/** True when this load triggered a `DownloadAssets` job (tree may need refresh). */
 	didDownloadAssets?: boolean;
 };
 

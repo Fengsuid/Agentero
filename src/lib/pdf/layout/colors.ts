@@ -50,25 +50,6 @@ export const LAYOUT_KIND_BORDER: Record<PdfLayoutKind, string> = {
 	text: "rgba(148, 163, 184, 0.2)",
 };
 
-/** Tailwind-friendly classes for section headers / badges (light + dark). */
-export const LAYOUT_KIND_BADGE_CLASS: Record<PdfLayoutKind, string> = {
-	image: "bg-amber-500/15 text-amber-700 ring-amber-500/40 dark:text-amber-300",
-	chart:
-		"bg-orange-500/15 text-orange-700 ring-orange-500/40 dark:text-orange-300",
-	table:
-		"bg-emerald-500/15 text-emerald-700 ring-emerald-500/40 dark:text-emerald-300",
-	algorithm:
-		"bg-indigo-500/15 text-indigo-700 ring-indigo-500/40 dark:text-indigo-300",
-	formula: "bg-cyan-500/15 text-cyan-700 ring-cyan-500/40 dark:text-cyan-300",
-	formula_number:
-		"bg-cyan-600/10 text-cyan-800 ring-cyan-600/30 dark:text-cyan-200",
-	figure_title: "bg-muted text-muted-foreground ring-border",
-	header: "bg-pink-500/15 text-pink-700 ring-pink-500/40 dark:text-pink-300",
-	abstract:
-		"bg-purple-500/15 text-purple-700 ring-purple-500/40 dark:text-purple-300",
-	text: "bg-muted text-muted-foreground ring-border",
-};
-
 export function layoutKindHex(kind: PdfLayoutKind): string {
 	return LAYOUT_KIND_HEX[kind];
 }

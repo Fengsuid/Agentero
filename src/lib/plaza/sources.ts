@@ -125,10 +125,6 @@ export function isPlazaVirtualPath(path: string | null | undefined): boolean {
 	);
 }
 
-export function isPlazaRootPath(path: string | null | undefined): boolean {
-	return path === PLAZA_VIRTUAL_PATH;
-}
-
 /** The source owning this path, or `null` for the Plaza root / non-Plaza paths. */
 export function plazaSourceForPath(
 	path: string | null | undefined,

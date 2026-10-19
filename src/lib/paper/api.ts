@@ -9,7 +9,6 @@ import {
 	commands,
 	type PaperMetaPatch as PaperMetaPatchWire,
 	type PaperRecord_Serialize as PaperRecordWire,
-	type PaperRescanResult,
 	type PaperTag as PaperTagWire,
 	type TrashEntry,
 	type TrashResult,
@@ -141,8 +140,6 @@ export async function listPapers(
 	});
 	return rows.map(paperFromWire);
 }
-
-export type { PaperRescanResult };
 
 /** Rebuild catalog rows from papers/ on disk (recover disk-only papers). */
 export async function rescanPapers(vaultPath: string): Promise<number> {

@@ -9,7 +9,6 @@ import i18n from "@/i18n";
 import {
 	commands,
 	type LookupImportResult_Serialize,
-	type SkillCandidate,
 	type SkillDiscovery,
 	type SkillImportResult,
 } from "@/lib/core/bindings";
@@ -37,7 +36,7 @@ export type LookupAddResult = {
 	recognizePending?: boolean;
 };
 
-export type { SkillCandidate, SkillDiscovery, SkillImportResult };
+export type { SkillDiscovery, SkillImportResult };
 
 /** One importable hit from a magic-wand title search. */
 export type PaperSearchCandidate = {

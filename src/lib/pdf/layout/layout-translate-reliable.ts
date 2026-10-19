@@ -39,26 +39,11 @@ export {
 	currentLayoutTranslateCacheKey,
 	groupLayoutTranslateItemsByPage,
 	hasPendingLayoutTranslateItems,
-	LAYOUT_TRANSLATE_CONCURRENCY,
-	LAYOUT_TRANSLATE_SIDECAR_FILE,
-	LAYOUT_TRANSLATE_SIDECAR_SCHEMA_VERSION,
-	type LayoutTranslateCacheKey,
-	type LayoutTranslateSidecar,
-	type LayoutTranslateSidecarItem,
-	layoutRegionSourceText,
-	layoutTranslateSidecarPath,
-	parseLayoutTranslateSidecar,
 	persistLayoutTranslateSidecarBestEffort,
 	readLayoutTranslateSidecar,
 	toLayoutTranslateItems,
-	writeLayoutTranslateSidecar,
 } from "@/lib/pdf/layout/layout-translate";
-export type {
-	LayoutTranslateItem,
-	LayoutTranslateItemStatus,
-	LayoutTranslateRegion,
-	LayoutTranslateSentence,
-} from "@/lib/pdf/layout/types";
+export type { LayoutTranslateItem } from "@/lib/pdf/layout/types";
 
 /**
  * Per-request cap for one oversized layout block. Keeping chunks around 2.2k

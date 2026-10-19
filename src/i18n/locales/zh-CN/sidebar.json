@@ -392,7 +392,6 @@
 		},
 		"tagColor": "标签颜色",
 		"tagColorDefault": "默认（无颜色）",
-		"tagColorNamed": "颜色 {{color}}",
 		"tagsDesktopOnly": "编辑标签需要桌面应用。",
 		"tagsSaveFailed": "保存标签失败。",
 		"pdf": "arXiv",

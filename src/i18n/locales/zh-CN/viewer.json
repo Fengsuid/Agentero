@@ -61,13 +61,7 @@
 			"tabTitle": "译文 – {{title}}"
 		},
 		"latexTranslation": {
-			"desktopOnly": "LaTeX 翻译仅在桌面端可用。",
-			"noSource": "该论文没有可翻译的本地 LaTeX 源。",
-			"missingPaperPath": "论文路径缺失，无法启动 LaTeX 翻译。",
-			"translating": "正在翻译 LaTeX 源…",
-			"compiling": "正在编译翻译后的 LaTeX…",
-			"compileFailed": "编译翻译后的 LaTeX 失败，请检查是否已安装 TeX 引擎。",
-			"tabTitle": "LaTeX 译文"
+			"missingPaperPath": "论文路径缺失，无法启动 LaTeX 翻译。"
 		}
 	},
 	"pdfAsk": {
@@ -232,7 +226,6 @@
 		"translateNoAgent": "没有可用的 Agent 进行翻译，请先在设置 → Agent 中配置。",
 		"translateOpenSettings": "打开翻译设置",
 		"annotationCount": "{{count}} 条批注",
-		"selectedText": "引用原文",
 		"userComment": "批注",
 		"noComment": "未添加批注",
 		"locateSource": "定位原文",

@@ -25,8 +25,8 @@ import zhShortcuts from "./locales/zh-CN/shortcuts.json";
 import zhSidebar from "./locales/zh-CN/sidebar.json";
 import zhViewer from "./locales/zh-CN/viewer.json";
 
-export const SUPPORTED_LOCALES = ["en", "zh-CN"] as const;
-export type Locale = (typeof SUPPORTED_LOCALES)[number];
+const SUPPORTED_LOCALES = ["en", "zh-CN"] as const;
+type Locale = (typeof SUPPORTED_LOCALES)[number];
 
 export const DEFAULT_NS = "common";
 
@@ -60,7 +60,7 @@ export const resources = {
 } as const;
 
 /** Resolve a stored preference to a concrete BCP-47 locale we ship. */
-export function resolveLocale(pref: LocalePreference): Locale {
+function resolveLocale(pref: LocalePreference): Locale {
 	if (pref === "en" || pref === "zh-CN") return pref;
 	const nav =
 		typeof navigator !== "undefined" && navigator.language

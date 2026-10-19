@@ -47,7 +47,6 @@ export {
 	revokePdfViewerSource,
 } from "@/lib/paper/media";
 export {
-	attachmentsPathForPaper,
 	isPaperAssetPath,
 	isPaperAttachmentsDirName,
 	isPaperInternalDirName,

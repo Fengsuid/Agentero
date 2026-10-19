@@ -1,21 +1,18 @@
 /**
- * Session history: provider session listing (resume support), opening a
- * history row (local hydrate vs remote session/load), and the cross-window
- * agent-session open request (visual-trace rebuild + fallback).
+ * Session history: provider session listing (resume support) and opening a
+ * history row (local hydrate vs remote session/load).
  */
 import {
 	type Dispatch,
 	type SetStateAction,
 	useCallback,
 	useEffect,
-	useRef,
 	useState,
 } from "react";
 import type {
 	AgentPanelRefs,
 	AgentPanelT,
 } from "@/components/agent/hooks/use-agent-panel-context";
-import { useUiStore } from "@/hooks/use-app-stores";
 import { formatLocaleTimestamp } from "@/i18n";
 import {
 	type AcpLoadSessionResult,
@@ -51,12 +48,7 @@ import {
 } from "@/lib/agent/prompt-display";
 import { isTauri } from "@/lib/core/tauri";
 import { mapLimit } from "@/lib/core/utils";
-import {
-	buildVisualTraceHistoryItem,
-	visualTraceHistoryId,
-} from "@/lib/pdf/agent-trace/open-session";
-import { nextLineId, nextPartId } from "@/lib/pdf-visual/ids";
-import { clearAgentSessionOpenRequest } from "@/lib/shell/ui-store";
+import { nextLineId } from "@/lib/pdf-visual/ids";
 
 /** Strip Host/Codex machine envelopes so Chat never shows system preamble. */
 export const sanitizeChatLines = (raw: ChatLine[]): ChatLine[] =>
@@ -374,7 +366,6 @@ export type UseAgentHistoryOptions = {
 	i18nLanguage: string;
 	vaultPath: string | null;
 	selectedAgentId: string | null;
-	setSelectedAgentId: Dispatch<SetStateAction<string | null>>;
 	selected: AgentOption | undefined;
 	setSessionHistory: (
 		update:
@@ -414,7 +405,6 @@ export function useAgentHistory({
 	i18nLanguage,
 	vaultPath,
 	selectedAgentId,
-	setSelectedAgentId,
 	selected,
 	setSessionHistory,
 	setLines,
@@ -527,8 +517,6 @@ export function useAgentHistory({
 		historyGenRef,
 		sessionHistoryRef,
 	]);
-
-	const agentSessionOpenRequest = useUiStore((s) => s.agentSessionOpenRequest);
 
 	const openHistorySession = (item: ChatSessionHistoryItem) => {
 		if (submittingRef.current) return;
@@ -683,153 +671,6 @@ export function useAgentHistory({
 			}
 		})();
 	};
-
-	const openHistorySessionRef = useRef(openHistorySession);
-	openHistorySessionRef.current = openHistorySession;
-
-	useEffect(() => {
-		const request = agentSessionOpenRequest;
-		if (!request) return;
-		if (request.agentId && request.agentId !== selectedAgentId) {
-			setSelectedAgentId(request.agentId);
-			// Wait for history reload after agent switch.
-			return;
-		}
-		if (!historyLoaded) return;
-
-		const vt = request.visualTrace;
-		// Prefer stable visual-trace history id so multi-turn pin opens one session.
-		const stableId = vt?.traceId
-			? visualTraceHistoryId(vt.traceId)
-			: request.runtimeSessionId;
-
-		const match = sessionHistoryRef.current.find(
-			(item) =>
-				item.id === stableId ||
-				item.id === request.runtimeSessionId ||
-				item.providerSessionId === request.runtimeSessionId ||
-				(request.providerSessionId != null &&
-					(item.id === request.providerSessionId ||
-						item.providerSessionId === request.providerSessionId)),
-		);
-
-		if (vt) {
-			// Always rebuild lines from mark transcript (full multi-turn + image chip).
-			const rebuilt = buildVisualTraceHistoryItem({
-				trace: {
-					id: vt.traceId,
-					page: vt.page,
-					comment: vt.comment,
-					paperPath: vt.paperPath ?? "",
-					image: vt.image,
-					agent: {
-						agentId: request.agentId,
-						runtimeSessionId: request.runtimeSessionId,
-						messageId: request.messageId ?? "pending",
-						providerSessionId: request.providerSessionId ?? undefined,
-						status: vt.status ?? "completed",
-						messages: vt.messages,
-						answerSnapshot: request.answerSnapshot,
-					},
-				},
-				messages: vt.messages,
-				title:
-					request.title?.trim() ||
-					request.prompt?.trim() ||
-					t("composer.visualAnnotation"),
-				agentName: selected?.name ?? t("defaultName"),
-				startedAt:
-					match?.startedAt || formatLocaleTimestamp(new Date(), i18nLanguage),
-				emptyFallback: t("composer.visualAnnotation"),
-				paperAbsPath: request.paperAbsPath,
-			});
-			// Merge into existing slot if present; drop duplicate runtime-id entries.
-			setSessionHistory((prev) => {
-				const withoutDupes = prev.filter(
-					(item) =>
-						item.id !== rebuilt.id &&
-						item.id !== request.runtimeSessionId &&
-						!(
-							request.providerSessionId &&
-							(item.id === request.providerSessionId ||
-								item.providerSessionId === request.providerSessionId)
-						),
-				);
-				return [rebuilt, ...withoutDupes];
-			});
-			openHistorySessionRef.current(rebuilt);
-			clearAgentSessionOpenRequest();
-			return;
-		}
-
-		if (match) {
-			openHistorySessionRef.current(match);
-			clearAgentSessionOpenRequest();
-			return;
-		}
-
-		const snapshot = request.answerSnapshot?.trim();
-		const fallbackLines: ChatLine[] = [
-			{
-				id: nextLineId("user"),
-				kind: "user",
-				text:
-					request.prompt?.trim() ||
-					request.title?.trim() ||
-					t("composer.visualAnnotation"),
-			},
-		];
-		if (snapshot) {
-			fallbackLines.push({
-				id: nextLineId("agent"),
-				kind: "agent",
-				parts: [
-					{
-						type: "text",
-						id: nextPartId("text"),
-						text: snapshot,
-					},
-				],
-				streaming: false,
-			});
-		} else {
-			fallbackLines.push({
-				id: nextLineId("sys"),
-				kind: "system",
-				text: t("messages.sessionUnavailable"),
-			});
-		}
-		const fallback: ChatSessionHistoryItem = {
-			id: stableId,
-			agentId: request.agentId,
-			source: "local",
-			title:
-				request.title?.trim() ||
-				request.prompt?.trim() ||
-				t("composer.visualAnnotation"),
-			agentName: selected?.name ?? t("defaultName"),
-			startedAt: formatLocaleTimestamp(new Date(), i18nLanguage),
-			lines: fallbackLines,
-			status: snapshot ? "completed" : "failed",
-			providerSessionId: request.providerSessionId ?? null,
-		};
-		setSessionHistory((prev) => [
-			fallback,
-			...prev.filter((item) => item.id !== fallback.id),
-		]);
-		openHistorySessionRef.current(fallback);
-		clearAgentSessionOpenRequest();
-	}, [
-		agentSessionOpenRequest,
-		historyLoaded,
-		i18nLanguage,
-		selected?.name,
-		selectedAgentId,
-		t,
-		setSessionHistory,
-		setSelectedAgentId,
-		sessionHistoryRef,
-	]);
 
 	return {
 		openHistorySession,

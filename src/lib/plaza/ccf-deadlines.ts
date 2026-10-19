@@ -18,9 +18,6 @@
 
 import { readJsonStorage, writeJsonStorage } from "@/lib/core/storage";
 
-/** Canonical public site (also the panel's upstream escape hatch). */
-export const CCF_DEADLINES_SOURCE_URL = "https://ccfddl.com/";
-
 /** Slim public dataset: latest + upcoming editions only. */
 export const CCF_DEADLINES_DATA_URL =
 	"https://ccfddl.com/conference/initial.json";

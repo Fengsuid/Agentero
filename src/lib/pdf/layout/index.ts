@@ -6,7 +6,6 @@ export {
 	type PointerOrigin,
 } from "@/lib/pdf/layout/click-guard";
 export {
-	LAYOUT_KIND_BADGE_CLASS,
 	LAYOUT_KIND_BORDER,
 	LAYOUT_KIND_FILL,
 	LAYOUT_KIND_HEX,
@@ -42,10 +41,8 @@ export {
 	pickLayoutRegionAtPoint,
 	pointInBbox,
 	rawLayoutRegionsByPage,
-	rawLayoutRegionsOnPage,
 } from "@/lib/pdf/layout/hit-test";
 export {
-	LAYOUT_INDEX_FILE,
 	LAYOUT_SIDECAR_FILE,
 	LAYOUT_SIDECAR_SCHEMA_VERSION,
 	layoutIndexPath,
@@ -72,7 +69,6 @@ export {
 	isLayoutTranslateHeadingKind,
 	isSidebarLayoutKind,
 	isTableLayoutKind,
-	isTargetLayoutLabel,
 	isTextLayoutKind,
 	layoutDedupeGroup,
 	layoutKindI18nKey,
@@ -96,27 +92,14 @@ export {
 	groupLayoutTranslateItemsByPage,
 	hasPendingLayoutTranslateItems,
 	isLayoutTranslateItemPainted,
-	LAYOUT_TRANSLATE_CONCURRENCY,
 	LAYOUT_TRANSLATE_MAX_CHARS,
-	LAYOUT_TRANSLATE_SIDECAR_FILE,
-	LAYOUT_TRANSLATE_SIDECAR_SCHEMA_VERSION,
-	type LayoutTranslateCacheKey,
 	type LayoutTranslateItem,
-	type LayoutTranslateItemStatus,
 	type LayoutTranslateJobStatus,
-	type LayoutTranslateRegion,
-	type LayoutTranslateSentence,
-	type LayoutTranslateSidecar,
-	type LayoutTranslateSidecarItem,
-	layoutRegionSourceText,
-	layoutTranslateSidecarPath,
 	listTranslatableLayoutRegions,
-	parseLayoutTranslateSidecar,
 	persistLayoutTranslateSidecarBestEffort,
 	readLayoutTranslateSidecar,
 	runLayoutRegionTranslate,
 	toLayoutTranslateItems,
-	writeLayoutTranslateSidecar,
 } from "@/lib/pdf/layout/layout-translate-reliable";
 export {
 	buildLayoutTranslateChains,
@@ -136,7 +119,6 @@ export {
 	type CaptionPlacement,
 	captionAttachScore,
 	captionCompatibleWithHost,
-	clipFigureBboxToTitleColumn,
 	compareLayoutReadingOrder,
 	connectedPanelGroups,
 	formulaSortAnchor,
@@ -165,7 +147,6 @@ export {
 export {
 	ensureLayoutModel,
 	getLayoutModelStatus,
-	type LayoutModelStatus,
 	layoutModelLocalUrl,
 	prefetchLayoutModel,
 } from "@/lib/pdf/layout/model";
@@ -186,9 +167,7 @@ export {
 	expandFocusBboxForOverlay,
 	type FocusedLayoutSnapshot,
 	type FocusedLayoutState,
-	getFocusedLayoutRegion,
 	getLayoutDocumentResult,
-	isLayoutOverlayVisible,
 	layoutAnalysisStore,
 	layoutDocumentKey,
 	layoutKindFromCitationFragment,
@@ -208,7 +187,6 @@ export {
 	captionRoleFromGeometry,
 	captionRoleFromText,
 	enrichCaptionRegionsWithText,
-	looksLikeFigureCaption,
 	resolveCaptionRole,
 	textFromRunsInBbox,
 } from "@/lib/pdf/layout/title-text";

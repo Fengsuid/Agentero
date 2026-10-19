@@ -6,7 +6,6 @@
  */
 
 import {
-	type AgentSessionOpenRequest,
 	layout,
 	openRightTabInRail,
 	type RightSidebarTab,
@@ -43,38 +42,6 @@ export function openRightTab(tab: RightSidebarTab): void {
 		async ({ preferFeatureWindow }) => {
 			if (await preferFeatureWindow(tab)) return;
 			openRightTabInRail(tab);
-		},
-	);
-}
-
-let agentSessionOpenNonce = 0;
-
-/** Request Agent panel to open a runtime/provider session (PDF pin click). */
-export function requestOpenAgentSession(
-	input: Omit<AgentSessionOpenRequest, "nonce">,
-): void {
-	agentSessionOpenNonce += 1;
-	const request: AgentSessionOpenRequest = {
-		...input,
-		nonce: agentSessionOpenNonce,
-	};
-	uiStore.setState({
-		agentSessionOpenRequest: request,
-	});
-	// Always try the agent singleton window first (live probe, not only flag).
-	void import("@/lib/shell/feature-window").then(
-		async ({ preferFeatureWindow }) => {
-			const inWindow = await preferFeatureWindow("agent");
-			if (inWindow) {
-				const { broadcastAgentOpenSession } = await import(
-					"@/lib/shell/workspace-broadcast"
-				);
-				broadcastAgentOpenSession(request);
-				return;
-			}
-			// Expanding the rail deviates from the active preset — persist it.
-			setLayoutMode("custom");
-			openRightTabInRail("agent");
 		},
 	);
 }

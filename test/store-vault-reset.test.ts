@@ -137,7 +137,6 @@ describe("vault-scoped store clears", () => {
 			zoteroOpen: true,
 			zoteroSyncOpen: true,
 			commandOpen: true,
-			agentSessionOpenRequest: {} as never,
 			// Must all survive.
 			sidebarCollapsed: true,
 			rightSidebarOpen: true,
@@ -155,7 +154,6 @@ describe("vault-scoped store clears", () => {
 		expect(s.zoteroOpen).toBe(false);
 		expect(s.zoteroSyncOpen).toBe(false);
 		expect(s.commandOpen).toBe(false);
-		expect(s.agentSessionOpenRequest).toBeNull();
 
 		expect(s.sidebarCollapsed).toBe(true);
 		expect(s.rightSidebarOpen).toBe(true);

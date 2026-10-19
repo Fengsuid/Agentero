@@ -9,7 +9,6 @@ import { Channel } from "@tauri-apps/api/core";
 import i18n from "@/i18n";
 import {
 	commands,
-	type SyncConflict,
 	type SyncProgress,
 	type ZoteroSyncResult,
 } from "@/lib/core/bindings";
@@ -17,8 +16,6 @@ import { callApi } from "@/lib/core/ipc";
 import { isTauri } from "@/lib/core/tauri";
 
 export type ZoteroSyncPhase = "read" | "pull" | "push";
-
-export type ZoteroSyncConflict = SyncConflict;
 
 export type { ZoteroSyncResult };
 

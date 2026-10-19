@@ -14,10 +14,4 @@ export {
 	FileTree,
 	type FileTreeHandle,
 } from "@/components/sidebar/file-tree/file-tree";
-export type {
-	TreeCreateDraft,
-	TreeCreateKind,
-	TreeRenameDraft,
-} from "@/components/sidebar/file-tree/types";
-export type { VaultSidebarHeaderProps } from "@/components/sidebar/vault-sidebar-header";
 export { VaultSidebarHeader } from "@/components/sidebar/vault-sidebar-header";

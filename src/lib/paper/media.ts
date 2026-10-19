@@ -244,7 +244,7 @@ async function findPdfUnder(
 }
 
 /**
- * Whether we should attempt `paper_download_assets` when local PDF is missing.
+ * Whether we should attempt a `DownloadAssets` job when local PDF is missing.
  * Needs a remote candidate (pdf_url or arxiv_id / arxiv-like folder id).
  */
 export function canAttemptPdfDownload(

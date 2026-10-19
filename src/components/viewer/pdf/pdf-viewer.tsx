@@ -120,6 +120,7 @@ import type {
 	ScreenPoint,
 	SelectionCommentDraft,
 	SelectionMenuState,
+	SuggestedHighlight,
 } from "@/components/viewer/pdf/types";
 import { ActiveCardScrollSync } from "@/components/viewer/pdf/viewport/active-card-scroll-sync";
 import { DockviewViewport } from "@/components/viewer/pdf/viewport/dockview-viewport";
@@ -131,7 +132,7 @@ import {
 	createSelectionContext,
 	pinSelection,
 } from "@/lib/agent/selection-store";
-import { commands, events, type SuggestedHighlight } from "@/lib/core/bindings";
+import { commands, events } from "@/lib/core/bindings";
 import { copyTextToClipboard } from "@/lib/core/clipboard";
 import { errorText } from "@/lib/core/error";
 import { callApiResult } from "@/lib/core/ipc";

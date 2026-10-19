@@ -22,7 +22,3 @@ export function setMarkdownScrollTop(key: string, top: number): void {
 		memory.delete(oldest);
 	}
 }
-
-export function clearMarkdownScrollTop(key: string): void {
-	memory.delete(key);
-}

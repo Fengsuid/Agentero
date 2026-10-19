@@ -624,17 +624,6 @@ export function buildFigureBboxWithFullTitle(
 	return bbox;
 }
 
-/**
- * @deprecated Use buildFigureBboxWithFullTitle — never clip title out of the box.
- */
-export function clipFigureBboxToTitleColumn(
-	bbox: PdfAskNormalizedRect,
-	title: PdfAskNormalizedRect,
-): PdfAskNormalizedRect {
-	// Preserve full title; only used as a soft body clamp then re-union title.
-	return buildFigureBboxWithFullTitle([bbox], title);
-}
-
 function isHalfWidthFigureHost(h: PdfLayoutRegion): boolean {
 	const tw = h.titleBbox?.w ?? h.bbox.w;
 	return tw < LAYOUT_MERGE.fullWidthTitle;

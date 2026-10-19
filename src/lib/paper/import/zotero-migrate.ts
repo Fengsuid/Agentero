@@ -17,15 +17,13 @@ import i18n from "@/i18n";
 import {
 	commands,
 	type MigrateProgress,
-	type ZoteroCollectionInfo,
-	type ZoteroItemInfo,
 	type ZoteroMigrateResult,
 	type ZoteroScan_Serialize,
 } from "@/lib/core/bindings";
 import { callApi } from "@/lib/core/ipc";
 import { isTauri } from "@/lib/core/tauri";
 
-export type { ZoteroCollectionInfo, ZoteroItemInfo, ZoteroMigrateResult };
+export type { ZoteroMigrateResult };
 
 export type ZoteroScan = Omit<ZoteroScan_Serialize, "warning"> & {
 	warning?: string;

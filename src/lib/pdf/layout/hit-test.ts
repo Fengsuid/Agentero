@@ -81,15 +81,6 @@ export function rawLayoutRegionsByPage(
 	return byPage;
 }
 
-/** Pre-merge detections for one page, largest first. */
-export function rawLayoutRegionsOnPage(
-	regions: readonly PdfLayoutRegion[],
-	pageIndex: number,
-	minScore: number = LAYOUT_SIDEBAR_MIN_SCORE,
-): PdfLayoutRegion[] {
-	return rawLayoutRegionsByPage(regions, minScore).get(pageIndex) ?? [];
-}
-
 export function pointInBbox(
 	x: number,
 	y: number,

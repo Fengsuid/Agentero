@@ -226,10 +226,6 @@ export function toggleLayoutOverlayVisible(documentId: string): boolean {
 	return next;
 }
 
-export function isLayoutOverlayVisible(documentId: string): boolean {
-	return layoutAnalysisStore.getState().overlayVisible[documentId] ?? false;
-}
-
 function sameFocusedBbox(
 	a: PdfAskNormalizedRect | undefined,
 	b: PdfAskNormalizedRect | undefined,
@@ -336,12 +332,6 @@ export function setFocusedLayoutRegion(
 			}
 		}, CITATION_FOCUS_FLASH_MS);
 	}
-}
-
-export function getFocusedLayoutRegion(documentId: string): string | null {
-	const focused = layoutAnalysisStore.getState().focused;
-	if (!focused || focused.documentId !== documentId) return null;
-	return focused.regionId;
 }
 
 /** Infer a layout kind for citation / synthetic region ids. */

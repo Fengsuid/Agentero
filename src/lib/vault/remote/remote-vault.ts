@@ -6,7 +6,6 @@
 import type { CatalogEntry, ProbeResult } from "@/lib/agent/api-types";
 import {
 	commands,
-	type FsCaps,
 	type FsDirEntry,
 	type RemoteSessionInfo,
 	type SshConfigHost_Serialize,
@@ -15,7 +14,7 @@ import { callApiResult } from "@/lib/core/ipc";
 import { readJsonStorage, writeJsonStorage } from "@/lib/core/storage";
 import { isTauri } from "@/lib/core/tauri";
 
-export type { FsCaps, RemoteSessionInfo };
+export type { RemoteSessionInfo };
 export type RemoteDirEntry = FsDirEntry;
 
 const REMOTE_PREFIX = "remote:";
@@ -302,25 +301,6 @@ export async function remoteCacheFile(
 		},
 	);
 	return r.localPath;
-}
-
-export type RemoteCacheStats = {
-	bytes: number;
-	files: number;
-	root: string;
-	maxBytes: number;
-};
-
-/** Stats for one session (or all remote blob caches when sessionId omitted). */
-export async function remoteCacheStats(
-	sessionId?: string | null,
-): Promise<RemoteCacheStats> {
-	return callApiResult(
-		() => commands.remoteCacheStats({ sessionId: sessionId ?? null }),
-		{
-			fallback: "Failed to read remote cache stats",
-		},
-	);
 }
 
 /** Clear PDF/blob cache for one session or all remote vaults. */

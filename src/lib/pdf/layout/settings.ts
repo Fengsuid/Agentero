@@ -65,7 +65,6 @@ export type LayoutProviderConfig = {
  * MinerU vocabulary (16 packs incl. `ch_server`) valid when stored.
  */
 export const MINERU_LANGUAGES = ["ch", "en"] as const;
-export type MineruLanguage = (typeof MINERU_LANGUAGES)[number];
 
 /** Document language used when a provider config has none stored. */
 export const DEFAULT_MINERU_LANGUAGE = "ch";

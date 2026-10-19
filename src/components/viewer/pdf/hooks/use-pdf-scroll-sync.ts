@@ -35,11 +35,6 @@ const MAX_ZOOM_SETTLE_FRAMES = 16;
  */
 const ZOOM_SYNC_SETTLE_MS = 120;
 
-export type PdfScrollPosition = {
-	x: number;
-	y: number;
-};
-
 /**
  * Sync zoom between this PDF viewer and its paired translation pane, and
  * align scroll once both viewports have layout.

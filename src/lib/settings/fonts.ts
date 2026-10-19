@@ -35,9 +35,6 @@ export type FontRole = "interface" | "text" | "mono";
 export const SYSTEM_SANS_STACK =
 	'system-ui, "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", sans-serif';
 
-/** App default chrome/body sans — same as system UI (macOS HIG / native feel). */
-export const DEFAULT_SANS_STACK = SYSTEM_SANS_STACK;
-
 /** Optional packaged face for users who prefer the previous default look. */
 export const GEIST_SANS_STACK =
 	'"Geist Variable", system-ui, "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", sans-serif';
@@ -138,14 +135,6 @@ export function applyDocumentChrome(opts: {
 	applyChromeFontCss(opts.interfaceFontFamily, opts.monoFontFamily);
 }
 
-/** Display label key suffix for presets; system fonts use the raw name. */
-export function fontFamilyDisplayKey(value: string): string {
-	const v = value.trim();
-	if (!v || v === "default") return "default";
-	if (isFontStackPreset(v)) return v;
-	return "custom";
-}
-
 // --- System font listing (Host-backed, cached) --------------------------------
 
 let systemFontsCache: string[] | null = null;
@@ -180,10 +169,4 @@ async function loadSystemFonts(): Promise<string[]> {
 	} catch {
 		return [];
 	}
-}
-
-/** Drop the cache (e.g. after rare “refresh fonts” actions). */
-export function invalidateSystemFontsCache(): void {
-	systemFontsCache = null;
-	systemFontsPromise = null;
 }

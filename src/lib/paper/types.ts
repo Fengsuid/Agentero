@@ -55,9 +55,3 @@ export type PaperMetadata = Omit<
 export type PaperLibraryRow = PaperMetadata & {
 	has_pdf: PaperListRow_Serialize["has_pdf"] | undefined;
 };
-
-/** Remote http(s) URL (HTML preview; PDF download candidate / fallback). */
-export type RemoteAsset = { url: string };
-
-/** How the PDF viewer source was resolved. */
-export type PaperPdfOrigin = "local" | "remote";

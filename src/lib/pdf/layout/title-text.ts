@@ -287,11 +287,3 @@ export function attachTitlesFromTextRuns(
 		return { ...region, title };
 	});
 }
-
-/** @deprecated use captionRoleFromText */
-export function looksLikeFigureCaption(text: string): boolean {
-	const role = captionRoleFromText(text);
-	return (
-		role === "figure_main" || role === "table_main" || role === "algorithm_main"
-	);
-}

@@ -45,13 +45,8 @@ import {
 	readFeatureWindowView,
 } from "@/lib/shell/feature-window";
 import { openSettingsWindow } from "@/lib/shell/settings-window";
+import { setAgentPanelMounted } from "@/lib/shell/ui-store";
 import {
-	type AgentSessionOpenRequest,
-	setAgentPanelMounted,
-	uiStore,
-} from "@/lib/shell/ui-store";
-import {
-	listenAgentOpenSession,
 	listenAgentSessionHandoff,
 	listenWorkspaceActive,
 	type WorkspaceActiveChangedPayload,
@@ -284,13 +279,6 @@ export function FeatureWindowRoot() {
 	useEffect(() => {
 		if (view !== "agent") return;
 		const offs = [
-			toSafeDisposer(
-				listenAgentOpenSession((payload) => {
-					const req = payload as AgentSessionOpenRequest;
-					if (!req || typeof req !== "object" || !("nonce" in req)) return;
-					uiStore.setState({ agentSessionOpenRequest: req });
-				}),
-			),
 			// First handoff only — later retries must not clobber in-window chat.
 			toSafeDisposer(
 				listenAgentSessionHandoff((payload) => {

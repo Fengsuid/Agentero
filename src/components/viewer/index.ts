@@ -18,17 +18,11 @@ export {
 	type AskRow,
 	type VisualTraceRow,
 } from "@/components/viewer/panels/annotations-panel";
-export { FiguresPanel } from "@/components/viewer/panels/figures-panel";
-export { ReferencesPanel } from "@/components/viewer/panels/references-panel";
-export { PdfEngineHost } from "@/components/viewer/pdf/engine-provider";
 export {
 	PdfViewer,
 	type PdfViewerHandle,
-	type PdfViewerProps,
 } from "@/components/viewer/pdf/pdf-viewer";
 export {
-	pdfHandleFor,
 	registerPdfHandle,
 	resolveActivePdfHandle,
-	subscribePdfHandles,
 } from "@/lib/workspace/viewer/pdf-viewer-registry";

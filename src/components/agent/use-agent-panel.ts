@@ -584,7 +584,6 @@ export function useAgentPanel({
 		i18nLanguage: i18n.language,
 		vaultPath,
 		selectedAgentId,
-		setSelectedAgentId,
 		selected,
 		setSessionHistory,
 		setLines,

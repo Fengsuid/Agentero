@@ -1,11 +1,7 @@
 export {
 	type ActivityRecord,
 	clearUsage,
-	listUsageEvents,
 	recordActivityEvents,
-	summarizeUsage,
-	type UsageEvent,
-	type UsageKindCount,
 } from "@/lib/activity/api";
 export {
 	ACTIVITY_KINDS,

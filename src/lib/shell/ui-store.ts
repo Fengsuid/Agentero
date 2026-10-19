@@ -25,48 +25,6 @@ export type FeatureViewType = RightSidebarTab;
 /** Layout presets plus the free-form arrangement after any manual change. */
 export type LayoutMode = LayoutPresetMode | "custom";
 
-/** Crop + multi-turn payload when opening a visual-trace pin in Agent. */
-export type AgentSessionOpenVisualTrace = {
-	/** Stable mark id (product session key). */
-	traceId: string;
-	page: number;
-	comment: string;
-	paperPath?: string;
-	image?: { data: string; mimeType: string };
-	messages: Array<{
-		id: string;
-		role: "user" | "assistant";
-		content: string;
-		createdAt: string;
-		agentSessionId?: string;
-	}>;
-	status?: "running" | "completed" | "failed";
-};
-
-/** One-shot request to open a specific Agent session from PDF pins. */
-export type AgentSessionOpenRequest = {
-	/** Monotonic id so identical payloads still re-trigger. */
-	nonce: number;
-	agentId: string;
-	/** Agentero runtime/event session id from runOnce. */
-	runtimeSessionId: string;
-	/** ACP provider session id when available. */
-	providerSessionId?: string;
-	messageId?: string;
-	title?: string;
-	/** Original user prompt / display text. */
-	prompt?: string;
-	/** Local answer fallback when provider history cannot be loaded. */
-	answerSnapshot?: string;
-	/**
-	 * Full visual-trace transcript for Open in Agent.
-	 * Prefer this over prompt+answerSnapshot alone (multi-turn + image chip).
-	 */
-	visualTrace?: AgentSessionOpenVisualTrace;
-	/** Absolute paper path for mark finalizers on follow-up turns. */
-	paperAbsPath?: string;
-};
-
 /** A title-search result set awaiting the user's pick, plus its destination. */
 export type PaperSearchDraftGroup = PaperSearchGroup & {
 	parentDir: string;
@@ -112,8 +70,6 @@ type UiStore = {
 	skillImportDraft: SkillDiscovery[] | null;
 	/** Title-search candidates queued for the picker; the head is shown first. */
 	paperSearchDraft: PaperSearchDraftGroup[] | null;
-	/** PDF visual-trace → Agent session open (consumed once). */
-	agentSessionOpenRequest: AgentSessionOpenRequest | null;
 };
 
 export const uiStore = createStore<UiStore>(() => ({
@@ -133,7 +89,6 @@ export const uiStore = createStore<UiStore>(() => ({
 	hoveredPaperPath: null,
 	skillImportDraft: null,
 	paperSearchDraft: null,
-	agentSessionOpenRequest: null,
 }));
 
 export function setSidebarCollapsedState(collapsed: boolean): void {
@@ -358,11 +313,6 @@ export function setFeaturePoppedOut(
 	}));
 }
 
-export function clearAgentSessionOpenRequest(): void {
-	if (!uiStore.getState().agentSessionOpenRequest) return;
-	uiStore.setState({ agentSessionOpenRequest: null });
-}
-
 /**
  * Close dialogs and drop one-shot requests that reference the vault being
  * closed. Deliberately narrow: user chrome (rail state), live window truth
@@ -377,6 +327,5 @@ export function clearUiVaultState(): void {
 		zoteroOpen: false,
 		zoteroSyncOpen: false,
 		commandOpen: false,
-		agentSessionOpenRequest: null,
 	});
 }

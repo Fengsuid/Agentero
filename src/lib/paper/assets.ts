@@ -1,10 +1,5 @@
 import { isPaperAttachmentsDirName } from "@/lib/paper/paths";
 
-export const PAPER_FILE_MARKERS = ["NOTES.md", "PAPER.md"] as const;
-
-/** Direct-child directory names that mark a paper folder. */
-export const PAPER_DIR_MARKERS = ["source", "assets", "marks"] as const;
-
 const PDF_NAME_RE = /\.pdf$/i;
 const TEX_NAME_RE = /\.(tex|ltx)$/i;
 const PAPER_MD_RE = /^paper\.md$/i;

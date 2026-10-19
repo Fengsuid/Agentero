@@ -4,8 +4,7 @@
  * Pure-rule decisions (file-tree clicks, UI state switches) are deterministic
  * and depend only on in-memory React state, so they run synchronously in the
  * WebView instead of round-tripping to the Host. Semantic decisions (jEV/LLM)
- * live in the Rust decision layer and are reached through {@link useDecision}'s
- * async `decide`.
+ * live in the Rust decision layer but are not currently exposed to the frontend.
  *
  * @see docs/backend/decision.md
  */
@@ -37,11 +36,6 @@ export function registerDecision<S>(decision: LocalDecision<S>): void {
 		rules: decision.rules as Array<(state: unknown) => string | null>,
 		defaultAction: decision.defaultAction,
 	});
-}
-
-/** Registered local decision ids, sorted for stable output. */
-export function localDecisionIds(): string[] {
-	return [...registry.keys()].sort();
 }
 
 /**

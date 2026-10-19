@@ -227,29 +227,6 @@ export function externalRenameRepairNeeded(
 	return preview.affectedSources.length > 0;
 }
 
-export type GraphNodeType = "paper" | "note" | "index" | "stub";
-
-export type GraphNode = {
-	id: string;
-	label: string;
-	type: GraphNodeType;
-	path?: string;
-};
-
-export type GraphEdge = {
-	id: string;
-	source: string;
-	target: string;
-	targetRaw?: string;
-};
-
-export type GraphResponse = {
-	nodes: GraphNode[];
-	edges: GraphEdge[];
-	center?: string | null;
-	depth: number;
-};
-
 export type WikiRenameFailure = {
 	code: string;
 	rollback: WikiRenameRollback;

@@ -1,14 +1,8 @@
-import {
-	commands,
-	type TranslateTextArgs,
-	type TranslateTextResult,
-} from "@/lib/core/bindings";
+import { commands } from "@/lib/core/bindings";
 import { isTauri } from "@/lib/core/tauri";
 
 /** Host marker for "the built-in provider has no compiled-in key". */
 export const ERR_TRANSLATE_NO_BUILTIN_KEY = "translate.no_builtin_key";
-
-export type { TranslateTextArgs, TranslateTextResult };
 
 /**
  * Host MT command via the generated typed binding (tauri-specta pilot).

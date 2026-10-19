@@ -14,7 +14,7 @@
  */
 
 import i18n from "@/i18n";
-import { commands, type PaperCommitResult } from "@/lib/core/bindings";
+import { commands } from "@/lib/core/bindings";
 import { errorText } from "@/lib/core/error";
 import { callApiResult } from "@/lib/core/ipc";
 import { notifyError, notifySuccess, notifyWarning } from "@/lib/core/notify";
@@ -33,9 +33,6 @@ export type PlazaImportRequest = {
 	url: string;
 	title: string | null;
 };
-
-/** A genuine failure throws through the IPC helper; `status` covers the rest. */
-export type { PaperCommitResult };
 
 /**
  * The 魔棒 import settles through `onComplete`, which this frame does not

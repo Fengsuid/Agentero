@@ -21,6 +21,26 @@ import type { PdfViewerHandle } from "@/lib/workspace/viewer/pdf-viewer-registry
 
 export type { PdfViewerHandle };
 
+/** Normalized rectangle emitted by the jEV smart-highlight job. */
+type SuggestedHighlightRect = {
+	x: number | null;
+	y: number | null;
+	w: number | null;
+	h: number | null;
+};
+
+/** Job result payload for `jevSmartHighlights` (not an IPC command type). */
+export type SuggestedHighlight = {
+	quote: string;
+	page: number;
+	rects: SuggestedHighlightRect[];
+	color: string;
+	category: string;
+	score: number | null;
+	pageWidth: number | null;
+	pageHeight: number | null;
+};
+
 export type PdfViewerProps = {
 	/**
 	 * PDF source: local `blob:` (bytes via fs) or remote https. Prefer local

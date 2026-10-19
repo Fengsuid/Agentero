@@ -9,7 +9,6 @@ import { isTauri } from "@/lib/core/tauri";
 import { broadcastSafe } from "@/lib/core/tauri-events";
 
 export const WORKSPACE_ACTIVE_CHANGED_EVENT = "workspace:active-changed";
-export const AGENT_OPEN_SESSION_EVENT = "agent:open-session";
 /** Main → new Agent feature window: full session snapshot for continuity. */
 export const AGENT_SESSION_HANDOFF_EVENT = "agent:session-handoff";
 
@@ -48,22 +47,6 @@ export async function listenWorkspaceActive(
 			handler(event.payload);
 		},
 	);
-	return unlisten;
-}
-
-/** Forward PDF pin → Agent open requests into a popped-out agent window. */
-export function broadcastAgentOpenSession(payload: unknown): void {
-	broadcastSafe(AGENT_OPEN_SESSION_EVENT, payload);
-}
-
-export async function listenAgentOpenSession(
-	handler: (payload: unknown) => void,
-): Promise<() => void> {
-	if (!isTauri()) return () => {};
-	const { listen } = await import("@tauri-apps/api/event");
-	const unlisten = await listen(AGENT_OPEN_SESSION_EVENT, (event) => {
-		handler(event.payload);
-	});
 	return unlisten;
 }
 

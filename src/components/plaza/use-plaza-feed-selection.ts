@@ -20,7 +20,6 @@ import {
 } from "@/components/selection/use-selection-ask";
 import { useSelectionQuickChat } from "@/components/selection/use-selection-quick-chat";
 import { copyTextToClipboard } from "@/lib/core/clipboard";
-import type { PdfAskThread } from "@/lib/pdf/ask/types";
 import { buildPlazaAskPrompt } from "@/lib/plaza/ask-prompt";
 import type { FeedItem } from "@/lib/plaza/feeds";
 
@@ -28,11 +27,6 @@ const MAX_SELECTION_CHARS = 4000;
 
 export type PlazaFeedSelectionMenu = {
 	text: string;
-	screen: PlazaSelectionScreen;
-};
-
-export type PlazaFeedAskState = {
-	thread: PdfAskThread;
 	screen: PlazaSelectionScreen;
 };
 
