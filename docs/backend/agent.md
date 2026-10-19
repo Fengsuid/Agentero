@@ -109,6 +109,18 @@ Agentero 作为 **ACP Client**，stdio JSON-RPC 连接用户本机或远端 Agen
   `agy_acp_server` 与 `localharness_external`；macOS Intel 没有官方构建，因此不提供该预设。
   Linux 启动时附带官方要求的 `--uid=` 参数。Registry 不可用或当前平台没有构建时直接报错；
   远程主机不提供 shell 安装命令。
+  - 认证独立于 `agy` IDE 登录（#748）：server 只认自己命名空间下的
+    `~/.gemini/antigravity-acp/settings.json` 的 `auth.type`（oauth-personal /
+    gemini-api-key / oauth-business / agent-platform）或对应环境变量
+    （`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_CLOUD_PROJECT`+`GOOGLE_CLOUD_LOCATION`）。
+    其 `initialize` 无认证也能成功、仅 `session/new` 报
+    "No authentication method selected"，因此 Doctor/probe 在 initialize 后额外跑
+    `diagnose_antigravity_auth`（读取上述 settings 与 env）判定登录态：未配置 →
+    NotLoggedIn；oauth-personal 已选择 → unknown（浏览器登录在首次会话完成）。
+    引导登录复用 `login_command` 通道：confirm-to-run 终端中写入
+    `{"auth":{"type":"oauth-personal"}}`，且仅在 settings.json 缺失或为空时写入，
+    不覆盖手写配置；Windows 侧 `.cmd` 展示行对 `&`/`>` 等元字符做 `^` 转义，
+    避免展示时误执行重定向。
 - ZCode：host CLI 无原生 ACP，走社区适配器 `zcode-acp-server server`（桥接无头
   `zcode app-server --stdio`，声明 `session/load` 续聊）。zcode CLI 内置在 ZCode
   桌面应用中、通常不在 PATH 上，适配器会自动发现桌面应用内置 CLI；若装在其他盘符或

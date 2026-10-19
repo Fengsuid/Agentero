@@ -101,6 +101,16 @@ mod acp_live {
         // Detect the server itself, not the desktop app or the retired adapter.
         assert!(agent.detect_command.is_none());
         assert!(crate::features::agent::registry::lifecycle::supports_lifecycle(&agent.id));
+        // Guided login writes the documented auth.type selection into the
+        // server's own settings.json, without clobbering an existing file.
+        let login = agent.login_command.as_deref().expect("login command");
+        assert!(login.contains("antigravity-acp"));
+        assert!(login.contains("oauth-personal"));
+        if !cfg!(windows) {
+            assert!(login.contains("test -s"));
+        } else {
+            assert!(login.contains("if not exist"));
+        }
     }
 
     #[test]

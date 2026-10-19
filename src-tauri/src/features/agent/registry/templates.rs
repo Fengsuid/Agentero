@@ -454,7 +454,26 @@ pub fn builtin_templates() -> Vec<AgentTemplateInfo> {
             // Antigravity is installed by the local Registry-aware lifecycle
             // path. There is no equivalent shell command for remote hosts.
             install_command: None,
-            login_command: None,
+            // Guided login (#748): the server has no CLI login of its own; its
+            // auth error documents `auth.type` in its own settings.json as the
+            // config-side alternative to the ACP `authenticate` method. Select
+            // the personal-Google flow, but never clobber a hand-written file:
+            // the write only happens while settings.json is absent or empty.
+            // API-key users keep their env setup; the Doctor detail names the
+            // alternatives.
+            login_command: Some(if cfg!(windows) {
+                "mkdir \"%USERPROFILE%\\.gemini\\antigravity-acp\" 2>NUL & \
+                 if not exist \"%USERPROFILE%\\.gemini\\antigravity-acp\\settings.json\" \
+                 echo {\"auth\":{\"type\":\"oauth-personal\"}}> \
+                 \"%USERPROFILE%\\.gemini\\antigravity-acp\\settings.json\""
+                    .to_string()
+            } else {
+                "mkdir -p \"$HOME/.gemini/antigravity-acp\" \
+                 && test -s \"$HOME/.gemini/antigravity-acp/settings.json\" \
+                 || echo '{\"auth\":{\"type\":\"oauth-personal\"}}' \
+                 > \"$HOME/.gemini/antigravity-acp/settings.json\""
+                    .to_string()
+            }),
         },
         AgentTemplateInfo {
             id: AgentTemplate::Hermes.as_str().to_string(),

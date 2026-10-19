@@ -465,14 +465,23 @@ fn open_terminal_command_windows(
     let path = dir.join(format!("{}-{}.cmd", copy.stem, std::process::id()));
     let title = copy.title;
     let done_hint = copy.done_hint;
-    // Escape ^ and & for cmd.exe display; the command itself is a simple npm line.
+    // The display `echo` line must not execute the command's shell syntax:
+    // escape cmd metacharacters for display only. The run line below stays
+    // raw so multi-statement logins (`mkdir … & if not exist … echo …> …`)
+    // keep working.
+    let display = command
+        .replace('^', "^^")
+        .replace('&', "^&")
+        .replace('>', "^>")
+        .replace('|', "^|")
+        .replace('<', "^<");
     let body = match mode {
         RunMode::Confirm => format!(
             "@echo off\r\n\
 echo.\r\n\
 echo {title}\r\n\
 echo Command:\r\n\
-echo   {command}\r\n\
+echo   {display}\r\n\
 echo.\r\n\
 echo Press any key to run, or close this window to cancel...\r\n\
 pause >nul\r\n\
