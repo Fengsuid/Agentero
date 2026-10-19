@@ -48,7 +48,7 @@ export function useTexCompile(): TexCompileActions {
 			// The compile button always recompiles: openTexPdf(forceCompile)
 			// splits a shimmer placeholder beside the editor right away and
 			// fills it in when the compile lands.
-			await openTexPdf(texPath, { forceCompile: true });
+			await openTexPdf(texPath, { forceCompile: true, exitLive: false });
 		},
 		[],
 	);

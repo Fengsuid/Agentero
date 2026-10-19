@@ -21,6 +21,7 @@ export function panelPersistParams(tab: DocTab): PanelPersistParams {
 		path: tab.path,
 		mode: tab.mode,
 		title: tab.title,
+		...(tab.texLive ? { texLive: true, texRoot: tab.texRoot } : {}),
 	};
 }
 
@@ -31,6 +32,8 @@ type LayoutPanelState = {
 		path?: string;
 		mode?: string;
 		title?: string;
+		texLive?: boolean;
+		texRoot?: string;
 	};
 };
 
@@ -108,7 +111,21 @@ export function extractTabsFromLayout(layout: unknown): {
 				: undefined;
 		if (seen.has(panelId)) continue;
 		seen.add(panelId);
-		tabs.push({ id: panelId, path, mode, title });
+		tabs.push({
+			id: panelId,
+			path,
+			mode,
+			title,
+			...(panel.params?.texLive === true
+				? {
+						texLive: true,
+						texRoot:
+							typeof panel.params.texRoot === "string"
+								? panel.params.texRoot
+								: undefined,
+					}
+				: {}),
+		});
 	}
 	const activeId = findActivePanelIdInLayout(l);
 	return {

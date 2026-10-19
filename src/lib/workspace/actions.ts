@@ -72,6 +72,7 @@ import {
 import { loadSettings } from "@/lib/settings";
 import { closeCurrentWindow } from "@/lib/shell/close-window";
 import { setLayoutMode } from "@/lib/shell/ui-store";
+import { isTexLiveRootActive } from "@/lib/tex-live/session";
 import {
 	ensureLocalFsScope,
 	type FileNode,
@@ -608,9 +609,15 @@ function cloneTabForSplit(tab: DocTab, tabs: DocTab[]): DocTab {
  */
 export async function openTexPdf(
 	texPath: string,
-	opts?: { referencePanelId?: string | null; forceCompile?: boolean },
+	opts?: {
+		referencePanelId?: string | null;
+		forceCompile?: boolean;
+		/** Explicit "Open PDF" switches modes; the compile button keeps live. */
+		exitLive?: boolean;
+	},
 ): Promise<void> {
 	if (!isTexPath(texPath)) return;
+	const keepLive = opts?.exitLive === false;
 	// One in-flight compile at a time (mirrors compileTexFile's guard).
 	if (texCompileStore.getState().compilingPath) return;
 
@@ -652,7 +659,7 @@ export async function openTexPdf(
 					pdfBytes: bytes,
 					loaded: true,
 					texCompiling: false,
-					texLive: false,
+					...(keepLive ? {} : { texLive: false }),
 					title: basenameOf(pdfPath),
 				});
 				setActiveTabId(pdfId);
@@ -718,7 +725,7 @@ export async function openTexPdf(
 		pdfBytes: bytes,
 		loaded: true,
 		texCompiling: false,
-		texLive: false,
+		...(keepLive ? {} : { texLive: false }),
 		title: basenameOf(pdfPath),
 	});
 }
@@ -834,7 +841,11 @@ export async function compileTexOnSave(texPath: string): Promise<void> {
 	// A live pane owns the same tab; a quiet save-compile would flip it back to
 	// the compiled PDF and kill the preview. Explicit compile actions still
 	// switch modes through `openTexPdf`.
-	if (getTabs().find((t) => t.id === pdfId)?.texLive) return;
+	if (
+		isTexLiveRootActive(rootPath) ||
+		getTabs().find((t) => t.id === pdfId)?.texLive
+	)
+		return;
 	const paneOpen = getTabs().some((t) => t.id === pdfId);
 	if (paneOpen) updateTab(pdfId, { texCompiling: true, texLive: false });
 	try {
@@ -899,7 +910,10 @@ export function splitActivePane(): void {
 
 	// TeX editor ⌘\ → open/refresh its compiled PDF as the right split.
 	if (isTexPath(active.path)) {
-		void openTexPdf(active.path, { referencePanelId: active.id });
+		void openTexPdf(active.path, {
+			referencePanelId: active.id,
+			exitLive: false,
+		});
 		return;
 	}
 

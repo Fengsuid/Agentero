@@ -111,6 +111,9 @@ export type PersistedTab = {
 	mode: CenterViewMode;
 	/** Last resolved display title (paper metadata title); shown before hydration. */
 	title?: string;
+	/** rtex live pane; persists across window reloads instead of reverting to PDF. */
+	texLive?: boolean;
+	texRoot?: string;
 };
 
 /**
@@ -131,6 +134,9 @@ export type PanelPersistParams = {
 	mode: CenterViewMode;
 	/** Display title at save time; restore shows it before resources hydrate. */
 	title: string;
+	/** Live TeX pane state; only set while live. */
+	texLive?: boolean;
+	texRoot?: string;
 };
 
 export const NOTES_PLACEHOLDER =

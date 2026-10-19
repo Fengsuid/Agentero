@@ -242,3 +242,12 @@ export function texLiveSetDocument(path: string, text: string): void {
 export function texLiveEditorText(path: string): string | null {
 	return editors.get(normalized(path))?.getText() ?? null;
 }
+
+/** Whether a live session currently owns this project root. */
+export function isTexLiveRootActive(rootPath: string): boolean {
+	const key = normalized(rootPath);
+	for (const session of sessions.values()) {
+		if (normalized(session.rootPath) === key) return true;
+	}
+	return false;
+}
