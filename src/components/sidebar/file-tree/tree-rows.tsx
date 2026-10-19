@@ -9,6 +9,7 @@ import {
 	Link2,
 	Loader2,
 	NotebookPen,
+	Radio,
 	ScrollText,
 	Trash2,
 } from "lucide-react";
@@ -305,6 +306,7 @@ function TexCompileActions({
 	const { t } = useTranslation("sidebar");
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const hasEngines = !actions.enginesLoading && actions.engines.length > 0;
+	const canLive = actions.engines.some((engine) => engine.id === "lualatex");
 
 	if (isCompiling) {
 		return (
@@ -420,6 +422,30 @@ function TexCompileActions({
 									);
 								})}
 							</div>
+							{canLive ? (
+								<>
+									<div className="mx-1 my-1 h-px bg-border" />
+									<button
+										type="button"
+										className={cn(
+											"flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-xs",
+											"hover:bg-accent hover:text-accent-foreground",
+											"focus:outline-none focus-visible:bg-accent focus-visible:text-accent-foreground",
+										)}
+										onClick={(e) => {
+											e.stopPropagation();
+											setPickerOpen(false);
+											actions.liveCompile(texPath);
+										}}
+									>
+										<Radio className="size-3 shrink-0" aria-hidden />
+										<span className="flex-1 truncate">
+											{t("fileTree.liveCompile")}
+										</span>
+									</button>
+								</>
+							) : null}
+
 							{/* Clear intermediates: unstick latexmk after a failed run
 							 * (fingerprint db records the error, unchanged source
 							 * then never recompiles). Kept next to the engines it

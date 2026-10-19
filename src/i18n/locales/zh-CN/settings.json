@@ -277,7 +277,9 @@
 		},
 		"editorToolbar": {
 			"label": "格式工具栏"
-		}
+		},
+		"livePreview": "打开实时预览",
+		"livePreviewUnavailable": "实时预览需要 LuaLaTeX 和 realtime-tex 支持文件"
 	},
 	"agent": {
 		"title": "Agent",

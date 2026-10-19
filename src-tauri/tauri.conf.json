@@ -59,7 +59,8 @@
     "category": "Productivity",
     "resources": [
       "pdfium/*",
-      "adapters/**/*"
+      "adapters/**/*",
+      "rtex/tex/**/*"
     ],
     "icon": [
       "icons/32x32.png",

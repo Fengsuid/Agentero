@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect } from "react";
 import { useStore } from "zustand";
-import { openTexPdf } from "@/lib/workspace/actions";
+import { openTexLive, openTexPdf } from "@/lib/workspace/actions";
 import {
 	cleanTexAuxFiles,
 	initTexEngines,
@@ -25,6 +25,8 @@ export type TexCompileActions = {
 	selectedEngine: string | null;
 	selectEngine: (id: string) => void;
 	compileTex: (texPath: string, vaultPath: string) => Promise<void>;
+	/** Enter the rtex live preview (LuaLaTeX only). */
+	liveCompile: (texPath: string) => void;
 	/** latexmk -c: clear intermediates to unstick a failed-compile state. */
 	cleanAux: (texPath: string) => void;
 	compilingPath: string | null;
@@ -54,6 +56,14 @@ export function useTexCompile(): TexCompileActions {
 	/**
 	 * latexmk -c behind the engine picker's "clear intermediates" entry.
 	 */
+	const liveCompile = useCallback((texPath: string) => {
+		// The live path is LuaLaTeX-only; selecting the engine also makes the
+		// editor toolbar shortcut available and keeps the next manual compile
+		// consistent with the preview.
+		selectTexEngine("lualatex");
+		void openTexLive(texPath);
+	}, []);
+
 	const cleanAux = useCallback((texPath: string) => {
 		void cleanTexAuxFiles(texPath);
 	}, []);
@@ -71,6 +81,7 @@ export function useTexCompile(): TexCompileActions {
 		selectedEngine,
 		selectEngine: selectTexEngine,
 		compileTex,
+		liveCompile,
 		cleanAux,
 		compilingPath,
 		isTexFile,

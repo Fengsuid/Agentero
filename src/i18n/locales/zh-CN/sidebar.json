@@ -79,7 +79,16 @@
 		"noLatexEngine": "未找到 LaTeX 引擎",
 		"cleanAux": "清除中间产物",
 		"cleanAuxSuccess": "已清除中间产物，可重新编译",
-		"cleanAuxFailed": "清除中间产物失败。"
+		"cleanAuxFailed": "清除中间产物失败。",
+		"livePreviewUnavailable": "实时预览需要 LuaLaTeX 和 realtime-tex 支持文件",
+		"liveStarting": "正在启动实时预览…",
+		"liveReady": "实时",
+		"liveWaiting": "等待整篇编译",
+		"liveRestarting": "正在重启引擎…",
+		"liveFailed": "实时预览失败",
+		"liveFirstPage": "正在等待第一页…",
+		"liveRetry": "重试",
+		"liveCompile": "实时编译"
 	},
 	"importLocalPdf": {
 		"dropNoPath": "无法读取拖入的 PDF。请改用魔棒 → 导入 PDF，或从 Finder 再拖一次。"

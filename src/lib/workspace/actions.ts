@@ -15,6 +15,7 @@ import {
 	isAgentCitationHref,
 	rewriteCitationHrefToPdf,
 } from "@/lib/agent/citation-href";
+import { commands } from "@/lib/core/bindings";
 import { errorText } from "@/lib/core/error";
 import { notifyError, notifyUndo, notifyWarning } from "@/lib/core/notify";
 import { openExternalUrl } from "@/lib/core/open-external";
@@ -651,6 +652,7 @@ export async function openTexPdf(
 					pdfBytes: bytes,
 					loaded: true,
 					texCompiling: false,
+					texLive: false,
 					title: basenameOf(pdfPath),
 				});
 				setActiveTabId(pdfId);
@@ -669,7 +671,7 @@ export async function openTexPdf(
 	// once the compile lands.
 	const paneAlreadyOpen = getTabs().some((t) => t.id === pdfId);
 	if (paneAlreadyOpen) {
-		updateTab(pdfId, { texCompiling: true });
+		updateTab(pdfId, { texCompiling: true, texLive: false });
 		setActiveTabId(pdfId);
 		dockHandle()?.activatePanel(pdfId);
 	} else {
@@ -716,6 +718,84 @@ export async function openTexPdf(
 		pdfBytes: bytes,
 		loaded: true,
 		texCompiling: false,
+		texLive: false,
+		title: basenameOf(pdfPath),
+	});
+}
+
+/**
+ * Open the real-time rtex preview for a .tex project. The pane reuses the
+ * compiled PDF tab identity (root output path) and flips `texLive`, so the
+ * editor + live preview split behaves exactly like the existing PDF split.
+ * The session itself starts inside the viewer, which also feeds the editor
+ * buffers into it (`set_document`).
+ */
+export async function openTexLive(texPath: string): Promise<void> {
+	if (!isTexPath(texPath) || !isTauri()) return;
+	const status = await commands.rtexStatus();
+	if (!status.ok || !status.data?.available) {
+		notifyError(
+			status.error?.message ??
+				status.data?.error ??
+				i18n.t("sidebar:fileTree.livePreviewUnavailable"),
+		);
+		return;
+	}
+
+	// The live session reads disk once, then the viewer syncs every mounted
+	// editor buffer over it; flushing first keeps the very first layout close
+	// to what the user sees.
+	await flushAllTextEditors();
+	const rootPath = await resolveTexRoot(texPath);
+	const vaultPath = vaultStore.getState().vaultPath;
+	if (!vaultPath) return;
+
+	const pdfPath = texPdfPath(rootPath);
+	const pdfId = tabIdForPath(pdfPath);
+	const editorId = tabIdForPath(texPath);
+	const referencePanelId =
+		getTabs().find(
+			(t) =>
+				t.id === editorId ||
+				t.id.startsWith(`${editorId}${SPLIT_PANE_ID_MARKER}`),
+		)?.id ?? editorId;
+	if (!getTabs().some((t) => t.id === referencePanelId)) {
+		openTab(texPath, { preferMode: "text" });
+	}
+
+	const existing = getTabs().find((t) => t.id === pdfId);
+	if (existing) {
+		updateTab(pdfId, {
+			texLive: true,
+			texRoot: rootPath,
+			loaded: true,
+			texCompiling: false,
+		});
+		setActiveTabId(pdfId);
+		dockHandle()?.activatePanel(pdfId);
+		return;
+	}
+
+	// Hand-rolled placeholder: the live pane does not need a PDF read, and a
+	// missing first PDF must not surface as "cannot preview".
+	const { tabs: nextTabs, id } = insertPlaceholderTab(
+		getTabs(),
+		pdfPath,
+		"pdf",
+	);
+	const placeholder =
+		nextTabs.find((t) => t.id === id) ?? createPlaceholderTab(pdfPath, "pdf");
+	setTabs(nextTabs);
+	setActiveTabId(id);
+	dockHandle()?.openPanel(placeholder, {
+		direction: "right",
+		referencePanelId,
+	});
+	updateTab(id, {
+		texLive: true,
+		texRoot: rootPath,
+		loaded: true,
+		texCompiling: false,
 		title: basenameOf(pdfPath),
 	});
 }
@@ -751,8 +831,12 @@ export async function compileTexOnSave(texPath: string): Promise<void> {
 	const rootPath = await resolveTexRoot(texPath);
 	const pdfPath = texPdfPath(rootPath);
 	const pdfId = tabIdForPath(pdfPath);
+	// A live pane owns the same tab; a quiet save-compile would flip it back to
+	// the compiled PDF and kill the preview. Explicit compile actions still
+	// switch modes through `openTexPdf`.
+	if (getTabs().find((t) => t.id === pdfId)?.texLive) return;
 	const paneOpen = getTabs().some((t) => t.id === pdfId);
-	if (paneOpen) updateTab(pdfId, { texCompiling: true });
+	if (paneOpen) updateTab(pdfId, { texCompiling: true, texLive: false });
 	try {
 		const compiled = await compileTexFile(rootPath, {
 			quietSuccess: true,
@@ -774,6 +858,7 @@ export async function compileTexOnSave(texPath: string): Promise<void> {
 			pdfBytes: bytes,
 			loaded: true,
 			texCompiling: false,
+			texLive: false,
 			title: basenameOf(pdfPath),
 		});
 	} finally {

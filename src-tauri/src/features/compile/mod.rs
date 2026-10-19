@@ -65,7 +65,7 @@ fn tex_extra_paths() -> Vec<PathBuf> {
 }
 
 /// Resolve `command` by combining `$PATH` with platform-specific TeX locations.
-fn resolve_engine(command: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_engine(command: &str) -> Option<PathBuf> {
     if let Ok(path) = which::which(command) {
         return Some(path);
     }

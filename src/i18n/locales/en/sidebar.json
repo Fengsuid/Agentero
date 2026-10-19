@@ -79,7 +79,16 @@
 		"noLatexEngine": "No LaTeX engine found",
 		"cleanAux": "Clean intermediates",
 		"cleanAuxSuccess": "Intermediates cleaned — ready to recompile",
-		"cleanAuxFailed": "Failed to clean intermediates."
+		"cleanAuxFailed": "Failed to clean intermediates.",
+		"livePreviewUnavailable": "Live preview needs LuaLaTeX and realtime-tex support files",
+		"liveStarting": "Starting live preview…",
+		"liveReady": "Live",
+		"liveWaiting": "Waiting for full compile",
+		"liveRestarting": "Restarting engine…",
+		"liveFailed": "Live preview failed",
+		"liveFirstPage": "Waiting for the first page…",
+		"liveRetry": "Retry",
+		"liveCompile": "Live compile"
 	},
 	"importLocalPdf": {
 		"dropNoPath": "Could not read the dropped PDF. Try the magic wand → Import PDF, or drop from Finder again."

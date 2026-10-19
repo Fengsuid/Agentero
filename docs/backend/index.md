@@ -124,6 +124,7 @@ src-tauri/src/
 | 设置 | [settings.md](settings.md) |
 | 本地桌面应用检测 | [desktop-apps.md](desktop-apps.md) |
 | 翻译 | [translate.md](translate.md) |
+| 实时 TeX 预览（rtex） | [rtex.md](rtex.md) |
 | 内置 Provider（构建期凭证） | [builtin-provider.md](builtin-provider.md) |
 | 日志 | [logging.md](logging.md) |
 | 遥测 | [telemetry.md](telemetry.md) |

@@ -49,6 +49,10 @@ export type DocTab = {
 	navigationIntent?: { id: number; fragment: LinkFragment };
 	/** Transient: compiled-PDF pane is waiting on a running LaTeX compile. */
 	texCompiling?: boolean;
+	/** Render the rtex live canvas instead of the compiled PDF (PDF tab only). */
+	texLive?: boolean;
+	/** Project root .tex for a live preview tab (derived from `path` when absent). */
+	texRoot?: string;
 	loaded: boolean;
 };
 

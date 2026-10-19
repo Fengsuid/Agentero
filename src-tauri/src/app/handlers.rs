@@ -230,6 +230,15 @@ pub fn attach_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<ta
             crate::features::compile::clean_latex_aux_files,
             crate::features::compile::chktex_lint,
             crate::features::compile::root::resolve_latex_root,
+            crate::features::rtex::rtex_status,
+            crate::features::rtex::rtex_start,
+            crate::features::rtex::rtex_edit,
+            crate::features::rtex::rtex_set_document,
+            crate::features::rtex::rtex_request_layout,
+            crate::features::rtex::rtex_pause_background,
+            crate::features::rtex::rtex_stop,
+            crate::features::rtex::rtex_kpsewhich,
+            crate::features::rtex::rtex_read_tex_file,
             crate::features::jobs::commands::job_latex_compile_enqueue,
             // jEV smart highlights need the desktop PDFium stack (see
             // `features::jev`), so they are absent on mobile targets.

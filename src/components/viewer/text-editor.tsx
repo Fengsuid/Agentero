@@ -10,6 +10,8 @@ import { basicSetup } from "codemirror";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import { useStore } from "zustand";
 import { useTextEditorFontSize } from "@/components/viewer/hooks/use-text-editor-font-size";
 import { AskPopover } from "@/components/viewer/pdf/cards/ask-popover";
 import { SelectionMenu } from "@/components/viewer/pdf/cards/selection-menu";
@@ -21,9 +23,17 @@ import {
 } from "@/components/viewer/text-editor-lint-footer";
 import { TextEditorToolbar } from "@/components/viewer/text-editor-toolbar";
 import { useTextEditorSelection } from "@/components/viewer/use-text-editor-selection";
+import { commands } from "@/lib/core/bindings";
 import { basenameOf } from "@/lib/core/path";
+import {
+	registerTexLiveEditor,
+	texLiveApplyUpdate,
+	texLiveSetDocument,
+} from "@/lib/tex-live/session";
+import { openTexLive } from "@/lib/workspace/actions";
+import { ensureTexEngines, texCompileStore } from "@/lib/workspace/tex-compile";
 import { registerTextEditorFlusher } from "@/lib/workspace/text-editor-flush";
-import { textLanguageIdForPath } from "@/lib/workspace/viewer";
+import { isTexPath, textLanguageIdForPath } from "@/lib/workspace/viewer";
 
 interface TextEditorProps {
 	seed: string;
@@ -92,8 +102,30 @@ export function TextEditor({
 	active = true,
 	className,
 }: TextEditorProps) {
+	const { t } = useTranslation("settings");
 	// Font size managed by hook with process-wide persistence (like PDF paper tone).
 	const { fontSize, setFontSize } = useTextEditorFontSize();
+
+	const selectedEngine = useStore(texCompileStore, (s) => s.selectedEngine);
+	const [liveStatus, setLiveStatus] = useState<{
+		available: boolean;
+		error: string | null;
+	} | null>(null);
+	useEffect(() => {
+		ensureTexEngines();
+		let cancelled = false;
+		void commands.rtexStatus().then((result) => {
+			if (cancelled) return;
+			setLiveStatus(
+				result.ok && result.data
+					? { available: result.data.available, error: result.data.error }
+					: { available: false, error: result.error?.message ?? null },
+			);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	// Follow the app theme (system / light / dark preference via next-themes).
 	const { resolvedTheme } = useTheme();
@@ -109,6 +141,8 @@ export function TextEditor({
 	const pendingContentRef = useRef<Text | null>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const dirtyRef = useRef(false);
+	// rtex replays full-buffer `set_document` on reload instead of diff edits.
+	const texLiveReloadRef = useRef(false);
 
 	// Latest seed for the reload effect without re-mounting the editor.
 	const seedRef = useRef(seed);
@@ -239,6 +273,9 @@ export function TextEditor({
 					dirtyRef.current = true;
 					onDirtyChangeRef.current(true);
 				}
+				if (isTexPath(pathRef.current) && !texLiveReloadRef.current) {
+					texLiveApplyUpdate(pathRef.current, view, update);
+				}
 				schedulePersistRef.current(update.state.doc);
 			}),
 		];
@@ -255,6 +292,16 @@ export function TextEditor({
 		// (`manualSaveKeymap` / `selection.selectionListener` /
 		// `handleDiagnostics` are stable — never re-mount the editor).
 	}, [manualSaveKeymap, selection.selectionListener, handleDiagnostics]);
+
+	// A live preview session may already be running (restored pane / another
+	// split). Register this buffer so its edits and current text reach rtex.
+	useEffect(() => {
+		const view = viewRef.current;
+		if (!view) return;
+		return registerTexLiveEditor(path, {
+			getText: () => viewRef.current?.state.doc.toString() ?? "",
+		});
+	}, [path]);
 
 	// Follow theme switches without rebuilding the editor.
 	useEffect(() => {
@@ -316,13 +363,19 @@ export function TextEditor({
 		const next = seedRef.current;
 		lastSavedRef.current = next;
 		if (view && view.state.doc.toString() !== next) {
-			view.dispatch({
-				changes: { from: 0, to: view.state.doc.length, insert: next },
-			});
+			texLiveReloadRef.current = true;
+			try {
+				view.dispatch({
+					changes: { from: 0, to: view.state.doc.length, insert: next },
+				});
+			} finally {
+				texLiveReloadRef.current = false;
+			}
 		}
+		texLiveSetDocument(path, next);
 		dirtyRef.current = false;
 		onDirtyChangeRef.current(false);
-	}, [reloadKey]);
+	}, [reloadKey, path]);
 
 	// An unreadable file still opens an empty buffer — the next autosave
 	// creates/repairs the file on disk.
@@ -333,7 +386,25 @@ export function TextEditor({
 		<div
 			className={`group relative flex h-full w-full flex-col overflow-hidden ${className ?? ""}`}
 		>
-			<TextEditorToolbar fontSize={fontSize} onFontSizeChange={setFontSize} />
+			<TextEditorToolbar
+				fontSize={fontSize}
+				onFontSizeChange={setFontSize}
+				livePreview={
+					isTexPath(path) && selectedEngine === "lualatex"
+						? {
+								disabled: liveStatus?.available !== true,
+								title:
+									liveStatus?.available === false
+										? (liveStatus.error ??
+											t("appearance.livePreviewUnavailable"))
+										: t("appearance.livePreview"),
+								onOpen: () => {
+									void openTexLive(path);
+								},
+							}
+						: null
+				}
+			/>
 			<div ref={hostRef} className="min-h-0 w-full flex-1 overflow-hidden" />
 			{hasLintSources ? (
 				<TextEditorLintFooter

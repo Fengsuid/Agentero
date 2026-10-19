@@ -177,7 +177,9 @@ pub fn run() {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        builder = builder.manage(Arc::new(crate::core::telemetry::Telemetry::new()));
+        builder = builder
+            .manage(Arc::new(crate::core::telemetry::Telemetry::new()))
+            .manage(crate::features::rtex::RtexSessions::new());
     }
 
     builder = handlers::attach_handlers(builder);
@@ -580,6 +582,9 @@ pub fn run() {
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 app.state::<Arc<crate::core::telemetry::Telemetry>>()
                     .shutdown();
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                app.state::<crate::features::rtex::RtexSessions>()
+                    .stop_all();
             }
             // Best-effort final push (bounded); only on Exit so it runs once.
             if matches!(event, tauri::RunEvent::Exit) {

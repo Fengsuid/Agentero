@@ -1,4 +1,4 @@
-import { ChevronDown, Minus, Plus } from "lucide-react";
+import { ChevronDown, Minus, Plus, Radio } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -17,11 +17,14 @@ import { cn } from "@/lib/core/utils";
 interface TextEditorToolbarProps {
 	fontSize: TextEditorFontSize;
 	onFontSizeChange: (size: TextEditorFontSize) => void;
+	/** Live TeX preview entry; null hides it (not a .tex / not LuaLaTeX). */
+	livePreview?: { disabled: boolean; title: string; onOpen: () => void } | null;
 }
 
 export function TextEditorToolbar({
 	fontSize,
 	onFontSizeChange,
+	livePreview,
 }: TextEditorToolbarProps) {
 	const { t } = useTranslation("settings");
 	const [open, setOpen] = useState(false);
@@ -58,6 +61,21 @@ export function TextEditorToolbar({
 					PDF_CHROME_CHIP,
 				)}
 			>
+				{livePreview ? (
+					<Button
+						type="button"
+						size="icon-xs"
+						variant="ghost"
+						className="shrink-0 self-center"
+						aria-label={livePreview.title}
+						title={livePreview.title}
+						disabled={livePreview.disabled}
+						onClick={livePreview.onOpen}
+					>
+						<Radio className="size-3.5" aria-hidden />
+					</Button>
+				) : null}
+
 				<Button
 					type="button"
 					size="icon-xs"

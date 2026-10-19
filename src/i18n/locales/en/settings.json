@@ -277,7 +277,9 @@
 		},
 		"editorToolbar": {
 			"label": "Formatting toolbar"
-		}
+		},
+		"livePreview": "Open live preview",
+		"livePreviewUnavailable": "Live preview needs LuaLaTeX and realtime-tex support files"
 	},
 	"agent": {
 		"title": "Agent",

@@ -35,6 +35,11 @@ pub mod jev;
 pub mod markdown;
 pub mod paper;
 pub mod pdf;
+#[cfg(all(
+    feature = "desktop",
+    not(any(target_os = "ios", target_os = "android"))
+))]
+pub mod rtex;
 pub mod system;
 pub mod translate;
 pub mod vault;

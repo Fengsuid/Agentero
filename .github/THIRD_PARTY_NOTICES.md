@@ -29,6 +29,8 @@
 | Geist Variable | 5.2.9 | OFL-1.1 | 界面字体 | https://fontsource.org/fonts/geist |
 | Claude Agent ACP Adapter | 0.79.0 | Apache-2.0 | 内置 ACP Adapter 离线回退 | https://github.com/agentclientprotocol/claude-agent-acp |
 | Codex ACP Adapter | 1.12.0 | Apache-2.0 | 内置 ACP Adapter 离线回退 | https://github.com/agentclientprotocol/codex-acp |
+| realtime-tex（rtex-core / rtex-dl / TeX 支持文件） | 0.0.5 | MIT | LuaLaTeX 实时段落预览 | https://github.com/HenryXiaoYang/realtime-tex |
+| realtime-tex VS Code 预览渲染器（移植） | 0.0.5 | MIT | display list → Canvas 渲染 | https://github.com/HenryXiaoYang/realtime-tex-vsc-plugin |
 
 > 内置的两个 ACP Adapter 是独立的 npm 依赖树，其传递依赖以 MIT / ISC / BSD / Apache-2.0 为主。完整清单见 `scripts/prepare-adapters.mjs` 固定的版本与 `src-tauri/adapters/manifest.json`。
 

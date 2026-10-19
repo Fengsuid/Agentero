@@ -44,6 +44,11 @@ const TextEditor = lazy(() =>
 		default: m.TextEditor,
 	})),
 );
+const TexLiveViewer = lazy(() =>
+	import("@/components/viewer/texlive/tex-live-viewer").then((m) => ({
+		default: m.TexLiveViewer,
+	})),
+);
 
 /** Library-tab-only props (ignored by PDF / editor / trash). */
 export type DocViewLibraryProps = {
@@ -274,6 +279,21 @@ export const DocView = memo(function DocView({
 		},
 		[editor.onTabPatch, isNotes, tab.id],
 	);
+	if (tab.texLive) {
+		if (!active && !keepMounted) return null;
+		const texRoot = tab.texRoot ?? tab.path.replace(/\.pdf$/i, ".tex");
+		return (
+			<div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+				<Suspense fallback={<TabLoadingSkeleton />}>
+					<TexLiveViewer
+						rootPath={texRoot}
+						vaultPath={vaultPath}
+						active={active}
+					/>
+				</Suspense>
+			</div>
+		);
+	}
 	if (tab.texCompiling) {
 		return <TexCompilingPlaceholder />;
 	}

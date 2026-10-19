@@ -612,6 +612,24 @@ export const commands = {
 	 *  button stays hidden.
 	 */
 	detectLatexEngines: () => __TAURI_INVOKE<ApiResult<LatexEngine[]>>("detect_latex_engines"),
+	rtexStatus: () => __TAURI_INVOKE<ApiResult<RtexStatus>>("rtex_status"),
+	rtexStart: (texPath: string, vaultPath: string, fresh: boolean) => __TAURI_INVOKE<ApiResult<RtexStartResult>>("rtex_start", { texPath, vaultPath, fresh }),
+	rtexEdit: (sessionId: string, path: string, start: number, end: number, text: string) => __TAURI_INVOKE<ApiResult<null>>("rtex_edit", { sessionId, path, start, end, text }),
+	rtexSetDocument: (sessionId: string, path: string, text: string) => __TAURI_INVOKE<ApiResult<null>>("rtex_set_document", { sessionId, path, text }),
+	rtexRequestLayout: (sessionId: string) => __TAURI_INVOKE<ApiResult<null>>("rtex_request_layout", { sessionId }),
+	rtexPauseBackground: (sessionId: string, paused: boolean) => __TAURI_INVOKE<ApiResult<null>>("rtex_pause_background", { sessionId, paused }),
+	rtexStop: (sessionId: string) => __TAURI_INVOKE<ApiResult<null>>("rtex_stop", { sessionId }),
+	/**
+	 *  `kpsewhich <name>` through the same TeX Live bin resolution as the rest of
+	 *  the app. Resolved files are added to the session's read allow-list.
+	 */
+	rtexKpsewhich: (sessionId: string, name: string) => __TAURI_INVOKE<ApiResult<string | null>>("rtex_kpsewhich", { sessionId, name }),
+	/**
+	 *  Read a font/image/layout file for the renderer. Only files resolved by
+	 *  `kpsewhich`, or under the project/build roots, are readable — this command
+	 *  must never become a general filesystem read for the WebView.
+	 */
+	rtexReadTexFile: (sessionId: string, path: string) => __TAURI_INVOKE<ApiResult<string>>("rtex_read_tex_file", { sessionId, path }),
 	/**
 	 *  Clean the regenerable LaTeX intermediates for one source (`latexmk -c`):
 	 *  drops `.aux` / `.log` / `.fls` / `.fdb_latexmk` / … while keeping the PDF.
@@ -4442,6 +4460,19 @@ export type ResolvedLink_Serialize = {
 	status: LinkResolutionStatus,
 	targetPath?: string | null,
 	candidates?: string[],
+};
+
+export type RtexStartResult = {
+	sessionId: string,
+	projectRoot: string,
+	mainFile: string,
+};
+
+export type RtexStatus = {
+	available: boolean,
+	lualatex: string | null,
+	texdir: string | null,
+	error: string | null,
 };
 
 export type RunOnceAccepted = {
