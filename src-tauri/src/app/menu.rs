@@ -1,7 +1,7 @@
 //! Native application menu (macOS) and locale labels.
 
 #[cfg(target_os = "macos")]
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder, WINDOW_SUBMENU_ID};
 
 /// Broadcast when a native menu item is clicked; payload `{ action: <menu id> }`.
 /// Wire naming follows docs/development/lifecycle-events.md (`domain:event`);
@@ -160,7 +160,7 @@ pub fn build_menu(
         .item(&toggle_chat)
         .build()?;
 
-    let window_submenu = SubmenuBuilder::new(app, labels.window)
+    let window_submenu = SubmenuBuilder::with_id(app, WINDOW_SUBMENU_ID, labels.window)
         .minimize()
         .maximize()
         .build()?;
