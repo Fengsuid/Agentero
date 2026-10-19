@@ -106,6 +106,7 @@ dependencies = [
  "htmd",
  "log",
  "notify-debouncer-full",
+ "objc2-app-kit",
  "openssh",
  "openssh-sftp-client",
  "os_info",

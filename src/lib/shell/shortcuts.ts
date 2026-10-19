@@ -490,20 +490,26 @@ export function matchShortcut(event: KeyboardEvent, def: ShortcutDef): boolean {
 	const wantShift = Boolean(def.shift);
 	const wantCtrl = Boolean(def.ctrl);
 
-	// On Windows/Linux, treat Ctrl as ⌘ equivalent when meta is required.
-	const metaOrCtrl = event.metaKey || event.ctrlKey;
-	if (wantMeta) {
-		if (!metaOrCtrl) return false;
-	} else if (event.metaKey) {
-		return false;
+	const isMac = getPlatformOS() === "macos";
+	if (isMac) {
+		if (wantMeta !== event.metaKey) return false;
+		if (wantCtrl !== event.ctrlKey) return false;
+	} else {
+		// On Windows/Linux, treat Ctrl as ⌘ equivalent when meta is required.
+		const metaOrCtrl = event.metaKey || event.ctrlKey;
+		if (wantMeta) {
+			if (!metaOrCtrl) return false;
+		} else if (event.metaKey) {
+			return false;
+		}
+
+		if (wantCtrl && !wantMeta && !event.ctrlKey) return false;
+		// When meta maps to ctrl on non-Mac, ignore pure ctrl-only false positives
+		if (!wantMeta && !wantCtrl && event.ctrlKey) return false;
 	}
 
-	if (wantCtrl && !wantMeta && !event.ctrlKey) return false;
 	if (wantAlt !== event.altKey) return false;
 	if (wantShift !== event.shiftKey) return false;
-
-	// When meta maps to ctrl on non-Mac, ignore pure ctrl-only false positives
-	if (!wantMeta && !wantCtrl && event.ctrlKey) return false;
 
 	return true;
 }

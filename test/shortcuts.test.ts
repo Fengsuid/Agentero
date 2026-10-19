@@ -42,11 +42,31 @@ describe("shell shortcuts", () => {
 				settingsOpen: false,
 			}),
 		).toBe("splitPane");
+		vi.mocked(getPlatformOS).mockReturnValue("windows");
 		expect(
 			resolveShortcutId(keyEvent({ key: "\\", ctrlKey: true }), {
 				settingsOpen: false,
 			}),
 		).toBe("splitPane");
+	});
+
+	it("distinguishes Ctrl and Meta on macOS", () => {
+		vi.mocked(getPlatformOS).mockReturnValue("macos");
+		expect(
+			resolveShortcutId(keyEvent({ key: "ArrowLeft", ctrlKey: true }), {
+				settingsOpen: false,
+			}),
+		).toBeNull();
+		expect(
+			resolveShortcutId(keyEvent({ key: "\\", ctrlKey: true }), {
+				settingsOpen: false,
+			}),
+		).toBeNull();
+		expect(
+			resolveShortcutId(keyEvent({ key: "ArrowLeft", metaKey: true }), {
+				settingsOpen: false,
+			}),
+		).toBe("collapseTreeCurrent");
 	});
 
 	it("renders the split pane chord", () => {

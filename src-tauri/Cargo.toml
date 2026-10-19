@@ -132,6 +132,9 @@ posthog-rs = { version = "0.23", default-features = false, optional = true }
 security-framework = "3.7"
 security-framework-sys = "2.17"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow"] }
+
 # openssh / sendfd are Unix-only (ControlMaster fd passing). Remote vault SFTP
 # is therefore unavailable on Windows until a portable backend lands.
 [target.'cfg(unix)'.dependencies]

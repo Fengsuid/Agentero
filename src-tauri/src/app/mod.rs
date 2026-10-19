@@ -352,6 +352,9 @@ pub fn run() {
         {
             let menu = menu::build_menu(app.handle(), "en")?;
             app.set_menu(menu)?;
+            if let Some(main_win) = app.get_webview_window("main") {
+                window::commands::enable_window_tiling(&main_win);
+            }
         }
         // Ensure registry is loaded early.
         let _ = app.state::<AgentRegistry>();

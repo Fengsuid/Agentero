@@ -40,6 +40,21 @@ pub fn emit_window_closed(app: &AppHandle, kind: &str, view: Option<&str>) {
     let _ = app.emit(WINDOW_CLOSED_EVENT, WindowClosedPayload { kind, view });
 }
 
+/// Enables macOS native fullscreen space and window tiling (Move & Resize).
+#[cfg(target_os = "macos")]
+pub fn enable_window_tiling(window: &tauri::WebviewWindow) {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+    if let Ok(ptr) = window.ns_window() {
+        let ns_win = unsafe { (ptr as *mut NSWindow).as_ref() };
+        if let Some(ns_win) = ns_win {
+            let mut behavior = ns_win.collectionBehavior();
+            behavior |= NSWindowCollectionBehavior::FullScreenPrimary
+                | NSWindowCollectionBehavior::FullScreenAllowsTiling;
+            ns_win.setCollectionBehavior(behavior);
+        }
+    }
+}
+
 /// Open a fresh Agentero window without restoring the last vault (`?fresh=1`).
 ///
 /// `async` is load-bearing: sync command handlers run on the main thread inside
@@ -96,6 +111,8 @@ pub async fn window_new(app: AppHandle) -> Result<(), String> {
             return Err(e.to_string());
         }
     };
+    #[cfg(target_os = "macos")]
+    enable_window_tiling(&window);
     let _ = window.set_focus();
 
     // Native menu is macOS-only; other platforms drive actions from the React
@@ -377,6 +394,8 @@ pub async fn doc_window_open(
             return Err(e.to_string());
         }
     };
+    #[cfg(target_os = "macos")]
+    enable_window_tiling(&window);
     let _ = window.set_focus();
 
     op.finish_ok_extra(format!("new label={label}"));
