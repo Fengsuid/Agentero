@@ -67,7 +67,7 @@ pub async fn window_new(app: AppHandle) -> Result<(), String> {
         WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html?fresh=1".into()))
             .title("Agentero")
             .inner_size(1280.0, 800.0)
-            .min_inner_size(960.0, 520.0)
+            .min_inner_size(700.0, 520.0)
             .resizable(true);
 
     #[cfg(target_os = "macos")]

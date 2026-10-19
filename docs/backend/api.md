@@ -323,7 +323,7 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
 - **返回**：`Result<(), String>`
 - **行为**
   - 创建 label 为 `agentero-<uuid>` 的 Webview 窗口，URL 带 `?fresh=1`（不自动恢复上次 Vault）。
-  - 窗口尺寸 / macOS overlay 标题栏与主窗口一致；主应用窗口最小尺寸为 `960×520`（`tauri.conf.json`；macOS 平台覆盖须在 `tauri.macos.conf.json` 的 `windows` 数组里重复写齐，否则 RFC 7396 数组替换会冲掉最小值，见 `docs/bug_fix/macos-window-min-size-config-merge.md`）。
+  - 窗口尺寸 / macOS overlay 标题栏与主窗口一致；主应用窗口最小尺寸为 `700×520`（`tauri.conf.json`；macOS 平台覆盖须在 `tauri.macos.conf.json` 的 `windows` 数组里重复写齐，否则 RFC 7396 数组替换会冲掉最小值，见 `docs/bug_fix/macos-window-min-size-config-merge.md`）。
   - 窗口初始隐藏，由全局 page-load hook 在页面加载完成后显示；首个 React commit 前显示静态启动壳。
   - Capability 覆盖 `main` 与 `agentero-*`（见 `src-tauri/capabilities/default.json`）。
   - 菜单点击由 Host 直接调用，不经过前端 event 往返（Host 内用 `tauri::async_runtime::spawn` 调用）。
