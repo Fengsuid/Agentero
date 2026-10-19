@@ -6,13 +6,11 @@ use crate::core::log_util::{trunc, OpTimer};
 use crate::core::remote::parse_remote_handle;
 use crate::features::paper::catalog::papers::PaperRecord;
 use crate::features::paper::catalog::CapsCache;
-use crate::features::paper::import::pdf_parse::{PaperParseBodyArgs, PaperParseResult};
 use crate::features::paper::import::search_router::needs_s2_venue_enrichment;
 use crate::features::paper::import::RemoteImportOps;
 use crate::features::paper::import::{
-    AssetDownloadResult, ImportLocalPdfArgs, ImportLocalPdfResult, LookupImportBatchArgs,
-    LookupImportBatchResult, PaperDownloadAssetsArgs, SkillImportResult, StageImportFileArgs,
-    StageImportFileResult,
+    ImportLocalPdfArgs, ImportLocalPdfResult, LookupImportBatchArgs, LookupImportBatchResult,
+    SkillImportResult, StageImportFileArgs, StageImportFileResult,
 };
 use crate::features::paper::scholar_api::sources::semantic_scholar::{
     better_publication, SemanticScholarApi,
@@ -93,27 +91,6 @@ pub fn skill_discard(discovery_id: String) -> ApiResult<()> {
     op.finish_result(super::discard_skill_discovery(&discovery_id))
 }
 
-/// Download PDF (+ arXiv LaTeX) for an existing paper folder that is missing local assets.
-/// When no TeX remains after download, also tries liteparse → PAPER.md.
-#[tauri::command]
-#[specta::specta]
-pub async fn paper_download_assets(
-    app: tauri::AppHandle,
-    remote: State<'_, Arc<dyn RemoteImportOps>>,
-    cache: State<'_, CapsCache>,
-    args: PaperDownloadAssetsArgs,
-) -> Result<ApiResult<AssetDownloadResult>, String> {
-    let path = trunc(&args.path, 120);
-    let op = OpTimer::start_with("paper_download_assets", format!("path={path}"));
-    if let Some(session_id) = parse_remote_handle(&args.vault_path).map(str::to_owned) {
-        return Ok(op.finish_result(remote.download_paper_assets_remote(&session_id, args).await));
-    }
-    let host_app = crate::features::host_hooks::wrap(&app);
-    let result =
-        super::download_paper_assets_with_progress(args, Some(&host_app), Some(&cache)).await;
-    Ok(op.finish_result(result))
-}
-
 /// Import local PDF file(s) into the vault as paper folders (copy + catalog + liteparse).
 #[tauri::command]
 #[specta::specta]
@@ -149,28 +126,6 @@ pub async fn paper_import_local_pdf(
     Ok(op.finish_result_ok_extra(result, |r| {
         format!("imported={} errors={}", r.papers.len(), r.errors.len())
     }))
-}
-
-/// Parse a paper's local PDF into `PAPER.md` using liteparse.
-/// `task_id` is the cooperative-cancel polling id (the JobCenter job id).
-#[tauri::command]
-#[specta::specta]
-pub async fn paper_parse_body(
-    remote: State<'_, Arc<dyn RemoteImportOps>>,
-    cache: State<'_, CapsCache>,
-    args: PaperParseBodyArgs,
-) -> Result<ApiResult<PaperParseResult>, String> {
-    let path = trunc(&args.path, 120);
-    let op = OpTimer::start_with("paper_parse_body", format!("path={path}"));
-
-    if let Some(session_id) = parse_remote_handle(&args.vault_path).map(str::to_owned) {
-        let result = remote.parse_paper_body_remote(&session_id, args).await;
-        return Ok(op.finish_result(result));
-    }
-
-    let result =
-        crate::features::paper::import::pdf_parse::parse_paper_body(args, Some(&cache)).await;
-    Ok(op.finish_result(result))
 }
 
 /// Stage a path-less OS drop (File bytes as base64) into `~/.agentero/import-tmp/`.

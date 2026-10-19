@@ -96,10 +96,6 @@ impl SftpFs {
         })
     }
 
-    pub fn remote_root(&self) -> &str {
-        &self.remote_root
-    }
-
     fn abs(&self, rel: &str) -> Result<String, AppError> {
         join_remote(&self.remote_root, rel).map_err(AppError::message)
     }

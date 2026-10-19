@@ -4,9 +4,9 @@
 //! see this file. Events are scoped by vault path so one install can hold
 //! several libraries.
 //!
-//! Shared by the desktop Host and the headless CLI (`agentero usage *`). The
-//! `#[tauri::command]` surface lives in the desktop shell
-//! (`agentero_lib::core::usage::commands`); everything here is tauri-free.
+//! Shared by the desktop Host. The `#[tauri::command]` surface lives in the
+//! desktop shell (`agentero_lib::core::usage::commands`); everything here is
+//! tauri-free.
 
 mod projection;
 mod query;
@@ -18,8 +18,8 @@ use crate::error::AppError;
 pub use crate::paths::usage_db_path;
 pub use projection::{telemetry_projection, ActivityProjection};
 pub use query::{
-    clear_all, clear_vault, list_events, rename_path, since_rfc3339_days, summarize, ListFilter,
-    UsageEvent, UsageKindCount,
+    clear_all, clear_vault, list_events, rename_path, summarize, ListFilter, UsageEvent,
+    UsageKindCount,
 };
 pub use record::{record_events, UsageRecord};
 
@@ -33,17 +33,6 @@ pub fn rename_path_best_effort(vault: &str, from: &str, to: &str) {
 
 pub fn record_default(events: &[UsageRecord]) -> Result<usize, AppError> {
     record_events(&usage_db_path(), events)
-}
-
-pub fn list_default(filter: &ListFilter) -> Result<Vec<UsageEvent>, AppError> {
-    list_events(&usage_db_path(), filter)
-}
-
-pub fn summarize_default(
-    vault: Option<&str>,
-    since: Option<&str>,
-) -> Result<Vec<UsageKindCount>, AppError> {
-    summarize(&usage_db_path(), vault, since)
 }
 
 pub fn clear_default(vault: Option<&str>) -> Result<u64, AppError> {

@@ -2,10 +2,10 @@
 //! typed answer from rules, a System One decision model (jEV / Clef / ...), or
 //! (later) an LLM.
 //!
-//! The layer is intentionally Tauri-free so the headless CLI can reuse it.
-//! Business modules register [`DecisionSchema`]s at assembly time and call
-//! [`DecisionEngine::decide`]; routing/fallback lives here, provider transport
-//! lives in [`providers`].
+//! The layer is intentionally Tauri-free. The core API remains available, but
+//! no Host module currently registers [`DecisionSchema`]s or exposes
+//! [`DecisionEngine`] to the frontend; routing/fallback lives here, provider
+//! transport lives in [`providers`].
 //!
 //! @see docs/backend/decision.md
 

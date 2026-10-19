@@ -222,13 +222,10 @@ pub fn run() {
             // scans) check cancellation through the JobCenter task-id registry.
             crate::core::cancel::install_cancel_probe(crate::features::jobs::is_task_cancelled);
         }
-        // Decision layer: one engine shared by every semantic decision point,
-        // plus the jEV provider reused by the smart-highlight stream.
-        {
-            let (engine, jev_provider) = crate::features::decision::build(app.handle().clone());
-            app.manage(engine);
-            app.manage(jev_provider);
-        }
+        // Shared System One provider for the smart-highlight stream.
+        app.manage(crate::features::decision::build_provider(
+            app.handle().clone(),
+        ));
         let settings_store = app.state::<AppSettingsStore>();
         let agents = app.state::<AgentRegistry>();
         let mut settings = settings_store

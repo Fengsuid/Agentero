@@ -1,6 +1,6 @@
 //! Registry / catalog / lifecycle Tauri commands.
 
-use super::{AgentUserAgentResponse, EnabledResponse};
+use super::AgentUserAgentResponse;
 use crate::core::error::{map_err, ApiResult, AppError};
 use crate::features::agent::models::{
     AgentListResponse, AgentOnly, AgentSkill, CatalogScanResponse, ProbeResult, UpsertAgentRequest,
@@ -135,22 +135,6 @@ pub fn agent_set_default(
         Ok(s) => {
             emit_registry_changed(&app);
             ApiResult::ok(service::list_from_state(s))
-        }
-        Err(e) => map_err(e),
-    }
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn agent_set_enabled(
-    app: AppHandle,
-    registry: State<'_, AgentRegistry>,
-    enabled: bool,
-) -> ApiResult<EnabledResponse> {
-    match registry.set_enabled(enabled) {
-        Ok(s) => {
-            emit_registry_changed(&app);
-            ApiResult::ok(EnabledResponse { enabled: s.enabled })
         }
         Err(e) => map_err(e),
     }

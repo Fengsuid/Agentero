@@ -4,6 +4,7 @@
 //! Key = sha256(rel\0size\0mtime). On hit we touch mtime for LRU order.
 
 use crate::core::error::AppError;
+#[cfg(test)]
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,13 +13,14 @@ use std::time::SystemTime;
 /// Default cap for one remote vault's blob directory (2 GiB).
 pub const DEFAULT_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct BlobCacheStats {
-    /// Total bytes under all (or one) remote blob dirs.
+    /// Total bytes under the remote blob dir.
     pub bytes: u64,
     pub files: u64,
-    /// Absolute path when scoped to one vault; empty when aggregated.
+    /// Absolute path of the measured blob dir.
     pub root: String,
     pub max_bytes: u64,
 }
@@ -111,6 +113,7 @@ pub fn enforce_lru(blob_root: &Path, max_bytes: u64) -> Result<(), AppError> {
     Ok(())
 }
 
+#[cfg(test)]
 pub fn stats_for_root(blob_root: &Path) -> BlobCacheStats {
     let entries = if blob_root.is_dir() {
         list_blob_files(blob_root)
@@ -123,23 +126,6 @@ pub fn stats_for_root(blob_root: &Path) -> BlobCacheStats {
         bytes,
         files,
         root: blob_root.display().to_string(),
-        max_bytes: DEFAULT_MAX_BYTES,
-    }
-}
-
-/// Aggregate all `agentero/remote/*/blobs` under the user cache dir.
-pub fn stats_all() -> BlobCacheStats {
-    let mut bytes = 0u64;
-    let mut files = 0u64;
-    for root in all_blob_roots() {
-        let s = stats_for_root(&root);
-        bytes = bytes.saturating_add(s.bytes);
-        files = files.saturating_add(s.files);
-    }
-    BlobCacheStats {
-        bytes,
-        files,
-        root: String::new(),
         max_bytes: DEFAULT_MAX_BYTES,
     }
 }

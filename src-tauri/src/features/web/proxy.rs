@@ -29,9 +29,6 @@ use tauri::http::{header, Response, StatusCode};
 /// credential-bearing headers: the proxy carries no login state).
 use crate::features::paper::discovery::proxy::looks_like_document;
 
-/// Marker every bridge → app message carries.
-pub const BRIDGE_SOURCE: &str = "agentero-web";
-
 /// Selection / shortcut / navigation bridge injected into proxied documents.
 ///
 /// Vanilla ES5 in an IIFE with no namespace leakage (the 广场 NAV_BRIDGE

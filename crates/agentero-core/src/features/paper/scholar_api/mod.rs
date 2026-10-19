@@ -9,7 +9,6 @@
 //! without creating feature-to-feature cycles.
 
 pub mod client;
-pub mod dedup;
 pub mod identifiers;
 pub mod references;
 pub mod scoring;
@@ -51,18 +50,6 @@ impl ApiQuery {
             Self::Url(_) => "url",
             Self::Isbn(_) => "isbn",
             Self::Pmid(_) => "pmid",
-        }
-    }
-
-    /// The raw query value.
-    pub fn value(&self) -> &str {
-        match self {
-            Self::Title(s)
-            | Self::Doi(s)
-            | Self::ArxivId(s)
-            | Self::Url(s)
-            | Self::Isbn(s)
-            | Self::Pmid(s) => s,
         }
     }
 }

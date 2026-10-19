@@ -241,13 +241,6 @@ pub fn rename_path(db_path: &Path, vault: &str, from: &str, to: &str) -> Result<
     Ok((events + daily) as u64)
 }
 
-/// RFC3339 UTC cutoff `days` ago, for `ListFilter::since`.
-pub fn since_rfc3339_days(days: u32) -> String {
-    let days = i64::from(days.max(1));
-    (chrono::Utc::now() - chrono::Duration::days(days))
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-}
-
 fn row_to_event(row: &rusqlite::Row<'_>) -> Result<UsageEvent, AppError> {
     let extra_raw: Option<String> = row.get(11)?;
     let extra = match extra_raw.as_deref() {

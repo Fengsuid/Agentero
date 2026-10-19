@@ -11,10 +11,6 @@ pub struct DecisionRegistry {
 }
 
 impl DecisionRegistry {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Register a schema, replacing any previous definition with the same id.
     pub fn register(&mut self, schema: DecisionSchema) -> Option<DecisionSchema> {
         self.schemas.insert(schema.id.clone(), schema)
@@ -22,16 +18,5 @@ impl DecisionRegistry {
 
     pub fn get(&self, id: &str) -> Option<&DecisionSchema> {
         self.schemas.get(id)
-    }
-
-    /// Registered ids, sorted for stable output.
-    pub fn ids(&self) -> Vec<&str> {
-        let mut ids: Vec<&str> = self.schemas.keys().map(String::as_str).collect();
-        ids.sort_unstable();
-        ids
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.schemas.is_empty()
     }
 }

@@ -104,8 +104,6 @@ dependencies = [
  "futures-util",
  "hex",
  "htmd",
- "liteparse",
- "liteparse-pdfium",
  "log",
  "notify-debouncer-full",
  "openssh",

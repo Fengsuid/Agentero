@@ -29,7 +29,6 @@ macro_rules! common_commands {
             crate::features::agent::commands::agent_ensure_catalog,
             crate::features::agent::commands::agent_remove_agent,
             crate::features::agent::commands::agent_set_default,
-            crate::features::agent::commands::agent_set_enabled,
             crate::features::agent::commands::agent_set_user_agent,
             crate::features::agent::commands::agent_probe,
             crate::features::agent::commands::agent_probe_catalog,
@@ -71,7 +70,6 @@ macro_rules! common_commands {
             crate::features::markdown::wiki::commands::wiki_search,
             crate::features::markdown::wiki::commands::wiki_rename_heading,
             crate::features::markdown::wiki::commands::graph_rebuild,
-            crate::features::markdown::wiki::commands::wiki_cache_rebuild,
             crate::features::vault::doctor::commands::doctor_check,
             crate::features::vault::doctor::commands::doctor_apply_aliases,
             crate::features::vault::doctor::commands::doctor_ignore_aliases,
@@ -99,9 +97,7 @@ macro_rules! common_commands {
             crate::features::paper::import::commands::lookup_import_batch,
             crate::features::paper::import::commands::skill_install,
             crate::features::paper::import::commands::skill_discard,
-            crate::features::paper::import::commands::paper_download_assets,
             crate::features::paper::import::commands::paper_import_local_pdf,
-            crate::features::paper::import::commands::paper_parse_body,
             crate::features::paper::import::commands::paper_resolve_identifier,
             crate::features::paper::import::commands::paper_stage_import_file,
             crate::features::paper::import::commands::notes_template_seed,
@@ -127,8 +123,6 @@ macro_rules! common_commands {
             crate::features::paper::catalog::commands::paper_reading_activity_batch,
             crate::features::markdown::search::commands::vault_search,
             crate::core::usage::commands::activity_record_events,
-            crate::core::usage::commands::usage_list,
-            crate::core::usage::commands::usage_summary,
             crate::core::usage::commands::usage_clear,
             crate::app::logging::logs_clear,
             crate::features::paper::discovery::feeds::commands::feeds_list,
@@ -190,7 +184,6 @@ pub fn attach_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<ta
             crate::integration::remote::commands::remote_paper_set_tags,
             crate::integration::remote::commands::remote_paper_set_is_read,
             crate::integration::remote::commands::remote_cache_file,
-            crate::integration::remote::commands::remote_cache_stats,
             crate::integration::remote::commands::remote_cache_clear,
             crate::features::agent::commands::remote_agent_scan,
             crate::features::agent::commands::remote_agent_probe,
@@ -243,10 +236,7 @@ pub fn attach_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<ta
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::jobs::commands::job_jev_smart_highlights_enqueue,
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
-            crate::features::jev::commands::jev_suggest_highlights,
-            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::jev::commands::jev_probe_health,
-            crate::features::decision::commands::decide,
         ])
     }
     #[cfg(target_os = "ios")]

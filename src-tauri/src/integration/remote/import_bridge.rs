@@ -3,19 +3,19 @@
 use super::paper_commit::{remote_paper_commit, RemoteAssetsPolicy, RemotePaperCommitOptions};
 use super::session::{RemoteRegistry, RemoteSession};
 use crate::core::error::AppError;
-use crate::core::fs::{sanitize_vault_rel, VaultFs, WriteOpts};
+use crate::core::fs::{VaultFs, WriteOpts};
 use crate::features::paper::catalog::papers;
-use crate::features::paper::import::pdf_parse::{
-    parse_paper_body, PaperParseBodyArgs, PaperParseResult,
-};
 use crate::features::paper::import::remote_ops::RemoteImportOps;
 use crate::features::paper::import::{
-    doi_slug, ensure_paper_assets, extract_arxiv_id, map_zotero_item_to_record,
-    normalize_parent_dir, preflight_identifier_batch, resolve_metadata, slug_from_stem,
-    title_from_stem, translator_import_items, AssetDownloadResult, ImportLocalPdfArgs,
+    doi_slug, map_zotero_item_to_record, normalize_parent_dir, preflight_identifier_batch,
+    resolve_metadata, slug_from_stem, title_from_stem, translator_import_items, ImportLocalPdfArgs,
     ImportLocalPdfResult, LocalPdfImportEntry, LookupImportArgs, LookupImportBatchArgs,
-    LookupImportBatchResult, LookupImportResult, NoteShellMode, PaperDownloadAssetsArgs,
-    PaperImportArgs, PaperImportResult, SkillBatchMode, DEFAULT_TRANSLATOR_BASE_URL,
+    LookupImportBatchResult, LookupImportResult, NoteShellMode, PaperImportArgs, PaperImportResult,
+    SkillBatchMode, DEFAULT_TRANSLATOR_BASE_URL,
+};
+#[cfg(test)]
+use crate::features::paper::import::{
+    ensure_paper_assets, extract_arxiv_id, AssetDownloadResult, PaperDownloadAssetsArgs,
 };
 use async_trait::async_trait;
 use std::fs;
@@ -124,7 +124,10 @@ pub async fn import_by_identifier_batch_remote(
     })
 }
 
-/// Download missing PDF/TeX for an existing remote paper folder.
+/// Test/helper path for downloading missing PDF/TeX for an existing remote
+/// paper folder. The production command was removed; only remote session tests
+/// call this directly.
+#[cfg(test)]
 pub async fn download_paper_assets_remote(
     session: Arc<RemoteSession>,
     args: PaperDownloadAssetsArgs,
@@ -465,6 +468,7 @@ pub async fn upload_tree(
     Ok(())
 }
 
+#[cfg(test)]
 async fn pull_if_exists(
     fs: &dyn VaultFs,
     remote_paper: &str,
@@ -480,51 +484,6 @@ async fn pull_if_exists(
     Ok(())
 }
 
-/// Parse a remote paper's staged PDF into `PAPER.md` (liteparse), write the
-/// result back to the remote vault, and push the catalog mirror.
-///
-/// Moved out of the `paper_parse_body` command shell so the import feature no
-/// longer reaches into `integration::remote` (layering inversion).
-pub async fn parse_paper_body_remote(
-    session: Arc<RemoteSession>,
-    args: PaperParseBodyArgs,
-) -> Result<PaperParseResult, AppError> {
-    let path_rel =
-        sanitize_vault_rel(&args.path).map_err(|_| AppError::message("invalid paper path"))?;
-    let staging = session.work_root.join(&path_rel);
-
-    let local_args = PaperParseBodyArgs {
-        vault_path: session.work_root.to_string_lossy().to_string(),
-        path: path_rel.clone(),
-        force: args.force,
-        task_id: args.task_id.clone(),
-    };
-
-    let result = parse_paper_body(local_args, None).await?;
-
-    if result.paper_md {
-        let paper_md_local = staging.join("PAPER.md");
-        if paper_md_local.is_file() {
-            let bytes = fs::read(&paper_md_local)
-                .map_err(|e| AppError::message(format!("read staged PAPER.md: {e}")))?;
-            session
-                .fs
-                .write(
-                    &format!("{path_rel}/PAPER.md"),
-                    &bytes,
-                    WriteOpts {
-                        create_parents: true,
-                    },
-                )
-                .await?;
-        }
-        let mut cat = session.catalog.lock().await;
-        cat.push(session.fs.clone()).await?;
-    }
-
-    Ok(result)
-}
-
 #[async_trait]
 impl RemoteImportOps for RemoteRegistry {
     async fn import_by_identifier_batch_remote(
@@ -537,15 +496,6 @@ impl RemoteImportOps for RemoteRegistry {
         import_by_identifier_batch_remote(session, args, note_mode).await
     }
 
-    async fn download_paper_assets_remote(
-        &self,
-        session_id: &str,
-        args: PaperDownloadAssetsArgs,
-    ) -> Result<AssetDownloadResult, AppError> {
-        let session = self.get(session_id).await?;
-        download_paper_assets_remote(session, args).await
-    }
-
     async fn import_local_pdfs_remote(
         &self,
         session_id: &str,
@@ -554,15 +504,6 @@ impl RemoteImportOps for RemoteRegistry {
     ) -> Result<ImportLocalPdfResult, AppError> {
         let session = self.get(session_id).await?;
         import_local_pdfs_remote(session, args, note_mode).await
-    }
-
-    async fn parse_paper_body_remote(
-        &self,
-        session_id: &str,
-        args: PaperParseBodyArgs,
-    ) -> Result<PaperParseResult, AppError> {
-        let session = self.get(session_id).await?;
-        parse_paper_body_remote(session, args).await
     }
 
     async fn import_catalog_remote(

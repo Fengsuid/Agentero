@@ -50,16 +50,6 @@ impl DecisionEngine {
         DecisionEngineBuilder::default()
     }
 
-    /// Registered decision ids (sorted).
-    pub fn decision_ids(&self) -> Vec<&str> {
-        self.registry.ids()
-    }
-
-    /// The schema registered for `id`, if any.
-    pub fn schema(&self, id: &str) -> Option<&DecisionSchema> {
-        self.registry.get(id)
-    }
-
     /// Answer `request`, applying the schema's fallback policy.
     ///
     /// Fallback is attempted when:

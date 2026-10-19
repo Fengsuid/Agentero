@@ -422,36 +422,6 @@ pub async fn remote_cache_file(
 
 #[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteCacheStatsArgs {
-    /// When set, stats for that session's blob dir; otherwise all remote caches.
-    #[serde(default)]
-    pub session_id: Option<String>,
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn remote_cache_stats(
-    registry: State<'_, Arc<RemoteRegistry>>,
-    args: RemoteCacheStatsArgs,
-) -> Result<ApiResult<crate::integration::remote::blob_cache::BlobCacheStats>, String> {
-    use crate::integration::remote::blob_cache;
-    if let Some(sid) = args
-        .session_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        let session = try_session!(registry, sid);
-        Ok(ApiResult::ok(blob_cache::stats_for_root(
-            &session.blob_root,
-        )))
-    } else {
-        Ok(ApiResult::ok(blob_cache::stats_all()))
-    }
-}
-
-#[derive(Debug, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
 pub struct RemoteCacheClearArgs {
     /// When set, clear that session's blobs; otherwise all remote blob caches.
     #[serde(default)]

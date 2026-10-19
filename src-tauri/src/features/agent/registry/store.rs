@@ -60,16 +60,6 @@ impl AgentRegistry {
         Ok(state)
     }
 
-    pub fn set_enabled(&self, enabled: bool) -> Result<AgentRegistryState, AppError> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| AppError::message("agent registry lock poisoned"))?;
-        guard.enabled = enabled;
-        persist(&self.path, &guard)?;
-        Ok(guard.clone())
-    }
-
     pub fn set_proxy(
         &self,
         proxy_enabled: bool,
@@ -328,31 +318,6 @@ impl AgentRegistry {
         Ok(true)
     }
 
-    pub fn discover(&self, id: Option<&str>) -> Result<Vec<AgentDescriptor>, AppError> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| AppError::message("agent registry lock poisoned"))?;
-
-        for agent in guard.agents.iter_mut() {
-            if id.is_some_and(|want| want != agent.id) {
-                continue;
-            }
-            probe_or_bundled(agent);
-        }
-        persist(&self.path, &guard)?;
-        Ok(if let Some(want) = id {
-            guard
-                .agents
-                .iter()
-                .filter(|a| a.id == want)
-                .cloned()
-                .collect()
-        } else {
-            guard.agents.clone()
-        })
-    }
-
     pub fn get(&self, id: &str) -> Result<AgentDescriptor, AppError> {
         let state = self.snapshot()?;
         state
@@ -589,11 +554,6 @@ impl AgentRegistry {
 
     pub fn resolve_default(&self, preferred: Option<&str>) -> Result<AgentDescriptor, AppError> {
         let state = self.snapshot()?;
-        if !state.enabled {
-            return Err(AppError::message(
-                "Agent is disabled. Enable it in Settings → Agent.",
-            ));
-        }
         let id = preferred
             .map(str::to_string)
             .or(state.default_id.clone())

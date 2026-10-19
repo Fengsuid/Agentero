@@ -1,7 +1,7 @@
 //! Local PDF → `PAPER.md` via liteparse (no TeX papers).
 //!
 //! @see docs/backend/data-model.md § PAPER.md
-//! @see docs/backend/api.md `paper_parse_body`
+//! @see docs/backend/api.md `job_parse_body_enqueue`
 
 use crate::error::AppError;
 use crate::features::catalog::{papers, probe_paper_caps, CapsCache};

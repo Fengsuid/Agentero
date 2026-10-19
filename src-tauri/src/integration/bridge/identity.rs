@@ -182,12 +182,6 @@ impl BridgeIdentityStore {
         write_private_json(&path, &identity)?;
         Ok(identity)
     }
-
-    pub fn reset(&self) -> Result<BridgeIdentity, AppError> {
-        let identity = BridgeIdentity::create();
-        write_private_json(&self.dir.join(IDENTITY_FILE), &identity)?;
-        Ok(identity)
-    }
 }
 
 #[derive(Clone)]

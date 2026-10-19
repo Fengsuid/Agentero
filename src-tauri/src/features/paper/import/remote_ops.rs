@@ -7,11 +7,9 @@
 //! (`Arc<dyn RemoteImportOps>`).
 
 use crate::core::error::AppError;
-use crate::features::paper::import::pdf_parse::{PaperParseBodyArgs, PaperParseResult};
 use crate::features::paper::import::{
-    AssetDownloadResult, ImportLocalPdfArgs, ImportLocalPdfResult, LookupImportBatchArgs,
-    LookupImportBatchResult, NoteShellMode, PaperDownloadAssetsArgs, PaperImportArgs,
-    PaperImportResult,
+    ImportLocalPdfArgs, ImportLocalPdfResult, LookupImportBatchArgs, LookupImportBatchResult,
+    NoteShellMode, PaperImportArgs, PaperImportResult,
 };
 use async_trait::async_trait;
 
@@ -27,12 +25,6 @@ pub trait RemoteImportOps: Send + Sync {
         args: LookupImportBatchArgs,
         note_mode: NoteShellMode,
     ) -> Result<LookupImportBatchResult, AppError>;
-    /// Download PDF/TeX assets for an existing remote paper folder.
-    async fn download_paper_assets_remote(
-        &self,
-        session_id: &str,
-        args: PaperDownloadAssetsArgs,
-    ) -> Result<AssetDownloadResult, AppError>;
     /// Import local PDF file(s) into the remote vault.
     async fn import_local_pdfs_remote(
         &self,
@@ -40,13 +32,6 @@ pub trait RemoteImportOps: Send + Sync {
         args: ImportLocalPdfArgs,
         note_mode: NoteShellMode,
     ) -> Result<ImportLocalPdfResult, AppError>;
-    /// Parse a remote paper's staged PDF into `PAPER.md`, write it back to the
-    /// remote vault, and push the catalog mirror.
-    async fn parse_paper_body_remote(
-        &self,
-        session_id: &str,
-        args: PaperParseBodyArgs,
-    ) -> Result<PaperParseResult, AppError>;
     /// Import BibTeX/RIS/… catalog entries into the remote vault.
     async fn import_catalog_remote(
         &self,

@@ -45,10 +45,6 @@ impl CatalogMirror {
         &self.work_db
     }
 
-    pub fn remote_stamp(&self) -> RemoteFileStamp {
-        self.remote_stamp
-    }
-
     /// Download remote catalog (or create empty + migrate if missing), store under `work_root`.
     pub async fn checkout(
         fs: Arc<dyn VaultFs>,

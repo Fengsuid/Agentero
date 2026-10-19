@@ -162,21 +162,3 @@ pub async fn graph_rebuild(
     })
     .await)
 }
-
-/// Internal diagnostic: remove the derived snapshot and rebuild it from Vault files.
-#[tauri::command]
-#[specta::specta]
-pub async fn wiki_cache_rebuild(
-    index: State<'_, WikiIndexState>,
-    vault_path: String,
-) -> Result<ApiResult<RebuildResult>, String> {
-    let index = index.handle();
-    Ok(run_blocking(move || {
-        let mut guard = lock_wiki_index!(index);
-        match guard.rebuild_fresh(&vault_path) {
-            Ok(result) => ApiResult::ok(result),
-            Err(error) => map_err(AppError::message(error)),
-        }
-    })
-    .await)
-}

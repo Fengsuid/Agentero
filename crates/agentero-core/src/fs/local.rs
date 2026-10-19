@@ -16,10 +16,6 @@ impl LocalFs {
         Self { root: root.into() }
     }
 
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     fn resolve(&self, rel: &str) -> Result<PathBuf, AppError> {
         if path_escapes_root(rel) {
             return Err(AppError::message("path escapes vault root"));

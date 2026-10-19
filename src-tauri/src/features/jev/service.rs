@@ -331,17 +331,7 @@ async fn jev_suggest_highlights_impl<F: FnMut(usize, usize) + Send>(
     Ok(all_highlights)
 }
 
-/// Extract highlights for one paper by calling jEV; sentence geometry comes from the initial PDF text extraction.
-pub async fn jev_suggest_highlights_for_paper(
-    provider: &Arc<SystemOneProvider>,
-    pdf_path: &Path,
-    title: &str,
-) -> Result<Vec<SuggestedHighlight>, AppError> {
-    let cancel_token = CancellationToken::new();
-    jev_suggest_highlights_impl(provider.clone(), pdf_path, title, &cancel_token, |_, _| {}).await
-}
-
-/// Same as [`jev_suggest_highlights_for_paper`] but with cancellation and per-batch progress.
+/// Extract highlights for one paper by calling jEV, with cancellation and per-batch progress.
 pub async fn jev_suggest_highlights_with_progress<F: FnMut(usize, usize) + Send>(
     provider: &Arc<SystemOneProvider>,
     pdf_path: &Path,

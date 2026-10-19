@@ -63,7 +63,6 @@ export const commands = {
 	agentEnsureCatalog: (templateId: string, setDefault: boolean) => __TAURI_INVOKE<ApiResult<AgentOnly_Serialize>>("agent_ensure_catalog", { templateId, setDefault }),
 	agentRemoveAgent: (id: string) => __TAURI_INVOKE<ApiResult<Json>>("agent_remove_agent", { id }),
 	agentSetDefault: (id: string | null) => __TAURI_INVOKE<ApiResult<AgentListResponse_Serialize>>("agent_set_default", { id }),
-	agentSetEnabled: (enabled: boolean) => __TAURI_INVOKE<ApiResult<EnabledResponse>>("agent_set_enabled", { enabled }),
 	agentSetUserAgent: (userAgent: string, userAgentProviderIds: string) => __TAURI_INVOKE<ApiResult<AgentUserAgentResponse>>("agent_set_user_agent", { userAgent, userAgentProviderIds }),
 	agentProbe: (id: string) => typedError<ApiResult<ProbeResult_Serialize>, string>(__TAURI_INVOKE("agent_probe", { id })),
 	/**  Ensure catalog agent is registered, then run ACP initialize probe. */
@@ -200,8 +199,6 @@ export const commands = {
 	 */
 	wikiRenameHeading: (args: WikiRenameHeadingArgs) => typedError<ApiResult<WikiRenameHeadingResult>, string>(__TAURI_INVOKE("wiki_rename_heading", { args })),
 	graphRebuild: (vaultPath: string) => typedError<ApiResult<RebuildResult>, string>(__TAURI_INVOKE("graph_rebuild", { vaultPath })),
-	/**  Internal diagnostic: remove the derived snapshot and rebuild it from Vault files. */
-	wikiCacheRebuild: (vaultPath: string) => typedError<ApiResult<RebuildResult>, string>(__TAURI_INVOKE("wiki_cache_rebuild", { vaultPath })),
 	doctorCheck: (args: DoctorCheckArgs) => __TAURI_INVOKE<ApiResult<DoctorReport_Serialize>>("doctor_check", { args }),
 	doctorApplyAliases: (args: DoctorApplyAliasesArgs) => typedError<ApiResult<AliasRepairResult>, string>(__TAURI_INVOKE("doctor_apply_aliases", { args })),
 	doctorIgnoreAliases: (args: DoctorIgnoreAliasesArgs) => __TAURI_INVOKE<ApiResult<DoctorVaultState>>("doctor_ignore_aliases", { args }),
@@ -283,18 +280,8 @@ export const commands = {
 	lookupImportBatch: (args: LookupImportBatchArgs) => typedError<ApiResult<LookupImportBatchResult_Serialize>, string>(__TAURI_INVOKE("lookup_import_batch", { args })),
 	skillInstall: (args: SkillInstallArgs) => __TAURI_INVOKE<ApiResult<SkillImportResult[]>>("skill_install", { args }),
 	skillDiscard: (discoveryId: string) => __TAURI_INVOKE<ApiResult<null>>("skill_discard", { discoveryId }),
-	/**
-	 *  Download PDF (+ arXiv LaTeX) for an existing paper folder that is missing local assets.
-	 *  When no TeX remains after download, also tries liteparse → PAPER.md.
-	 */
-	paperDownloadAssets: (args: PaperDownloadAssetsArgs) => typedError<ApiResult<AssetDownloadResult>, string>(__TAURI_INVOKE("paper_download_assets", { args })),
 	/**  Import local PDF file(s) into the vault as paper folders (copy + catalog + liteparse). */
 	paperImportLocalPdf: (args: ImportLocalPdfArgs) => typedError<ApiResult<ImportLocalPdfResult_Serialize>, string>(__TAURI_INVOKE("paper_import_local_pdf", { args })),
-	/**
-	 *  Parse a paper's local PDF into `PAPER.md` using liteparse.
-	 *  `task_id` is the cooperative-cancel polling id (the JobCenter job id).
-	 */
-	paperParseBody: (args: PaperParseBodyArgs) => typedError<ApiResult<PaperParseResult_Serialize>, string>(__TAURI_INVOKE("paper_parse_body", { args })),
 	/**
 	 *  Resolve an identifier (DOI/arXiv) to metadata without importing — backs
 	 *  Edit Metadata's identifier refresh. Identifier lookup first (so a DOI /
@@ -398,8 +385,6 @@ export const commands = {
 	 */
 	vaultSearch: (args: VaultSearchArgs) => __TAURI_INVOKE<ApiResult<VaultSearchResult_Serialize>>("vault_search", { args }),
 	activityRecordEvents: (args: ActivityRecordArgs) => typedError<ApiResult<number>, string>(__TAURI_INVOKE("activity_record_events", { args })),
-	usageList: (args: UsageListArgs) => __TAURI_INVOKE<ApiResult<UsageEvent_Serialize[]>>("usage_list", { args }),
-	usageSummary: (args: UsageSummaryArgs) => __TAURI_INVOKE<ApiResult<UsageKindCount[]>>("usage_summary", { args }),
 	usageClear: (args: UsageClearArgs) => __TAURI_INVOKE<ApiResult<number>>("usage_clear", { args }),
 	logsClear: () => __TAURI_INVOKE<ApiResult<number>>("logs_clear"),
 	feedsList: () => __TAURI_INVOKE<ApiResult<FeedList>>("feeds_list"),
@@ -501,7 +486,6 @@ export const commands = {
 	remotePaperSetTags: (args: RemotePaperSetTagsArgs) => typedError<ApiResult<PaperRecord_Serialize>, string>(__TAURI_INVOKE("remote_paper_set_tags", { args })),
 	remotePaperSetIsRead: (args: RemotePaperSetIsReadArgs) => typedError<ApiResult<PaperRecord_Serialize>, string>(__TAURI_INVOKE("remote_paper_set_is_read", { args })),
 	remoteCacheFile: (args: RemoteCacheFileArgs) => typedError<ApiResult<RemoteCacheFileResult>, string>(__TAURI_INVOKE("remote_cache_file", { args })),
-	remoteCacheStats: (args: RemoteCacheStatsArgs) => typedError<ApiResult<BlobCacheStats>, string>(__TAURI_INVOKE("remote_cache_stats", { args })),
 	remoteCacheClear: (args: RemoteCacheClearArgs) => typedError<ApiResult<RemoteCacheClearResult>, string>(__TAURI_INVOKE("remote_cache_clear", { args })),
 	/**  Catalog-style scan of common agents on the remote host (`command -v`). */
 	remoteAgentScan: (args: RemoteAgentScanArgs) => typedError<ApiResult<RemoteAgentScanResponse_Serialize>, string>(__TAURI_INVOKE("remote_agent_scan", { args })),
@@ -651,10 +635,7 @@ export const commands = {
 	resolveLatexRoot: (texPath: string, vaultPath: string) => __TAURI_INVOKE<ApiResult<LatexRoot>>("resolve_latex_root", { texPath, vaultPath }),
 	jobLatexCompileEnqueue: (args: JobLatexCompileEnqueueArgs) => typedError<ApiResult<JobSnapshot>, string>(__TAURI_INVOKE("job_latex_compile_enqueue", { args })),
 	jobJevSmartHighlightsEnqueue: (args: JobEnqueueArgs) => typedError<ApiResult<JobSnapshot>, string>(__TAURI_INVOKE("job_jev_smart_highlights_enqueue", { args })),
-	jevSuggestHighlights: (args: JevSuggestHighlightsArgs) => typedError<ApiResult<JevSuggestHighlightsResult>, string>(__TAURI_INVOKE("jev_suggest_highlights", { args })),
 	jevProbeHealth: () => typedError<ApiResult<null>, string>(__TAURI_INVOKE("jev_probe_health")),
-	/**  Run one registered decision through the engine (rules + jEV + fallback). */
-	decide: (args: DecideArgs) => typedError<ApiResult<DecisionOutcome>, string>(__TAURI_INVOKE("decide", { args })),
 };
 
 /** Events */
@@ -1805,14 +1786,6 @@ export type AssetDownloadProgress_Serialize = {
 	totalCount?: number | null,
 };
 
-export type AssetDownloadResult = {
-	pdf: boolean,
-	tex: boolean,
-	/**  True when `PAPER.md` was written (or already present after auto-parse). */
-	paperMd?: boolean,
-	messages: string[],
-};
-
 export type BacklinksResponse = BacklinksResponse_Serialize | BacklinksResponse_Deserialize;
 
 export type BacklinksResponse_Deserialize = {
@@ -1830,15 +1803,6 @@ export type Bbox = {
 	y: number | null,
 	w: number | null,
 	h: number | null,
-};
-
-export type BlobCacheStats = {
-	/**  Total bytes under all (or one) remote blob dirs. */
-	bytes: number,
-	files: number,
-	/**  Absolute path when scoped to one vault; empty when aggregated. */
-	root: string,
-	maxBytes: number,
 };
 
 /**  A client device that was manually approved by the desktop user. */
@@ -2486,49 +2450,6 @@ export type CreateVaultResult = {
 	openPath: string,
 };
 
-export type DecideArgs = {
-	/**  Registered decision id, e.g. `pdf.selection.intent`. */
-	decisionId: string,
-	/**  Decision-specific state. */
-	state: Json,
-};
-
-/**
- *  A decision result: the neutral envelope `{action, status, provider,
- *  modelVersion}` plus provider-specific [`Self::metadata`].
- * 
- *  `action` is whatever the provider produced. Rule/jEV string choices arrive
- *  as JSON strings (`"ignore"`), richer payloads as objects; consumers switch
- *  on the shape they registered for.
- * 
- *  Calibration-sensitive values (confidence, probabilities) are deliberately
- *  **not** top-level fields: confidences are not comparable across providers,
- *  so they live in `metadata` scoped to the `provider` / `modelVersion` that
- *  produced them. Routing thresholds are scoped the same way
- *  ([`FallbackThreshold`]).
- */
-export type DecisionOutcome = {
-	action: Json,
-	/**  How the outcome was reached (provider answer vs. schema default). */
-	status: DecisionStatus,
-	/**
-	 *  Name of the provider that produced the action (`rule` / `systemone` /
-	 *  `default` / `none`). Vendor/model detail lives in `model_version`.
-	 */
-	provider: string,
-	/**
-	 *  Provider model or config version that produced the action, when known.
-	 *  Part of the calibration scope: a threshold only applies to outcomes with
-	 *  the same `provider` and (if pinned) `model_version`.
-	 */
-	modelVersion: string | null,
-	/**
-	 *  Provider-specific payload (e.g. `confidence`, `probabilities`). Never
-	 *  assume a field exists or shares calibration with another provider.
-	 */
-	metadata: Json,
-};
-
 /**
  *  Decision-layer provider settings.
  * 
@@ -2547,18 +2468,6 @@ export type DecisionSettings = {
 	/**  Whether the experimental smart-highlight toolbar action is enabled. */
 	smartHighlight?: boolean,
 };
-
-/**
- *  Provider-neutral disposition of a decision, independent of any
- *  provider-specific calibration.
- */
-export type DecisionStatus = 
-/**  A provider produced the action. */
-"decided" | 
-/**  No provider had an opinion; the schema's `default_action` was used. */
-"defaulted" | 
-/**  Neither a provider nor a schema default produced anything. */
-"no_opinion";
 
 export type DepPolicy = "allSettled" | "allSucceeded";
 
@@ -2812,10 +2721,6 @@ export type EmbeddingSettings = {
 	baseUrl?: string,
 	apiKey?: string,
 	model?: string,
-};
-
-export type EnabledResponse = {
-	enabled: boolean,
 };
 
 export type EndpointId = "baidu" | "google" | "google-scholar" | "github" | "arxiv" | "semantic-scholar";
@@ -3087,16 +2992,6 @@ export type InternalLinkOccurrence_Serialize = {
 };
 
 export type InternalLinkSyntax = "wikilink" | "markdown";
-
-export type JevSuggestHighlightsArgs = {
-	vaultPath: string,
-	/**  Vault-relative paper folder, e.g. `papers/2303.17760`. */
-	path: string,
-};
-
-export type JevSuggestHighlightsResult = {
-	highlights: SuggestedHighlight[],
-};
 
 export type JobChangedEvent = JobChangedPayload;
 
@@ -3790,17 +3685,6 @@ export type NodeInstallResult_Serialize = {
 	report: HostDoctorReport_Serialize,
 };
 
-/**
- *  Rect normalized to 0–1 against the page box, top-left origin, y down —
- *  identical to what the viewer persists for ask/translate marks.
- */
-export type NormRect = {
-	x: number | null,
-	y: number | null,
-	w: number | null,
-	h: number | null,
-};
-
 export type NotesTemplateSeedResult = {
 	created: boolean,
 };
@@ -3844,14 +3728,6 @@ export type PaperCommitResult = {
 	assetMessages: string[],
 	/**  True when assets are still downloading in the background (`Deferred`). */
 	assetsPending: boolean,
-};
-
-export type PaperDownloadAssetsArgs = {
-	vaultPath: string,
-	/**  Vault-relative paper folder, e.g. `papers/1706.03762`. */
-	path: string,
-	/**  JobCenter job id (task id) for byte-level `job:progress` events. */
-	taskId?: string | null,
 };
 
 export type PaperExportArgs = {
@@ -4011,42 +3887,6 @@ export type PaperOpenBundle_Serialize = {
 
 export type PaperPageCountsArgs = {
 	vaultPath: string,
-};
-
-export type PaperParseBodyArgs = {
-	vaultPath: string,
-	/**  Vault-relative paper folder, e.g. `papers/1706.03762`. */
-	path: string,
-	/**  When true, overwrite existing `PAPER.md`. Default false. */
-	force?: boolean,
-	/**  JobCenter job id (task id); passed to the isolated parser worker for cancellation. */
-	taskId?: string | null,
-};
-
-export type PaperParseResult = PaperParseResult_Serialize | PaperParseResult_Deserialize;
-
-export type PaperParseResult_Deserialize = {
-	paperMd: boolean,
-	bodySource: string | null,
-	bodyQuality: string | null,
-	/**
-	 *  Set only when the parse genuinely failed, never for a skip. Callers
-	 *  surface it as an error instead of reporting a silent success.
-	 */
-	error: string | null,
-	messages: string[],
-};
-
-export type PaperParseResult_Serialize = {
-	paperMd: boolean,
-	bodySource?: string | null,
-	bodyQuality?: string | null,
-	/**
-	 *  Set only when the parse genuinely failed, never for a skip. Callers
-	 *  surface it as an error instead of reporting a silent success.
-	 */
-	error?: string | null,
-	messages: string[],
 };
 
 export type PaperReadingActivityBatchArgs = {
@@ -4517,11 +4357,6 @@ export type RemoteCacheFileResult = {
 	localPath: string,
 };
 
-export type RemoteCacheStatsArgs = {
-	/**  When set, stats for that session's blob dir; otherwise all remote caches. */
-	sessionId?: string | null,
-};
-
 export type RemoteConnectArgs = {
 	/**  SSH host or config alias. Use `__local_sim__` with an absolute local path for tests. */
 	host: string,
@@ -4893,17 +4728,6 @@ export type StageImportFileArgs = {
 export type StageImportFileResult = {
 	/**  Absolute path written on disk. */
 	path: string,
-};
-
-export type SuggestedHighlight = {
-	quote: string,
-	page: number,
-	rects: NormRect[],
-	color: string,
-	category: string,
-	score: number | null,
-	pageWidth: number | null,
-	pageHeight: number | null,
 };
 
 export type SyncBackendConfig = {
@@ -5288,52 +5112,6 @@ export type UsageClearArgs = {
 	vault?: string | null,
 };
 
-export type UsageEvent = UsageEvent_Serialize | UsageEvent_Deserialize;
-
-export type UsageEvent_Deserialize = {
-	id: number,
-	ts: string,
-	vault: string | null,
-	kind: string,
-	path: string | null,
-	paperPath: string | null,
-	mode: string | null,
-	facet: string | null,
-	status: string | null,
-	durMs: number | null,
-	qty: number | null,
-	extra: Json | null,
-};
-
-export type UsageEvent_Serialize = {
-	id: number,
-	ts: string,
-	vault: string | null,
-	kind: string,
-	path: string | null,
-	paperPath?: string | null,
-	mode: string | null,
-	facet?: string | null,
-	status?: string | null,
-	durMs: number | null,
-	qty?: number | null,
-	extra: Json | null,
-};
-
-export type UsageKindCount = {
-	kind: string,
-	count: number,
-	durMs: number,
-};
-
-export type UsageListArgs = {
-	vault?: string | null,
-	kind?: string | null,
-	path?: string | null,
-	since?: string | null,
-	limit?: number | null,
-};
-
 export type UsageRecord = {
 	ts?: string | null,
 	vault?: string | null,
@@ -5342,11 +5120,6 @@ export type UsageRecord = {
 	mode?: string | null,
 	durMs?: number | null,
 	extra?: Json | null,
-};
-
-export type UsageSummaryArgs = {
-	vault?: string | null,
-	since?: string | null,
 };
 
 export type VaultFileChangedEvent = VaultFileChangedEvent_Serialize | VaultFileChangedEvent_Deserialize;

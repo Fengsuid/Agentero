@@ -261,12 +261,6 @@ impl WikiIndex {
         self.rebuild_with_cache_path(vault_path, &root, files, &cache_path, true)
     }
 
-    pub fn rebuild_fresh(&mut self, vault_path: &str) -> Result<RebuildResult, String> {
-        let root = PathBuf::from(vault_path);
-        let cache_path = wiki_cache_path(&root);
-        self.rebuild_fresh_with_cache_path(vault_path, &cache_path)
-    }
-
     /// Build a complete in-memory snapshot without reading or writing the
     /// derived on-disk cache. Read-only diagnostics use this path.
     pub fn rebuild_read_only(&mut self, vault_path: &str) -> Result<RebuildResult, String> {
@@ -275,6 +269,7 @@ impl WikiIndex {
         self.rebuild_from(vault_path, &root, files, Vec::new(), None, None)
     }
 
+    #[cfg(test)]
     fn rebuild_fresh_with_cache_path(
         &mut self,
         vault_path: &str,
