@@ -82,7 +82,6 @@
 		"@platejs/table": "^53.0.9",
 		"@platejs/toc": "53.0.0",
 		"@radix-ui/react-toolbar": "^1.1.15",
-		"@radix-ui/react-tooltip": "^1.2.12",
 		"@radix-ui/react-use-controllable-state": "^1.2.3",
 		"@stepperize/react": "^7.0.0",
 		"@streamdown/cjk": "^1.0.3",

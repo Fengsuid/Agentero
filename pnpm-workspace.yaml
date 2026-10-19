@@ -7,6 +7,7 @@ minimumReleaseAgeExclude:
   - '@ai-sdk/provider-utils@5.0.9'
   - ai@7.0.26
   - '@hono/node-server@1.19.17'
+  - '@embedpdf/plugin-ai-manager@0.0.1'
 overrides:
   brace-expansion@<5.0.12: '>=5.0.12 <6'
   browserslist@<4.28.7: '>=4.28.7 <5'

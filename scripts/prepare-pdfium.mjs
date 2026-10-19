@@ -7,7 +7,7 @@
  * user machine finds nothing and panics. See docs/backend/paper-import.md.
  *
  * PDFIUM_RELEASE_TAG must match liteparse-pdfium-sys's build.rs — bump it when
- * upgrading the `liteparse` dependency in src-tauri/Cargo.toml.
+ * upgrading the `liteparse` dependency in crates/agentero-core/Cargo.toml.
  *
  * Usage:
  *   node scripts/prepare-pdfium.mjs
