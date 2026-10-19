@@ -62,7 +62,7 @@ Host 通过 Tauri event 向前端推送事件。文件系统、任务和菜单�
 | `agent:elicitation-request` | form elicitation（Codex request_user_input） | `{ requestId, sessionId, message, toolCallId?, fields: { id, title, description?, required, kind, options[] }[] }` |
 | `agent:ask-user-request` | Grok `_x.ai/ask_user_question` | `{ requestId, sessionId, toolCallId?, mode, questions: { question, options[{label,description?}], multiSelect, allowOther }[] }` |
 | `job:progress` | 下载/解析任务字节与计数进度（`taskId` = JobCenter job id，投影行消费） | `{ taskId, phase, downloadedBytes, totalBytes?, progress?, currentCount?, totalCount? }`；PDF 与 TeX 并发下载，Host 把两条流的字节合并成**一个**总体进度后再 emit（两条流同时跑时 `phase` = `assets`，只有一条时为 `pdf` / `tex`），前端只做 clamp 不再按阶段加权；任一流仍在下载且 `Content-Length` 未知时 `totalBytes` / `progress` 为空（面板转不确定态），解析阶段显示为处理中，任务完成时为 100%。Host 对字节级进度做节流：百分比变化 ≥1 个点或距上次 emit ≥100ms 才发事件，流结束时必发最终值 |
-| `paper:imported`（已实现） | `paper_commit` 成功（catalog 已写入、NOTES 已建）；本地与远程导入路径统一发；`paper_download_assets` 为孤儿文件夹补建 catalog 行时也发 | `{ vaultId, paperId, timestamp }`（`vaultId` 为 vault 根路径，远程为 `remote:<sessionId>`） |
+| `paper:imported`（已实现） | `paper_commit` 成功（catalog 已写入、NOTES 已建）；本地与远程导入路径统一发；`DownloadAssets` 后台任务为孤儿文件夹补建 catalog 行时也发 | `{ vaultId, paperId, timestamp }`（`vaultId` 为 vault 根路径，远程为 `remote:<sessionId>`） |
 | `paper:assets-ready`（已实现） | 论文资产就绪：同步下载完成 / 本地 PDF 拷贝完成 / `DownloadAssets` job 成功 | `{ vaultId, paperId, timestamp }` |
 | `job:completed`（已实现） | job 状态机真实迁移到 `Succeeded` 时由 `job:changed` 单点派生 | `{ jobId, kind, vaultId, paperId?, timestamp }`（`vaultId` = `JobSnapshot.vault_id`：**发起方传入的 vault 路径串**。前端直连的流程与 `getVaultPath()` 逐字一致；经 offer 中继或 Host 内部发起的流程为 Host 持有的形式（通常 canonical）—— Windows 上带 `\\?\` 前缀，消费端比较需容忍两种拼写，见 [../development/lifecycle-events.md](../development/lifecycle-events.md) 已知限制） |
 | `job:failed`（已实现） | job 状态机真实迁移到 `Failed` 时由 `job:changed` 单点派生 | `{ jobId, kind, vaultId, paperId?, error?, timestamp }`（`vaultId` 同上） |
@@ -91,7 +91,7 @@ Host 通过 Tauri event 向前端推送事件。文件系统、任务和菜单�
 - **重 IO command（扫盘、SQLite、全库索引、字体/大文件读取等）必须写成 `async fn`**，阻塞体统一用 `core::blocking::run_blocking`（agentero-core，内部 `tokio::task::spawn_blocking`，与 Tauri 运行时同一 tokio 阻塞池）移出调用线程；对外返回 JSON 结构不变，前端 invoke 透明。
 - 使用 `State<'_, T>` 的 async command 受 Tauri 限制必须返回 `Result`（惯例 `Result<ApiResult<T>, String>`，恒为 `Ok(...)`）。`std::sync::Mutex` guard 不能跨 `await`：把「拿锁 + 干活」整体放进 `run_blocking` 闭包，State 先 clone 出可 `Send + 'static` 的 Arc 句柄（如 `WikiIndexState::handle()`、`CapsCache`、`ExternalRenameRepairStore`）。
 - command 前置检查的早退样板统一用 `app/command_util.rs` 的宏（逐字展开为原 `match … { Err(e) => return … map_err(e) }` 形状，IPC 错误语义不变）：`try_vault!`（返回 `ApiResult<T>` 的命令/vault 解析）、`try_vault_ok!` / `try_session!`（返回 `Result<ApiResult<T>, String>` 的命令 / vault 解析、remote session 获取）、`lock_wiki_index!`（wiki index `MutexGuard` 获取，可选第二参数附带 `ensure_vault`）。`try_vault!`/`try_vault_ok!`/`try_session!` 与 `lock_wiki_index!` 均支持可选 `OpTimer` 尾参（先走 `finish_err` 再返回；裸锁臂写作 `lock_wiki_index!(index; op)`）。jobs 命令另有模块本地 `try_job_paper!`（`validate_job_paper` 早退）与 `start_enqueued`（enqueue → announce/start 共用尾段）。
-- 已按此约定改造：`vault_*`（create/ensure/tree_build/tree_children）、`wiki_*` 全部、`graph_*`、`vault_search`、`paper_*`（catalog）、`usage_*`/`activity_record_events`、`zotero_sync`/`zotero_scan`、`doctor_*`（除纯内存的 `doctor_set_dirty_paths`）、`list_system_fonts`（另有进程级缓存）、`export_system_cjk_font`、`paper_stage_import_file`、`paper_refs_list`、`connector_set_enabled`/`connector_set_port`（bind 改真 async，不再 `block_on`）。
+- 已按此约定改造：`vault_*`（create/ensure/tree_build/tree_children）、`wiki_*` 全部、`graph_*`、`vault_search`、`paper_*`（catalog）、`usage_clear`/`activity_record_events`、`zotero_sync`/`zotero_scan`、`doctor_*`（除纯内存的 `doctor_set_dirty_paths`）、`list_system_fonts`（另有进程级缓存）、`export_system_cjk_font`、`paper_stage_import_file`、`paper_refs_list`、`connector_set_enabled`/`connector_set_port`（bind 改真 async，不再 `block_on`）。
 
 ### 2.6 类型化 IPC 契约（tauri-specta → `src/lib/core/bindings.ts`）
 
@@ -236,7 +236,6 @@ type VaultTreeNode = {
 | `remote_paper_list` / `remote_paper_get` | catalog 工作副本 |
 | `remote_paper_rescan` / `remote_paper_set_tags` / `remote_paper_set_is_read` | mutation 后 PUT 远端 |
 | `remote_cache_file` | PDF 等缓存到本机 ephemeral 路径（mtime 键 + LRU 2 GiB） |
-| `remote_cache_stats` | `{ sessionId? }` → `{ bytes, files, root, maxBytes }`（无 session 则汇总全部） |
 | `remote_cache_clear` | `{ sessionId? }` → `{ freedBytes }` 清除 blob 缓存 |
 | `remote_agent_scan` | 目录模板 + 远端 PATH 扫描 → `CatalogEntry[]`（设置页远端 Agent） |
 | `remote_agent_probe` | `{ sessionId, templateId }` → 远端 ACP `initialize`（应用 Agent 代理 env） |
@@ -253,7 +252,7 @@ Host 还支持 `__local_sim__` host（本机目录当远端，单测/开发用�
 |---|---|---|
 | 魔棒标识符 | `lookup_import_batch` | ✅ staging → SFTP → catalog PUT |
 | 魔棒 Skill 导入 | `skill_install` / `skill_discard` | ❌ 仅本地 Vault |
-| 补资源 Download | `paper_download_assets` | ✅ |
+| 补资源 Download | `job_download_assets_enqueue` | ❌ 仅本地 Vault |
 | 本地 PDF | `paper_import_local_pdf` | ✅ 本机选 PDF → 上传远端 |
 | Bib/RIS 库导入 | `paper_import` | ✅ Translator → 上传远端 |
 | Zotero 桌面迁移 | `zotero_migrate` | ❌ 仅本地路径 |
@@ -961,14 +960,14 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
   其中 `LookupImportResult` 为单条入库结果（含 `paperDir`、`path`、`id`、`title`、`usedTranslator`、`translatorBaseUrl`、`pdf?`、`tex?`、`paperMd?`、`assetMessages?`）。
   `skills` 为魔棒直接安装的 Skill（当前仅当来源含 `--skill` 等明确过滤且候选唯一时可能非空）；`skillCandidates` 为需要前端弹窗确认的候选列表，见下方 `skill_install` / `skill_discard`。
   `searchCandidates` 为标题/关键词搜索结果（见 [`identifier-lookup.md` § 标题搜索回退](identifier-lookup.md)）；`PaperSearchCandidate` 含 `title`、`authors`、`year | null`、`venue | null`、`doi | null`、`arxivId | null`、`citationCount | null`、`url | null`、`identifier`、`source`（生成为 `string`，实际取值 `"s2"` / `"arxiv"`）。`identifier` 是用户选中后回填给本命令的文本，因此**不存在**没有 DOI/arXiv ID 的候选。注意 `src/lib/paper/lookup.ts` 仍保留一份手写孪生类型，其 `citationCount?: number` 与 wire 的 `number | null` 不一致（见 [../development/import-api-abstraction.md](../development/import-api-abstraction.md) §11.5）。
-- **单条行为**：Translator 优先；失败且输入为 arXiv 时回退 export.arxiv.org；**catalog upsert**（权威）+ 写 `NOTES.md` 壳（摘要块优先经免费 MT 译为中文，失败则保留原文；catalog 中 `abstract` 仍为原文）；`metadata.json` 为 catalog 投影同步；**始终下载 PDF**；**arXiv 另下载 e-print 并解压 LaTeX** 到 `source/`。导入命令本身**不**再内联生成 `PAPER.md`；前端会在导入完成后对无 TeX 且有 PDF 的 paper 独立入队 `paper_parse_body` 后台任务，生成 `PAPER.md` 并更新 `body_source` / `body_quality`。
+- **单条行为**：Translator 优先；失败且输入为 arXiv 时回退 export.arxiv.org；**catalog upsert**（权威）+ 写 `NOTES.md` 壳（摘要块优先经免费 MT 译为中文，失败则保留原文；catalog 中 `abstract` 仍为原文）；`metadata.json` 为 catalog 投影同步；**始终下载 PDF**；**arXiv 另下载 e-print 并解压 LaTeX** 到 `source/`。导入命令本身**不**再内联生成 `PAPER.md`；前端会在导入完成后对无 TeX 且有 PDF 的 paper 独立入队 `job_parse_body_enqueue`（ParseBody）后台任务，生成 `PAPER.md` 并更新 `body_source` / `body_quality`。
   当 `texts` 某条被识别为 Skill 来源（`skill` kind：GitHub URL、`npx skills add …`、`github:`、`skills.sh`）时，该条进入 Skill 解析管线，不写入 catalog/papers。
 - **行为**：
   1. 逐条解析 `texts`；单 token 未识别、或多 token 中有任一 token 未识别 → 该条整体作为标题/关键词查询进入 `searchCandidates`（无结果或搜索失败才加入 `errors`）；Skill 来源进入 `skillCandidates`（或唯一命中时直接入 `skills`）。空格分隔且**每个** token 都是标识符时展开为多条。
   2. 按规范化 value 去重（arXiv 去 version、DOI 小写等）；batch 内重复 → `skipped.reason = 'duplicate_in_batch'`。
   3. 查 catalog：`arxiv_id` / `doi` / `isbn` / `pmid` / `id` 已存在 → `skipped.reason = 'already_in_library'`。
   4. 其余以 `concurrency`（默认 5，范围 1–10）为上限并发调 `import_by_identifier_with_progress`，共用 `taskId`；单条失败继续，错误加入 `errors`。并发上限可在 **Settings → General → Batch import concurrency** 调整。
-  5. 前端收到 `imported` / `skills` / `skillCandidates` 后刷新树 / Library / wiki，并对其中仍缺资源的 paper 逐个入下载队列，每篇一个独立的 `download` 后台任务，按并发上限排队执行。**不**自动连跑 paper-reader。若存在 `skillCandidates`，前端打开选择弹窗；用户取消时调用 `skill_discard` 清理临时 discovery。若存在 `searchCandidates`，前端打开单选弹窗；确认后把候选的 `identifier` 重新提交本命令，取消则直接丢弃（无 Host 侧临时态）。
+  5. 前端收到 `imported` / `skills` / `skillCandidates` 后刷新树 / Library / wiki，并对其中仍缺资源的 paper 逐个入下载队列，每篇一个独立的 `DownloadAssets` 后台任务，按并发上限排队执行。**不**自动连跑 paper-reader。若存在 `skillCandidates`，前端打开选择弹窗；用户取消时调用 `skill_discard` 清理临时 discovery。若存在 `searchCandidates`，前端打开单选弹窗；确认后把候选的 `identifier` 重新提交本命令，取消则直接丢弃（无 Host 侧临时态）。
 
 #### `skill_install`
 
@@ -995,23 +994,6 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
 - **参数**：`{ discoveryId: string }`
 - **返回**：`{ ok: true; data: null }`
 - **行为**：删除临时目录与归档；不触碰 `.agents/skills/`。
-
-#### `paper_download_assets`
-
-为已有 paper 文件夹补下载缺失的 PDF（及 arXiv LaTeX）。用于文件树单篇 Download，以及 `papers/` 论文库节点右键「下载全部不完整论文资源」。下载完成后前端会独立入队 `paper_parse_body` 后台任务生成 `PAPER.md`（若该 paper 无 TeX 且有 PDF）。
-
-- **参数**（invoke 字段名 `args`）：
-
-  ```ts
-  {
-    vaultPath: string;
-    path: string; // Vault 相对 paper 文件夹，如 papers/1706.03762
-    taskId?: string; // JobCenter job id，用于接收 job:progress 与协作取消
-  }
-  ```
-
-- **返回**：`{ ok: true; data: { pdf: boolean; tex: boolean; paperMd: boolean; messages: string[] } }`
-- **行为**：读 catalog 取 `pdf_url` / `arxiv_id` / `doi`；已有对应文件则跳过；PDF → `{paper}/{id}.pdf`（论文根目录）；arXiv e-print TeX → 解压进 `source/`；无 TeX + 有 PDF + 无 `PAPER.md` → liteparse → `PAPER.md`。下载客户端使用**浏览器 UA**（绕开部分出版商 403）；若直链/arXiv 候选都失败且有 `doi`，再查 **Crossref** 取直链 / OA PDF 兜底。打开 paper 预览时若无本地 PDF 也会自动调用本命令（失败则回退远程 `pdf_url`）。当传入 `taskId` 时，通过 `job:progress` 推送下载字节与 `parse` 阶段；liteparse 在可终止的子进程中运行，任务取消时立即终止，120 秒超时后保留已经下载的 PDF，并在结果 `messages` 中说明未生成 `PAPER.md`。取消状态由 JobCenter 按 task id 索引（`features::jobs::is_task_cancelled`，注入为 `agentero_core::cancel` 探针），随 runner 退出自动清理。
 
 #### `paper_stage_import_file`
 
@@ -1050,7 +1032,9 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
   > 后台识别阶段的 Translator 地址由 Host 直接读设置 `translatorBaseUrl`（`job_runners.rs`），不经本命令入参传入。
 
 - **返回**：`{ ok: true; data: { papers: LookupImportResult[]; errors: string[] } }`（`errors` 为 `"<文件>: <原因>"`；仅当**全部**失败才整体 `ok:false`）。
-- **行为**：每个 PDF → 标题优先用 `entries` 覆盖，否则文件名 stem；文件夹 id 按 arXiv ID slug → DOI slug → 文件名 stem 派生（与标识符导入命名一致，Host 仍做 `-2`/`-3` 去重）；带 `doi`/`arxivId`/`extra` 的 entries 记 `meta_source=manual`；无覆盖元数据的 entries（UI 默认路径）内联跑识别链路（见 [paper-import.md](paper-import.md) § PDF 元数据识别），命中则用解析出的元数据与标识符 slug 命名（`meta_source=recognize`），失败退回文件名 stem。复制到 `{slug}.pdf`；写 `NOTES.md` 壳 + catalog。导入任务本身**不**再等待 liteparse；前端会在导入完成后独立入队 `paper_parse_body` 后台任务生成 `PAPER.md`（无 TeX 且有 PDF 时）。不覆盖已存在文件夹（slug 去重）。
+- **行为**：每个 PDF → 标题优先用 `entries` 覆盖，否则文件名 stem；文件夹 id 按 arXiv ID slug → DOI slug → 文件名 stem 派生（与标识符导入命名一致，Host 仍做 `-2`/`-3` 去重）；带 `doi`/`arxivId`/`extra` 的 entries 记 `meta_source=manual`；无覆盖元数据的 entries（UI 默认路径）内联跑识别链路（见 [paper-import.md](paper-import.md) § PDF 元数据识别），命中则用解析出的元数据与标识符 slug 命名（`meta_source=recognize`），失败退回文件名 stem。复制到 `{slug}.pdf`；写 `NOTES.md` 壳 + catalog。导入任务本身**不**再等待 liteparse；前端会在导入完成后独立入队 `job_parse_body_enqueue`（ParseBody）后台任务生成 `PAPER.md`（无 TeX 且有 PDF 时）。不覆盖已存在文件夹（slug 去重）。
+
+> **正文 / 版面任务时机**：魔棒 / 本地 PDF 导入 / 下载资产 / Library 导入 / Zotero 迁移 / 打开论文时，**确认本地已有 PDF** 且无 TeX、无 `PAPER.md` 后，才入队 `job_parse_body_enqueue`（ParseBody）；版面分析同理，必须等 PDF 落地（`DownloadAssets` 成功后由 Host runner 串联，或魔棒结果里 `pdf=true` 才入队）。缺 PDF 时不得抢先入队，否则会报 `No local PDF`。导入与下载流程不再内联等待解析完成。
 
 #### `paper_resolve_identifier`
 
@@ -1059,34 +1043,6 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
 - **参数**（invoke 字段名 `args`）：`{ text: string; translatorBaseUrl?: string }`
 - **返回**：`{ ok: true; data: PaperRecord }`（snake_case，与 `paper_get` 行同构）。
 - **链路**：输入是 DOI / arXiv / URL 时先走标识符解析（Translator → Crossref / arXiv Atom），再用 Semantic Scholar `publicationVenue.name` 补空缺或截断的会议名；自由文本才走 title search。仓储名（`arXiv` / `CoRR`）不当作有效 publication。详见 [academic-search-apis.md](academic-search-apis.md) §2.5。
-
-#### `paper_parse_body`
-
-把 paper 文件夹下的本地 PDF 解析为 `PAPER.md`。引擎由 `settings.layout.parserBackend` 决定（默认取构建是否注入内置 provider key：注入则 `agentero`，否则本地 liteparse 隔离子进程；另可选 `mineru` / `paddle` / `openaiCompatible` 云端引擎，失败自动回退本地，见 [paper-import.md](paper-import.md) § 正文解析引擎）。`agentero` 复用 `openaiCompatible` 的 VLM 引擎，只是凭证来自构建期网关，见 [builtin-provider.md](builtin-provider.md)。可作为独立后台任务调用；已有 `PAPER.md` 且无 `force` 时直接跳过。
-
-- **参数**（invoke 字段名 `args`）：
-
-  ```ts
-  {
-    vaultPath: string;   // 本地 vault 根目录，或 remote:<sessionId>
-    path: string;        // vault-relative paper folder
-    force?: boolean;     // 默认 false；true 时覆盖已有 PAPER.md
-    taskId?: string;     // 前端后台任务 id，用于取消
-  }
-  ```
-
-- **返回**：`{ ok: true; data: { paperMd: boolean; bodySource?: string; bodyQuality?: string; error?: string; messages: string[] } }`
-- **行为**：
-  - 有本地 TeX 时跳过（认为 TeX 更干净）。
-  - 无 PDF 时跳过。
-  - 无 `PAPER.md` 或 `force=true` 时，用选定引擎生成 `{paper}/PAPER.md`。
-  - 写 catalog `body_source`（`pdf`/`ocr`/`mineru`/`paddle`/`vlm`）与 `body_quality`（`high`/`medium`/`low`）。
-  - 远程 vault 在 `session.work_root` 解析后上传 `PAPER.md` 并 push catalog mirror。
-  - 本地解析最长等待 120 秒（VLM 渲染 300 秒、云端任务 10 分钟 deadline）；取消任务会 kill 当前 liteparse 子进程或中断云端轮询。
-  - **`error` 只在真正失败时出现**（解析失败 / 正文为空 / 写 `PAPER.md` 失败），跳过与取消不算失败；云端引擎失败自动回退本地并把原因写进 `messages`。JobCenter 的 `parseBody` job 见到 `error` 会标记 `Failed` 并把它作为失败原因，任务面板因此能展示真实原因（例如找不到 PDFium 动态库）；否则标记 `Succeeded`。
-  - liteparse 依赖运行时 `dlopen` 的 PDFium，随安装包分发，见 [paper-import.md](paper-import.md) § PDFium 随包分发。
-
-> **正文 / 版面生成时机**：魔棒 / 本地 PDF 导入 / 下载资产 / Library 导入 / Zotero 迁移 / 打开论文时，**确认本地已有 PDF** 且无 TeX、无 `PAPER.md` 后，才入队 `paper_parse_body`；版面分析同理，必须等 PDF 落地（`DownloadAssets` 成功后由 Host runner 串联，或魔棒结果里 `pdf=true` 才入队）。缺 PDF 时不得抢先入队，否则会报 `No local PDF`。原 `paper_download_assets` / 魔棒入库命令不再内联等待解析完成。
 
 #### `paper_analyze_pdf`（规划中）
 
@@ -1375,7 +1331,7 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
 - **返回**：`{ ok: true; data: PaperRecord }`（更新后的整行）。
 - **前端**：`src/lib/paper/api.ts` → `setPaperIsRead`；paper-reader 工作流成功结束后置 `true`。
 - **说明**：与 `status`（入库态）无关；默认 `false`。触发路径：
-  - **自动**：魔棒 `lookup_import_batch`（单条）/ 单篇 `paper_download_assets` 成功且资源就绪时，前端 `maybeAutoRunPaperReader`（批量导入/批量 Download 不连跑）。
+  - **自动**：魔棒 `lookup_import_batch`（单条）/ 单篇 `job_download_assets_enqueue`（DownloadAssets）成功且资源就绪时，前端 `maybeAutoRunPaperReader`（批量导入/批量 Download 不连跑）。
   - **手动**：文件树在「资源齐全且 `is_read === false`」时显示 **NotebookPen** 图标。
   - 实现：`src/lib/paper/reader.ts`（进度 `kind=paperRead`；可与 lookup/download 任务衔接）；skill 触发按当前默认 Agent 的 `SkillMentionStyle`。
 
@@ -2113,18 +2069,6 @@ Host 以 `expectedContent + headingPath + headingLine` 复核保存态标题身�
 }
 ```
 
-#### `wiki_cache_rebuild`
-
-内部诊断命令。删除当前 Vault 的派生 Wiki snapshot，再从 Vault 文件冷重建并写入新 snapshot；删除或写 cache 失败不改变 Markdown 事实来源。
-
-```ts
-{ vaultPath: string }
-// => {
-//   ok: true;
-//   data: { indexedFiles: number; edges: number; nodes: number }
-// }
-```
-
 snapshot 保存所有 Wiki target 的 size+mtime stat 指纹（不读文件内容），以及 documents 与 resolved occurrences。schema/parser version、Vault identity 或 snapshot integrity hash 不匹配时丢弃旧 snapshot 并冷重建；指纹部分不一致时增量重建（只重新解析变化的 Markdown，未变文件复用缓存解析结果，链接解析全量重跑）；cache 写失败只记录 warning，内存 rebuild 仍成功。
 
 ### 3.8b Vault Doctor
@@ -2347,20 +2291,6 @@ UI 入口见 `settings_window_open`：Settings 现为独立原生单例窗口，
 - **返回**：写入条数（`number`）。空数组为 `0`。单批上限 200。
 - **说明**：浏览器预览（非 Tauri）前端短路为 `0`。
 
-#### `usage_list`（已实现）
-
-按时间倒序列出事件。`path` 同时匹配 `path` 与 `paper_path` 前缀。
-
-- **参数**（`args`）：`{ vault?, kind?, path?, since?, limit? }`。`limit` 默认 100。
-- **返回**：`UsageEvent[]`（含 `paperPath` / `facet` / `status` / `qty`）。
-
-#### `usage_summary`（已实现）
-
-按 `kind` 聚合 `count` 与 `dur_ms`。
-
-- **参数**（`args`）：`{ vault?, since? }`
-- **返回**：`{ kind, count, durMs }[]`
-
 #### `usage_clear`（已实现）
 
 清空事件、日聚合与 memories。指定 `vault` 时只清该库，其它 Vault 保留。
@@ -2368,7 +2298,7 @@ UI 入口见 `settings_window_open`：Settings 现为独立原生单例窗口，
 - **参数**（`args`）：`{ vault? }`
 - **返回**：删除的事件条数。
 
-CLI 不再暴露 usage 命令；查询与清理通过桌面端设置 / Host API 操作。前端入口：`src/lib/activity/`。
+CLI 不再暴露 usage 命令；清除通过桌面端设置 / Host API 操作。前端入口：`src/lib/activity/`。
 
 ### 3.10.4 广场订阅（XDG `feeds.sqlite`）
 

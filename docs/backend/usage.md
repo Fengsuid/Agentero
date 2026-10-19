@@ -130,13 +130,11 @@ PRIMARY KEY (day, vault, kind, paper_path, facet)
 | Command | 说明 |
 |---|---|
 | `activity_record_events` | 批量写入（前端缓冲后调用） |
-| `usage_list` | 按 vault / kind / path（含 paper_path）/ since 倒序列出 |
-| `usage_summary` | 按 kind 计数 |
 | `usage_clear` | 清空全部或指定 vault |
 
 ## CLI
 
-CLI 不再暴露 `usage` 命令；查询、统计与清除请通过桌面端设置或 Host API 进行。
+CLI 不再暴露 `usage` 命令；清除请通过桌面端设置或 Host API 进行。
 
 ## 前端漏斗
 

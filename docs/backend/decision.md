@@ -1,7 +1,7 @@
 # 决策层（Decision Layer）
 
-> 状态：已实现。jEV 智能高亮、PDF 选区意图、文件树点击已接入；语义 provider 可配置为
-> TypeSafe jEV、Cloudflare Clef 或兼容 System One 的端点。
+> 状态：核心引擎已实现。jEV 智能高亮、文件树点击已接入；语义 provider 可配置为
+> TypeSafe jEV、Cloudflare Clef 或兼容 System One 的端点。语义决策当前未暴露给前端。
 
 决策层把“需要二选一/多选一/打分”的判断统一成一次 *decision*：给定 `decisionId` 与
 `state`，由注册的 provider（确定性规则、System One 决策模型、未来 LLM）给出带来源与
@@ -36,7 +36,7 @@
 ```
 
 - **后端（Rust）**：`crates/agentero-core/src/decision/`，Tauri 无关，CLI 可复用。
-- **前端（TS）**：`useDecision` 走 Host；纯前端状态的规则走 `decideSync` 本地注册表。
+- **前端（TS）**：语义决策当前没有前端入口；纯前端状态的规则走 `decideSync` 本地注册表。
 
 ## 后端（`agentero-core::decision`）
 
@@ -121,8 +121,8 @@ conformance 测试复用：`noul`（概率转 bool）、`choice`（选项键 + �
 
 ### 注册
 
-Host 在 `features/decision/schemas.rs` 声明 schema，`features/decision/mod.rs::build()`
-在 app setup 时装配 engine：
+`DecisionEngine` 由 builder 注册 schema（核心层能力，示例见下）。Host 当前不再声明语义
+schema，`features/decision/mod.rs` 只装配共享的 `SystemOneProvider` 供智能高亮复用：
 
 ```rust
 DecisionSchema::new("pdf.selection.intent", "…")
@@ -141,21 +141,14 @@ DecisionSchema::new("pdf.selection.intent", "…")
     .default_action(json!("ignore"))
 ```
 
-### IPC
+### 前端入口
 
-`decide({ decisionId, state }) -> ApiResult<DecisionOutcome>`。`state` / `action` / `metadata` 走
-`core::json::Json`（`serde_json::Value` 的 specta 表示，见 [api.md](api.md)）。
-未注册 id 或 provider 缺失返回 Host 错误。
+目前没有面向前端的 IPC：原 `decide` 命令与前端 `useDecision` hook 已移除，语义决策尚未
+暴露给前端。纯前端规则仍走 `decideSync`。
 
 ## 前端（React）
 
-### `useDecision`（语义决策）
-
-```ts
-const { decide } = useDecision();
-const outcome = await decide("pdf.selection.intent", { selectedText, page });
-if (typeof outcome.action === "string") runAction(outcome.action);
-```
+语义决策目前只在核心层保留，没有前端调用入口；前端仅保留纯规则决策。
 
 ### `decideSync`（纯规则决策）
 
@@ -180,8 +173,8 @@ const action = decideSync("file-tree.click", { node });
 
 | decision | routing | 触发点 |
 |---|---|---|
-| `pdf.selection.intent` | System One + 规则兜底（阈值 scoped `jev-latest` 0.75） | 已注册，暂未接 UI（原 PDF 选区「智能操作」按钮已移除），可经 `decide` 命令调用 |
-| `paper.auto-tag` | 纯 System One | 已注册；由后续论文入库流程调用 |
+| `pdf.selection.intent` | System One + 规则兜底（阈值 scoped `jev-latest` 0.75） | schema 设计已落地；Host 当前未注册，原 PDF 选区「智能操作」按钮与前端调用入口均已移除 |
+| `paper.auto-tag` | 纯 System One | schema 设计已落地；Host 当前未注册，尚无 UI 入口 |
 | `file-tree.click` | 纯规则（前端本地） | 文件树点击 `selectFileNode` |
 
 智能高亮的 HTTP 传输已统一到 `SystemOneProvider::complete`：`features/jev` 保留句子抽取、
@@ -210,8 +203,7 @@ const action = decideSync("file-tree.click", { node });
 |---|---|
 | 核心引擎 | `crates/agentero-core/src/decision/`（types / registry / engine / providers） |
 | System One provider（传输 + 解码） | `crates/agentero-core/src/decision/providers/system_one.rs` |
-| Host 装配 | `src-tauri/src/features/decision/`（mod / commands / schemas） |
+| Host 装配 | `src-tauri/src/features/decision/mod.rs`（共享 `SystemOneProvider`） |
 | 设置（Host） | `src-tauri/src/features/system/settings/mod.rs`（`DecisionSettings` / `decision_config`） |
 | 设置（前端） | `src/components/settings/panes/experimental-pane.tsx`、`src/lib/settings/{types,defaults,store}.ts` |
-| 前端 hook | `src/hooks/use-decision.ts` |
 | 前端本地规则 | `src/lib/decision/registry.ts` |

@@ -239,57 +239,12 @@ pub struct ProviderRequest {
 
 ## 6. 前端设计（React）
 
-### 6.1 useDecision hook
+### 6.1 语义决策的前端入口（未落地）
 
-```ts
-// src/hooks/use-decision.ts
+原计划用 `useDecision` hook 经 `decide` 命令把语义决策暴露给 React。该 hook 与命令均未保留：
+语义决策目前只在核心层保留，前端没有调用入口。
 
-export function useDecision() {
-  const decide = useCallback(
-    async <T extends Record<string, unknown>>(
-      decisionId: string,
-      state: T,
-    ): Promise<DecisionOutcome> => {
-      return callApiResult(() =>
-        commands.decide({ decisionId, state }),
-      );
-    },
-    [],
-  );
-
-  return { decide };
-}
-```
-
-### 6.2 业务 hook 使用示例
-
-```ts
-// PDF 选中文本后智能判断意图
-function usePdfSelectionActions(...) {
-  const { decide } = useDecision();
-
-  const handleSmartMenu = async () => {
-    const menu = selectionMenuRef.current;
-    if (!menu) return;
-
-    const outcome = await decide("pdf.selection.intent", {
-      selectedText: menu.anchor.quote,
-      source: "pdf",
-      page: menu.anchor.page,
-    });
-
-    switch (outcome.action) {
-      case "ask": return handleMenuAsk();
-      case "translate": return handleMenuTranslate();
-      case "highlight": return handleHighlight("yellow");
-      case "addToChat": return handleMenuAddToChat();
-      case "ignore": return closeSelectionMenu();
-    }
-  };
-}
-```
-
-### 6.3 纯规则场景
+### 6.2 纯规则场景
 
 ```ts
 // 文件树点击完全走规则，不需要异步
@@ -423,7 +378,7 @@ registerDecision({
 |---|---|---|
 | 1 | 在 `agentero-core` 建立 `DecisionEngine` + `JevProvider`，把现有 jEV 高亮接入 | jEV 高亮功能不变，代码结构更干净 |
 | 2 | 实现 `RuleProvider` 和 `DecisionRegistry` | 文件树点击等纯规则场景可注册 |
-| 3 | 前端加 `useDecision` hook | React 组件能一行代码发起决策 |
+| 3 | 前端语义决策入口（未落地；`useDecision` hook 与 `decide` 命令已移除） | 语义决策目前没有前端入口 |
 | 4 | 接入第一个语义决策用例（如 PDF 选中文本意图） | 选中引用直接打开引用，选中普通文本经 jEV 判断 |
 | 5 | 按需扩展更多 decision schema | 论文标签推荐、按钮 workflow 路由等 |
 | 6 | 评估是否需要 LLM Provider | 仅当 jEV 处理不了的复杂推理场景 |
@@ -460,6 +415,6 @@ registerDecision({
 
 ## 12. 与现有架构的关系
 
-- **不替换 hook 架构**：hook 仍然存在，只是在语义判断点插入 `decide()` 调用。
+- **不替换 hook 架构**：hook 仍然存在；语义判断点原本计划插入 `decide()` 调用，当前未暴露给前端。
 - **不替换 zustand**：决策结果可以写入 store，但决策层本身是无状态的。
 - **复用 JobCenter**：批量 jEV 决策（如高亮）可走后台 job；单次轻量决策直接走 async command。

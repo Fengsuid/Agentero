@@ -260,11 +260,11 @@ type LayoutSidecar = {
 |---|---|
 | 多套「全宽」阈值 0.55 / 0.62 | **已统一**为 `LAYOUT_MERGE.fullWidthTitle = 0.55` |
 | 硬中线切全宽图导致细条框 | **已废止**（仅半宽软切 + 标题回并） |
-| `clipFigureBboxToTitleColumn` 裁掉标题一半 | **已改为** `buildFigureBboxWithFullTitle`（标题必整框） |
+| 旧 `clipFigureBboxToTitleColumn` 裁掉标题一半 | **已删除**，统一走 `buildFigureBboxWithFullTitle`（标题必整框） |
 | 缺图题即删除 image/chart | **已废止（#704）**；可靠图不依赖图题存在，`requireFigureTitles` 只保证已有同页标题框完整 |
 | 侧栏默认 50% 置信度 | **已改为固定 30%**（无 UI 滑条） |
 | 文档写死 0.5 / 无 merge 流水线 | **以本文为准** |
-| `looksLikeFigureCaption` | 兼容别名，等价 `captionRoleFromText` 主类判断，勿再扩展 |
+| 旧 `looksLikeFigureCaption` | **已删除**，统一用 `captionRoleFromText` 主类判断 |
 | formula 与 text 重叠即丢（旧 F2） | **已废止**（双标 text / 段落包公式 → 侧栏永远为空） |
 | 公式多行竖向 grow | **已废止**（会吞并正文行间公式；现同行-only） |
 

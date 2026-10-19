@@ -77,13 +77,13 @@ catalog **始终**写入 `pdf_url` / `html_url`（有则仍可供在线预览）
 按需补下（**Download** 图标）：
 
 - **显示条件**：缺 PDF **或**（既无 TeX 也无 `PAPER.md`）。可读正文 **TeX 与 PAPER.md 二选一即可，优先 TeX**（有 TeX 不强制 PAPER.md）。**不再**因缺少空 `source/` 单独显示 Download。hover 说明原因。
-- **点击**：`paper_download_assets` → PDF 到论文根目录 → arXiv 尽量 TeX 到 `source/` → 无 TeX 则 liteparse `PAPER.md`。
+- **点击**：`job_download_assets_enqueue`（DownloadAssets 后台任务）→ PDF 到论文根目录 → arXiv 尽量 TeX 到 `source/` → 无 TeX 则 ParseBody 后台任务生成 `PAPER.md`。
 - **论文库节点**（`papers/` 根文件夹右键）：库内任一篇不完整时批量同一逻辑。
 
 **精读（NotebookPen 图标 + 自动触发）**：
 
 - **显示条件（精读图标）**：本地资源齐全且 catalog **`is_read === false`**（与 Download 互斥）。
-- **自动触发**：`lookup_import_batch`（魔棒，单条）或单篇 `paper_download_assets` 成功且 PDF/TeX/`PAPER.md` 任一可读正文/归档就绪时，前端 `maybeAutoRunPaperReader` 自动跑同一工作流（批量 Library 导入/批量 Download **不**自动连跑，避免并发炸 Agent）。
+- **自动触发**：`lookup_import_batch`（魔棒，单条）或单篇 DownloadAssets 任务成功且 PDF/TeX/`PAPER.md` 任一可读正文/归档就绪时，前端 `maybeAutoRunPaperReader` 自动跑同一工作流（批量 Library 导入/批量 Download **不**自动连跑，避免并发炸 Agent）。
 - **手动**：点击精读图标 → 同上。
 - **实现**：`src/lib/paper/reader.ts` → `agent_run_once` + skill（**`hideFromChatHistory: true`**，不进 Agent 对话记录）；Codex `$paper-reader` / Claude `/paper-reader` / 其它注入 `SKILL.md` → 写 `{paper}/NOTES.md` → `paper_set_is_read(true)`；进度在左下角后台任务条。
 - **进度**：左下角后台任务条——入库/下载阶段 `kind=lookup|download`（分阶段 detail/progress），随后精读 `kind=paperRead`。
@@ -736,7 +736,7 @@ arXiv URL 推导：
 - [x] 入库后 `graph_rebuild` 并刷新 Backlinks/Graph
 - [x] 与文件树选中态同步目标 `parent_dir`
 - [x] 论文库 UI：`paper_list` 表格 + 虚拟 Library 节点（见 [`../frontend/library.md`](../frontend/library.md)）
-- [x] 单篇 / Library 批量补下缺失 PDF 与 arXiv TeX（`paper_download_assets`）
+- [x] 单篇 / Library 批量补下缺失 PDF 与 arXiv TeX（`job_download_assets_enqueue`）
 - [x] 无 TeX 时 liteparse → `PAPER.md`（下载后自动）
 - [x] `⇧⌘I` 魔棒快捷键
 - [x] 魔棒批量入库：多标识符粘贴、去重、批量下载、进度聚合
@@ -746,7 +746,7 @@ arXiv URL 推导：
 ### Phase D — 可选
 
 - [x] 默认下载 PDF；arXiv e-print 解压 LaTeX；无 `downloadFulltextToLocal` 开关
-- [x] 文件树缺 PDF，或既无 TeX 也无 `PAPER.md` 时 Download → `paper_download_assets`
+- [x] 文件树缺 PDF，或既无 TeX 也无 `PAPER.md` 时 Download → `job_download_assets_enqueue`
 - [x] 无 TeX 时生成 `PAPER.md`（liteparse）
 - [ ] PDF prepare 复用同一 Lookup
 
@@ -807,7 +807,7 @@ arXiv URL 推导：
 | 2026-07-15 | 数据流合并：arXiv/DOI 等统一 Translator → 直接 map 进 PaperMetadata；catalog schema v2 补字段 |
 | 2026-07-15 | 下载策略：无预览 URL 始终尝试下载；有 URL 时仅 `downloadFulltextToLocal` 开才额外本地下载 |
 | 2026-07-15 | 实现进度：`lookup_import` / 设置 Translator URL / catalog 权威 / `paper_list` + Library UI |
-| 2026-07-15 | 默认下载 PDF；arXiv 解压 LaTeX；移除 `downloadFulltextToLocal`；`paper_download_assets` + 树行 Download |
+| 2026-07-15 | 默认下载 PDF；arXiv 解压 LaTeX；移除 `downloadFulltextToLocal`；`job_download_assets_enqueue` + 树行 Download |
 | 2026-07-15 | 无 TeX 时 liteparse → `PAPER.md`（下载后自动） |
 | 2026-07-16 | 从本地 Zotero 迁移（直读 `zotero.sqlite` + `storage/`；`zotero_scan` / `zotero_migrate`；可选拷 PDF） |
 
