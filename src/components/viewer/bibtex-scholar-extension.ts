@@ -1,6 +1,8 @@
 /**
  * CodeMirror affordance for `.bib` files: hover (or caret inside) an entry
- * and a small button appears on the entry's first line to open Google Scholar.
+ * and a quiet Scholar link appears on the entry-head line. It stays visible
+ * for the entry at the caret, so opening a `.bib` file always shows one; the
+ * inline box is height-capped so the line metrics never move.
  */
 import { type Extension, StateEffect, StateField } from "@codemirror/state";
 import {
@@ -36,7 +38,6 @@ class ScholarButtonWidget extends WidgetType {
 		btn.className = "cm-bib-scholar-btn";
 		const label = i18n.t("viewer:textEditor.openInScholar");
 		btn.setAttribute("aria-label", label);
-		btn.title = label;
 		btn.tabIndex = -1;
 		btn.innerHTML = `${SCHOLAR_ICON_SVG}<span class="cm-bib-scholar-btn-label"></span>`;
 		const labelEl = btn.querySelector(".cm-bib-scholar-btn-label");
@@ -60,33 +61,56 @@ class ScholarButtonWidget extends WidgetType {
 const SCHOLAR_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 
 const scholarTheme = EditorView.baseTheme({
+	// A quiet inline link at rest; the pill only appears under the pointer.
+	// Height is locked to the text box so the decoration never reflows the line.
 	".cm-bib-scholar-btn": {
 		display: "inline-flex",
 		alignItems: "center",
 		justifyContent: "center",
-		gap: "0.25rem",
-		verticalAlign: "middle",
-		marginLeft: "0.5rem",
-		padding: "0.15rem 0.4rem",
-		border: "1px solid transparent",
+		gap: "0.35em",
+		boxSizing: "border-box",
+		height: "1.5em",
+		maxHeight: "1.5em",
+		marginLeft: "0.55em",
+		padding: "0 0.5em 0 0.35em",
+		border: "1px solid color-mix(in oklab, var(--border) 55%, transparent)",
 		borderRadius: "0.375rem",
-		background: "transparent",
+		background: "color-mix(in oklab, var(--muted) 70%, var(--background))",
 		color: "var(--muted-foreground)",
 		cursor: "pointer",
 		fontFamily: "var(--font-sans)",
-		fontSize: "0.75rem",
-		lineHeight: "1.2",
+		fontSize: "0.85em",
+		fontWeight: "500",
+		letterSpacing: "0.01em",
+		lineHeight: "1",
 		whiteSpace: "nowrap",
-		opacity: "0.85",
+		verticalAlign: "middle",
+		opacity: "0.9",
+		transition:
+			"opacity 120ms ease-out, color 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out",
 	},
 	".cm-bib-scholar-btn svg": {
 		flexShrink: "0",
+		width: "1.05em",
+		height: "1.05em",
+		opacity: "0.85",
 	},
 	".cm-bib-scholar-btn:hover, .cm-bib-scholar-btn:focus-visible": {
 		opacity: "1",
 		color: "var(--foreground)",
-		backgroundColor: "color-mix(in oklab, var(--muted) 70%, transparent)",
+		backgroundColor: "color-mix(in oklab, var(--muted) 88%, var(--background))",
 		borderColor: "var(--border)",
+	},
+	".cm-bib-scholar-btn:active": {
+		transform: "translateY(0.5px)",
+	},
+	"@media (prefers-reduced-motion: reduce)": {
+		".cm-bib-scholar-btn": {
+			transition: "color 120ms ease, background-color 120ms ease",
+		},
+		".cm-bib-scholar-btn:active": {
+			transform: "none",
+		},
 	},
 });
 
@@ -110,7 +134,9 @@ function activeEntry(
 		const byHover = bibEntryAt(entries, hoverFrom);
 		if (byHover) return byHover;
 	}
-	return bibEntryAt(entries, caret);
+	// Keep one chip on screen when the file opens (caret above @article) or
+	// the pointer leaves; the caret's own entry wins, then the first entry.
+	return bibEntryAt(entries, caret) ?? entries[0] ?? null;
 }
 
 function buildDecorations(

@@ -87,30 +87,23 @@ describe("scholar URL", () => {
 		);
 	});
 
-	it("prefers doi over title", () => {
+	it("prefers the title over DOI and arXiv", () => {
 		expect(
 			buildScholarQuery({
 				doi: "10.5555/3295222",
 				title: "Attention Is All You Need",
 				eprint: "1706.03762",
 			}),
-		).toBe("doi:10.5555/3295222");
+		).toBe('"Attention Is All You Need"');
 	});
 
-	it("falls back to arxiv then title+author+year", () => {
-		expect(
-			buildScholarQuery({
-				eprint: "1706.03762v1",
-				title: "Attention Is All You Need",
-			}),
-		).toBe("arxiv:1706.03762");
-		expect(
-			buildScholarQuery({
-				title: "Deep Residual Learning",
-				author: "He, Kaiming",
-				year: "2016",
-			}),
-		).toBe('"Deep Residual Learning" author:He 2016');
+	it("falls back to doi then arxiv when there is no title", () => {
+		expect(buildScholarQuery({ doi: "10.5555/3295222" })).toBe(
+			"doi:10.5555/3295222",
+		);
+		expect(buildScholarQuery({ eprint: "1706.03762v1" })).toBe(
+			"arxiv:1706.03762",
+		);
 	});
 
 	it("builds an encoded scholar search URL", () => {

@@ -1,4 +1,4 @@
-import { type BibFields, firstAuthorSurname } from "@/lib/bibtex/parse";
+import type { BibFields } from "@/lib/bibtex/parse";
 
 const SCHOLAR_HOST = "https://scholar.google.com/scholar";
 
@@ -32,11 +32,20 @@ export function buildScholarSearchUrl(
  * Scholar `q=` value (not URL-encoded). Empty string when no usable fields.
  *
  * Priority:
- * 1. `doi:…`
- * 2. `arxiv:…` from `eprint` / `arxiv` / arXiv-looking `url`
- * 3. `"title" author:Surname year`
+ * 1. `"title"` — a title search is the most predictable entry point, and it
+ *    still resolves the right record when the entry's DOI is stale.
+ * 2. `doi:…` when the entry has no title
+ * 3. `arxiv:…` from `eprint` / `arxiv` / arXiv-looking `url`
+ *
+ * Combining title and DOI with `OR` was considered, but Scholar's boolean
+ * handling is unreliable: a DOI clause that is not indexed can collapse the
+ * whole query to zero results instead of adding a second record. Keep one
+ * stable clause rather than silently losing the title hit.
  */
 export function buildScholarQuery(fields: BibFields): string {
+	const title = fields.title?.trim();
+	if (title) return `"${title}"`;
+
 	const doi = normalizeDoi(fields.doi);
 	if (doi) return `doi:${doi}`;
 
@@ -45,15 +54,7 @@ export function buildScholarQuery(fields: BibFields): string {
 	);
 	if (arxiv) return `arxiv:${arxiv}`;
 
-	const title = fields.title?.trim();
-	if (!title) return "";
-
-	const author = firstAuthorSurname(fields.author);
-	const year = fields.year?.trim();
-	let q = `"${title}"`;
-	if (author) q += ` author:${author}`;
-	if (year && /^\d{4}$/.test(year)) q += ` ${year}`;
-	return q;
+	return "";
 }
 
 /** Strip `https://doi.org/` / `doi:` prefixes and lowercase. */
