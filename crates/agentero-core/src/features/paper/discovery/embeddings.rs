@@ -12,8 +12,10 @@ use crate::error::AppError;
 
 /// Default timeout for one embeddings request.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
-/// Inputs per `/embeddings` call (large batches trip provider limits).
-pub const EMBED_BATCH: usize = 64;
+/// Inputs per `/embeddings` call. Qwen text-embedding caps a request at 20
+/// inputs; other compatible providers differ, so keep the default at the cap
+/// and let `embed_batch` halve-and-retry when a provider is stricter.
+pub const EMBED_BATCH: usize = 20;
 
 /// An OpenAI-compatible embeddings endpoint.
 #[derive(Debug, Clone)]
@@ -86,6 +88,21 @@ pub async fn embed_batch(
         .await
         .map_err(|e| AppError::message(format!("embeddings read body: {e}")))?;
     if !status.is_success() {
+        // Provider batch caps differ (Qwen text-embedding is 20), so halve and
+        // retry instead of failing the whole run.
+        if texts.len() > 1 && is_batch_rejection(status, &body) {
+            let mid = texts.len() / 2;
+            let (head, tail) = texts.split_at(mid);
+            log::warn!(
+                "embeddings batch of {} rejected ({status}); retrying as {} + {}",
+                texts.len(),
+                head.len(),
+                tail.len()
+            );
+            let mut out = Box::pin(embed_batch(client, endpoint, api_key, model, head)).await?;
+            out.extend(Box::pin(embed_batch(client, endpoint, api_key, model, tail)).await?);
+            return Ok(out);
+        }
         let snippet = crate::http::http_err_snippet(&body);
         return Err(AppError::message(format!(
             "embeddings endpoint returned {status}: {snippet}"
@@ -120,6 +137,18 @@ pub async fn embed_batch(
         )));
     }
     Ok(out)
+}
+
+/// True when a failed response looks like "too many inputs for one request".
+fn is_batch_rejection(status: reqwest::StatusCode, body: &str) -> bool {
+    if !matches!(status.as_u16(), 400 | 413 | 422) {
+        return false;
+    }
+    let body = body.to_ascii_lowercase();
+    body.contains("batch")
+        || body.contains("too many input")
+        || body.contains("too many text")
+        || body.contains("maximum number of")
 }
 
 /// Embed every text with a fresh client, chunked to respect provider limits.
@@ -187,5 +216,30 @@ mod tests {
         let mut v = vec![3.0_f32, 4.0];
         normalize(&mut v);
         assert!((dot(&v, &v) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn detects_batch_rejections() {
+        assert!(is_batch_rejection(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"error":{"message":"batch size is invalid, it should not be larger than 20."}}"#
+        ));
+        assert!(is_batch_rejection(
+            reqwest::StatusCode::PAYLOAD_TOO_LARGE,
+            "too many inputs"
+        ));
+        assert!(is_batch_rejection(
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+            "maximum number of texts exceeded"
+        ));
+        // Unrelated failures must not trigger the halving path.
+        assert!(!is_batch_rejection(
+            reqwest::StatusCode::UNAUTHORIZED,
+            "invalid api key"
+        ));
+        assert!(!is_batch_rejection(
+            reqwest::StatusCode::BAD_REQUEST,
+            "model not found"
+        ));
     }
 }
