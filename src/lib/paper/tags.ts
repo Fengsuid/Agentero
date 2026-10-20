@@ -2,6 +2,10 @@
  * Paper tag semantics (P2-18b: moved down from `lib/ui/tag-colors.ts`,
  * which keeps only the color-token mapping).
  */
+import {
+	isLegacyVenueTagName,
+	isSystemManagedTagName,
+} from "@/lib/paper/tag-namespaces";
 import type { PaperTag, PaperTagInput } from "@/lib/paper/types";
 import { isTagColorId, type TagColorId } from "@/lib/ui/tag-colors";
 
@@ -97,12 +101,29 @@ export function isVisiblePaperTag(tag: PaperTagInput): boolean {
 	return (
 		typeof name === "string" &&
 		name.trim().length > 0 &&
-		!isInternalTagName(name)
+		!isInternalTagName(name) &&
+		// Retired: publication is shown directly; old tags are cleaned by sync.
+		!isLegacyVenueTagName(name)
 	);
 }
 
 export function visiblePaperTags(tags: readonly PaperTagInput[]): PaperTag[] {
 	return normalizePaperTags(tags.filter(isVisiblePaperTag));
+}
+
+/** Tags the user may create, recolor, or delete in the UI. */
+export function isEditablePaperTag(tag: PaperTagInput): boolean {
+	const name = typeof tag === "string" ? tag : tag?.name;
+	return (
+		typeof name === "string" &&
+		isVisiblePaperTag(tag) &&
+		!isSystemManagedTagName(name)
+	);
+}
+
+/** Visible user tags only; Host-owned projections are preserved but not edited. */
+export function editablePaperTags(tags: readonly PaperTagInput[]): PaperTag[] {
+	return normalizePaperTags(tags.filter(isEditablePaperTag));
 }
 
 export function normalizePaperTag(raw: PaperTagInput): PaperTag | null {

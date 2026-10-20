@@ -364,8 +364,8 @@ crates/agentero-core/src/features/paper/
    - `VenueMetricsSource` 未落在 OpenAlex 上（见 §10 第 2 条）
 
 5. **阶段 4：EasyScholar** ✅
-   - `scholar_api/sources/easy_scholar.rs` 实现 `VenueMetricsSource`
-   - `settings/commands.rs` 的 `easy_scholar_probe` / `easy_scholar_get_rank` 改调该 source，IPC 契约不变
+   - `scholar_api/sources/easy_scholar.rs` 实现 `VenueMetricsSource`，并在同一模块生成 Host 侧 `#easyscholar:` 指标投影
+   - `settings/commands.rs` 的 `easy_scholar_probe` 校验 Key；Library 的 `paper_sync_publication` 统一完成指标抓取、解析与写标签，前端不再直接拿原始 JSON
 
 6. **阶段 5：Translator / Unpaywall / Zotero Recognizer** ✅
    - `scholar_api/sources/translator.rs` 实现 `AcademicApi + BibliographySource`

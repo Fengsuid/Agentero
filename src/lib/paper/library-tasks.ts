@@ -23,6 +23,7 @@ import {
 	exportLibraryToFile,
 	importLibraryFromFile,
 	resolveIdentifierMetadata,
+	syncPublication,
 	updatePaperMeta,
 } from "@/lib/paper/api";
 import {
@@ -138,14 +139,31 @@ function metadataRefreshTargets(params: unknown): RefreshTarget[] {
 	});
 }
 
+/** All paper paths in scope, including papers with no metadata query. */
+function metadataSyncPaths(params: unknown): string[] {
+	const raw =
+		params && typeof params === "object"
+			? (params as { syncPaths?: unknown }).syncPaths
+			: undefined;
+	if (!Array.isArray(raw)) return [];
+	return raw.filter(
+		(path): path is string =>
+			typeof path === "string" && path.trim().length > 0,
+	);
+}
+
 async function runMetadataRefreshJob(ctx: TaskExecutorContext): Promise<void> {
 	const papers = metadataRefreshTargets(ctx.params);
-	if (!papers.length) return;
+	const syncPaths = metadataSyncPaths(ctx.params);
+	if (!papers.length && !syncPaths.length) return;
 	const stats = { updated: 0, empty: 0, failed: 0, processed: 0 };
+	const maxMetadataProgress = syncPaths.length ? 90 : 100;
 	const reportStats = (): Promise<void> =>
 		ctx
 			.report({
-				progress: Math.round((stats.processed / papers.length) * 100),
+				progress: papers.length
+					? Math.round((stats.processed / papers.length) * maxMetadataProgress)
+					: 90,
 				phase: i18n.t("sidebar:papersLibrary.refreshMetadataTaskDetail", {
 					current: stats.processed,
 					total: papers.length,
@@ -185,6 +203,21 @@ async function runMetadataRefreshJob(ctx: TaskExecutorContext): Promise<void> {
 			await reportStats();
 		}
 	});
+	throwIfTaskCancelled(ctx);
+	if (syncPaths.length) {
+		await reportTaskPhase(
+			ctx,
+			i18n.t("sidebar:papersLibrary.syncPublicationPhase"),
+		);
+		const sync = await syncPublication(ctx.vaultPath, syncPaths);
+		if (sync.metricsFailed > 0) {
+			notifyWarning(
+				i18n.t("sidebar:papersLibrary.syncPublicationPartial", {
+					failed: sync.metricsFailed,
+				}),
+			);
+		}
+	}
 	await refreshLibrary();
 	throwIfTaskCancelled(ctx);
 	if (stats.failed > 0) {

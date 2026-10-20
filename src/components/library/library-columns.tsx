@@ -24,7 +24,12 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/core/utils";
-import { formatAuthorsShort, publicationDateText } from "@/lib/paper";
+import {
+	formatAuthorsShort,
+	type PaperLibraryRow,
+	publicationDateText,
+} from "@/lib/paper";
+import { type VenueStatus, venueInfo } from "@/lib/paper/venue-info";
 
 const COPY_CELL_BASE =
 	"cursor-pointer select-text rounded-sm hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
@@ -97,6 +102,75 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 		<ArrowUp className="size-3 shrink-0 text-foreground" aria-hidden />
 	) : (
 		<ArrowDown className="size-3 shrink-0 text-foreground" aria-hidden />
+	);
+}
+
+const VENUE_STATUS_LABEL: Record<VenueStatus, string> = {
+	published: "papersLibrary.venueStatus.published",
+	submitted: "papersLibrary.venueStatus.submitted",
+	preprint: "papersLibrary.venueStatus.preprint",
+	none: "papersLibrary.colPublication",
+};
+
+const VENUE_STATUS_CLASS: Record<VenueStatus, string> = {
+	published: "bg-muted text-foreground",
+	submitted: "bg-muted/70 text-muted-foreground",
+	preprint: "bg-muted/40 text-muted-foreground",
+	none: "bg-muted/40 text-muted-foreground",
+};
+
+/** One cell for publication / submission / preprint + EasyScholar metrics. */
+function VenueCell({ paper, ctx }: { paper: PaperLibraryRow; ctx: CellCtx }) {
+	const info = venueInfo(paper);
+	if (info.status === "none" || !info.name) {
+		return (
+			<td className="min-w-0 max-w-0 overflow-hidden px-3 py-2.5 text-muted-foreground text-xs">
+				—
+			</td>
+		);
+	}
+	const metrics = info.metrics.join(" · ");
+	return (
+		<td className="min-w-0 max-w-0 overflow-hidden px-3 py-2.5">
+			<CopyCellButton
+				copyText={info.name}
+				labelKey="papersLibrary.colPublication"
+				ctx={ctx}
+				className="block w-full text-left"
+			>
+				<span className="flex min-w-0 flex-col gap-0.5">
+					<span className="flex min-w-0 items-center gap-1.5">
+						<span
+							className={cn(
+								"shrink-0 rounded px-1 py-0.5 text-[10px] leading-none",
+								VENUE_STATUS_CLASS[info.status],
+							)}
+						>
+							{ctx.t(VENUE_STATUS_LABEL[info.status])}
+						</span>
+						<span
+							className="truncate text-foreground text-xs"
+							title={info.fullName ?? undefined}
+						>
+							{info.name}
+						</span>
+					</span>
+					{metrics ? (
+						<span
+							className="truncate text-[10px] text-muted-foreground/80"
+							title={metrics}
+						>
+							{metrics}
+						</span>
+					) : null}
+					{info.inferred ? (
+						<span className="text-[10px] text-muted-foreground/70">
+							{ctx.t("papersLibrary.venueStatus.inferred")}
+						</span>
+					) : null}
+				</span>
+			</CopyCellButton>
+		</td>
 	);
 }
 
@@ -197,13 +271,7 @@ export const COLUMN_META = {
 		labelKey: "papersLibrary.colPublication",
 		widthWeight: 14,
 		headerClassName: "min-w-[120px]",
-		render: (p) => (
-			<td className="min-w-0 max-w-0 overflow-hidden px-3 py-2.5 text-muted-foreground text-xs">
-				<span className="line-clamp-1" title={p.publication ?? undefined}>
-					{p.publication || "—"}
-				</span>
-			</td>
-		),
+		render: (p, ctx) => <VenueCell paper={p} ctx={ctx} />,
 	},
 	tags: {
 		labelKey: "papersLibrary.colTags",

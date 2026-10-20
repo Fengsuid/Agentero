@@ -43,12 +43,13 @@ import { setEditMetaDraft } from "@/lib/paper/library-store";
 import { publicationDateText } from "@/lib/paper/publication-date";
 import {
 	coercePaperTags,
-	isVisiblePaperTag,
+	editablePaperTags,
+	isEditablePaperTag,
 	normalizePaperTags,
 	type PaperTag,
-	visiblePaperTags,
 	withPaperTagColor,
 } from "@/lib/paper/tags";
+import { venueInfo } from "@/lib/paper/venue-info";
 import { type TagColorId, tagSwatchStyle } from "@/lib/ui/tag-colors";
 import { isRemoteVaultHandle } from "@/lib/vault/remote/remote-vault";
 import { getVaultPath } from "@/lib/vault/store";
@@ -226,10 +227,10 @@ function TagsEditor({
 	const [busy, setBusy] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const allTags = coercePaperTags(tags);
-	const list = visiblePaperTags(allTags);
+	const list = editablePaperTags(allTags);
 
 	const commit = async (next: PaperTag[]) => {
-		const hidden = allTags.filter((tag) => !isVisiblePaperTag(tag));
+		const hidden = allTags.filter((tag) => !isEditablePaperTag(tag));
 		const normalized = normalizePaperTags([...hidden, ...next]);
 		setBusy(true);
 		try {
@@ -242,6 +243,7 @@ function TagsEditor({
 	const addTag = () => {
 		const value = draft.trim();
 		if (!value || busy || disabled) return;
+		if (!isEditablePaperTag({ name: value })) return;
 		setDraft("");
 		const next: PaperTag = draftColor
 			? { name: value, color: draftColor }
@@ -471,6 +473,7 @@ export function PaperInfoPanel({
 		? `https://www.alphaxiv.org/abs/${arxivId}`
 		: null;
 	const codeRepo = meta?.code_repo?.trim() || null;
+	const venue = meta ? venueInfo(meta) : null;
 
 	const copyField = async (text: string | null | undefined, label: string) => {
 		const value = text?.trim();
@@ -608,13 +611,30 @@ export function PaperInfoPanel({
 								</MetaRow>
 							) : null}
 							<MetaRow icon={Library} label={t("paperInfo.publication")}>
-								{meta.publication ? (
-									<CopyValue
-										text={meta.publication}
-										label={t("paperInfo.publication")}
-										onCopy={copyField}
-										className="line-clamp-2"
-									/>
+								{venue && venue.status !== "none" && venue.name ? (
+									<div className="flex min-w-0 flex-col gap-0.5">
+										<div className="flex min-w-0 items-center gap-1.5">
+											<span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground leading-none">
+												{t(`papersLibrary.venueStatus.${venue.status}`)}
+											</span>
+											<CopyValue
+												text={venue.name}
+												label={t("paperInfo.publication")}
+												onCopy={copyField}
+												className="line-clamp-2"
+											/>
+										</div>
+										{venue.metrics.length ? (
+											<span className="text-caption text-muted-foreground/80">
+												{venue.metrics.join(" · ")}
+											</span>
+										) : null}
+										{venue.inferred ? (
+											<span className="text-caption text-muted-foreground/70">
+												{t("papersLibrary.venueStatus.inferred")}
+											</span>
+										) : null}
+									</div>
 								) : (
 									<span className="text-muted-foreground">-</span>
 								)}

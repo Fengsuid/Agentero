@@ -7,7 +7,12 @@ import type { ReactNode } from "react";
 import type { PaperLibraryRow, PaperMetadata } from "@/lib/paper";
 import { publicationDateSortKey } from "@/lib/paper/publication-date";
 import type { ReadingHeatmap } from "@/lib/paper/reading-heatmap";
-import { type PaperTag, visiblePaperTags } from "@/lib/paper/tags";
+import {
+	editablePaperTags,
+	type PaperTag,
+	visiblePaperTags,
+} from "@/lib/paper/tags";
+import { venueInfo } from "@/lib/paper/venue-info";
 import type { LibraryColumnKey, LibraryColumnPref } from "@/lib/settings";
 
 export type SortKey = LibraryColumnKey;
@@ -93,7 +98,8 @@ export function buildPaperSearchText(p: PaperMetadata): string {
 export function buildPaperRow(p: PaperLibraryRow): PaperRow {
 	const cached = paperRowCache.get(p);
 	if (cached) return cached;
-	const tags = visiblePaperTags(p.tags);
+	const tags = editablePaperTags(p.tags);
+	const venue = venueInfo(p);
 	const id = identifierValue(p) ?? "";
 	const tagSearch = tags
 		.map((t) => t.name)
@@ -109,7 +115,7 @@ export function buildPaperRow(p: PaperLibraryRow): PaperRow {
 			authors: (p.authors?.[0] ?? "").toLocaleLowerCase(),
 			date: publicationDateSortKey(p) ?? Number.NEGATIVE_INFINITY,
 			addedAt: addedDate(p.added_at)?.getTime() ?? Number.NEGATIVE_INFINITY,
-			publication: (p.publication ?? "").toLocaleLowerCase(),
+			publication: (venue.name ?? "").toLocaleLowerCase(),
 			id: id.toLocaleLowerCase(),
 			tags: tags
 				.map((t) => t.name)

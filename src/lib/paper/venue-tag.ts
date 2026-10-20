@@ -1,41 +1,30 @@
 /**
- * Venue tag helpers: `#venue:<published>` (authoritative) and
- * `#submitted:<conference> <year>` (arXiv-template guess) namespaces.
+ * Submission-target tag helper: `#submitted:<conference> <year>`.
  *
- * Mirrors the `#easyscholar:` convention: the namespace prefix is storage
- * detail and is stripped for display (the raw name stays in the tooltip).
+ * This tag is a Host-owned compatibility projection. It is inferred from the
+ * arXiv LaTeX template (the venue the paper was formatted for), not from a
+ * scholarly API, and is removed once a real `publication` exists.
+ *
+ * `#venue:` is retired: `publication` is the single authoritative venue field.
  */
 
-export const VENUE_TAG_PREFIX = "#venue:";
-export const SUBMITTED_TAG_PREFIX = "#submitted:";
+import { SUBMITTED_TAG_PREFIX } from "@/lib/paper/tag-namespaces";
 
-export function isVenueTagName(name: string): boolean {
-	return name.trim().toLocaleLowerCase().startsWith(VENUE_TAG_PREFIX);
-}
+export { SUBMITTED_TAG_PREFIX };
 
 export function isSubmittedTagName(name: string): boolean {
 	return name.trim().toLocaleLowerCase().startsWith(SUBMITTED_TAG_PREFIX);
 }
 
-/** Whether the tag belongs to either venue namespace. */
-export function isVenueNamespaceTag(name: string): boolean {
-	return isVenueTagName(name) || isSubmittedTagName(name);
-}
-
 /**
  * Display label with the namespace prefix removed.
  *
- * `#venue:` shows the published name as-is; `#submitted:` keeps the
- * "Submitted to" wording because the template-inferred target is not a
- * formal publication yet.
+ * `#submitted:` keeps the "Submitted to" wording because the template-inferred
+ * target is not a formal publication yet.
  */
 export function formatVenueTag(name: string): string {
 	const trimmed = name.trim();
-	const lower = trimmed.toLocaleLowerCase();
-	if (lower.startsWith(VENUE_TAG_PREFIX)) {
-		return trimmed.slice(VENUE_TAG_PREFIX.length);
-	}
-	if (lower.startsWith(SUBMITTED_TAG_PREFIX)) {
+	if (isSubmittedTagName(trimmed)) {
 		return `Submitted to ${trimmed.slice(SUBMITTED_TAG_PREFIX.length)}`;
 	}
 	return name;

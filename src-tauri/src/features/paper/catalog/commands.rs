@@ -330,28 +330,31 @@ pub async fn paper_set_tags(args: PaperSetTagsArgs) -> ApiResult<PaperRecord> {
 
 #[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct PaperRefreshVenueTagsArgs {
+pub struct PaperSyncPublicationArgs {
     pub vault_path: String,
     /// Vault-relative paper folder paths to process.
     pub paths: Vec<String>,
 }
 
-/// Recompute `#venue:` / `#submitted:` tags from catalog metadata + the arXiv
-/// e-print LaTeX template. An authoritative `publication` overwrites a template
-/// guess; papers that already carry a venue/submitted tag are left unchanged.
+/// Single Host-side publication sync: refresh the `#submitted:` projection,
+/// remove retired `#venue:` tags, and refresh EasyScholar metrics when a key is
+/// configured. The renderer never writes these system tags itself.
 #[tauri::command]
 #[specta::specta]
-pub async fn paper_refresh_venue_tags(
-    args: PaperRefreshVenueTagsArgs,
-) -> ApiResult<Vec<PaperRecord>> {
-    run_blocking(move || {
-        let vault = try_vault!(&args.vault_path);
-        match crate::features::paper::venue::refresh_venue_tags(&vault, &args.paths) {
-            Ok(rows) => ApiResult::ok(rows),
-            Err(e) => map_err(e),
-        }
-    })
-    .await
+pub async fn paper_sync_publication(
+    app: tauri::AppHandle,
+    args: PaperSyncPublicationArgs,
+) -> ApiResult<crate::features::paper::venue::VenueSyncReport> {
+    use tauri::Manager;
+    let vault = try_vault!(&args.vault_path);
+    let key = app
+        .state::<crate::features::system::settings::AppSettingsStore>()
+        .easy_scholar_key();
+    match crate::features::paper::venue::sync_publication(&vault, &args.paths, key.as_deref()).await
+    {
+        Ok(report) => ApiResult::ok(report),
+        Err(e) => map_err(e),
+    }
 }
 
 #[derive(Debug, Deserialize, specta::Type)]

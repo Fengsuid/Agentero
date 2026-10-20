@@ -34,11 +34,11 @@ import { cn } from "@/lib/core/utils";
 import type { PaperLibraryRow, PaperMetadata } from "@/lib/paper";
 import { filterPapersByScope } from "@/lib/paper/api";
 import {
-	refreshLibraryMetadata,
 	refreshPaperMetadata,
+	syncLibraryPublication,
 } from "@/lib/paper/library-actions";
 import { heatmapCacheKey } from "@/lib/paper/reading-heatmap";
-import { type PaperTag, visiblePaperTags } from "@/lib/paper/tags";
+import { editablePaperTags, type PaperTag } from "@/lib/paper/tags";
 import {
 	DEFAULT_LIBRARY_COLUMNS,
 	type LibraryColumnPref,
@@ -238,10 +238,10 @@ export function PapersLibrary({
 		[columns, onColumnsChange],
 	);
 
-	const canRefreshMetadata =
+	const canSyncPublication =
 		Boolean(vaultPath) && !isRemoteVaultHandle(vaultPath);
-	const handleRefreshMetadata = useCallback(() => {
-		void refreshLibraryMetadata(vaultPath, scopedPapers);
+	const handleSyncPublication = useCallback(() => {
+		void syncLibraryPublication(vaultPath, scopedPapers);
 	}, [vaultPath, scopedPapers]);
 
 	const handleRefreshPaperMetadata = useCallback(
@@ -258,7 +258,7 @@ export function PapersLibrary({
 	const availableTags = useMemo(() => {
 		const byName = new Map<string, PaperTag>();
 		for (const p of scopedPapers) {
-			for (const tag of visiblePaperTags(p.tags)) {
+			for (const tag of editablePaperTags(p.tags)) {
 				if (!byName.has(tag.name)) byName.set(tag.name, tag);
 			}
 		}
@@ -450,8 +450,8 @@ export function PapersLibrary({
 							searchEnabled={Boolean(onQueryChange)}
 							inputValue={inputValue}
 							onInputChange={onSearchInputChange}
-							canRefreshMetadata={canRefreshMetadata}
-							onRefreshMetadata={handleRefreshMetadata}
+							canSyncPublication={canSyncPublication}
+							onSyncPublication={handleSyncPublication}
 							availableTags={availableTags}
 							tagFilterSet={tagFilterSet}
 							tagFilterActive={tagFilterActive}
@@ -462,8 +462,6 @@ export function PapersLibrary({
 							onResetColumns={resetColumns}
 							onColumnReorder={handleColumnReorder}
 							onColumnResize={resizeColumn}
-							vaultPath={vaultPath}
-							papers={scopedPapers}
 						/>
 						{/* key={reorderKey} remounts the tbody to replay the fade animation. */}
 						<tbody

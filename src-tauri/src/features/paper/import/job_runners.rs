@@ -99,9 +99,9 @@ fn download_assets_runner(
 
         match result {
             Ok(_) => {
-                // arXiv e-print template / published venue → `#submitted:` /
-                // `#venue:` catalog tags. Best-effort: never fail the download.
-                if let Err(e) = crate::features::paper::venue::refresh_venue_tag(&vault, &path) {
+                // arXiv e-print template → `#submitted:` catalog tag. Best-effort:
+                // never fail the download.
+                if let Err(e) = crate::features::paper::venue::sync_venue_tag(&vault, &path) {
                     log::warn!(target: "agentero::import",
                         "venue tag refresh failed for {path}: {e}");
                 }

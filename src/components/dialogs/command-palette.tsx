@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/command";
 import type { PaperMetadata } from "@/lib/paper";
 import { paperDirFromPath } from "@/lib/paper/detect";
-import { visiblePaperTags } from "@/lib/paper/tags";
+import { editablePaperTags } from "@/lib/paper/tags";
 import { filterByFuzzy } from "@/lib/shell/commands/match";
 import type { AppCommand, PaletteMode } from "@/lib/shell/commands/types";
 import { type SearchHit, searchVault } from "@/lib/vault/search";
@@ -44,9 +44,9 @@ type CommandPaletteProps = {
 const PAPER_LIMIT = 8;
 const ALIAS_LIMIT = 8;
 
-/** User-facing tag names for a catalog row (internal provenance tags hidden). */
+/** User-facing tag names for a catalog row (system projections hidden). */
 function tagNames(paper: PaperMetadata): string[] {
-	return visiblePaperTags(paper.tags).map((tag) => tag.name);
+	return editablePaperTags(paper.tags).map((tag) => tag.name);
 }
 
 /**

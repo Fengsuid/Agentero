@@ -1,47 +1,56 @@
-//! Target-venue inference from an arXiv e-print's LaTeX source, projected onto
-//! catalog tags.
+//! Submission-target inference from an arXiv e-print's LaTeX source, projected
+//! onto a Host-owned catalog tag.
 //!
-//! Two confidence tiers live in separate tag namespaces:
-//! - `#submitted:<VENUE> <YEAR>` — inferred from the LaTeX template
-//!   (`\documentclass` / `\usepackage` / bundled `.sty`/`.cls` names), i.e. the
-//!   venue the paper was formatted for.
-//! - `#venue:<PUBLICATION>` — the authoritative venue from catalog metadata
-//!   (`publication`, filled by Crossref/OpenAlex/etc.). When present it replaces
-//!   any `#submitted:` guess.
+//! `#submitted:<VENUE> <YEAR>` is inferred from the LaTeX template
+//! (`\documentclass` / `\usepackage` / bundled `.sty`/`.cls` names), i.e. the
+//! venue the paper was formatted for. It is a compatibility projection, not a
+//! scholarly-API field: `publication` remains the single authoritative venue.
+//!
+//! The retired `#venue:` namespace is never written again. Any leftover tags
+//! are removed during sync; `publication` is shown directly by the UI.
 //!
 //! Rules:
-//! - Authoritative venue present → write `#venue:`, drop `#submitted:`.
-//! - Otherwise → add `#submitted:` only when no venue/submitted tag exists yet
-//!   (and no user tag already names that venue).
+//! - Authoritative `publication` present → drop `#submitted:` (and legacy `#venue:`).
+//! - Otherwise → add `#submitted:` only when it does not exist yet and no user
+//!   tag already names that venue.
+//! - EasyScholar metrics are refreshed by the same sync entry point and stored
+//!   as `#easyscholar:` tags (also Host-owned).
 
 use crate::error::AppError;
-use crate::features::paper::catalog::papers::{self, PaperRecord, PaperTag};
+use crate::features::paper::catalog::papers::{self, PaperTag};
+use crate::features::paper::scholar_api::sources::easy_scholar::{
+    is_easyscholar_tag, merge_easyscholar_tags, strip_easyscholar_journal_tags,
+    strip_easyscholar_tags, tags_from_metrics, EasyScholarApi,
+};
+use crate::features::paper::scholar_api::traits::VenueMetricsSource;
+use crate::features::paper::scholar_api::VenueIdentifiers;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 use walkdir::WalkDir;
 
-/// Tag namespace for the authoritative published venue.
-pub const VENUE_TAG_PREFIX: &str = "#venue:";
 /// Tag namespace for the template-inferred submission target.
 pub const SUBMITTED_TAG_PREFIX: &str = "#submitted:";
+/// Retired authoritative-venue namespace; only read for cleanup.
+const LEGACY_VENUE_TAG_PREFIX: &str = "#venue:";
 
 /// Upper bounds keeping detection cheap on e-prints with hundreds of files.
 const MAX_TEX_FILES: usize = 200;
 const MAX_TEX_HEAD_BYTES: u64 = 256 * 1024;
-
-/// Whether `name` is an authoritative venue tag.
-pub fn is_venue_tag_name(name: &str) -> bool {
-    name.trim()
-        .to_ascii_lowercase()
-        .starts_with(VENUE_TAG_PREFIX)
-}
 
 /// Whether `name` is a template-inferred submission tag.
 pub fn is_submitted_tag_name(name: &str) -> bool {
     name.trim()
         .to_ascii_lowercase()
         .starts_with(SUBMITTED_TAG_PREFIX)
+}
+
+/// Whether `name` is a retired authoritative-venue tag.
+fn is_legacy_venue_tag_name(name: &str) -> bool {
+    name.trim()
+        .to_ascii_lowercase()
+        .starts_with(LEGACY_VENUE_TAG_PREFIX)
 }
 
 /// One template token mapped to its venue.
@@ -253,15 +262,11 @@ fn group_after(s: &str) -> Option<&str> {
     Some(&rest[..close])
 }
 
-/// Whether a user tag already names `venue` (bare `ICLR`, or namespaced
-/// `#venue:ICLR 2027`).
+/// Whether a user tag already names `venue` (bare `ICLR`, or `#submitted:ICLR 2027`).
 fn tag_names_venue(name: &str, venue: &str) -> bool {
     let mut normalized = name.trim().to_ascii_lowercase();
-    for prefix in [VENUE_TAG_PREFIX, SUBMITTED_TAG_PREFIX] {
-        if let Some(rest) = normalized.strip_prefix(prefix) {
-            normalized = rest.to_string();
-            break;
-        }
+    if let Some(rest) = normalized.strip_prefix(SUBMITTED_TAG_PREFIX) {
+        normalized = rest.to_string();
     }
     let venue = venue.to_ascii_lowercase();
     normalized == venue || normalized.starts_with(&format!("{venue} "))
@@ -295,145 +300,172 @@ fn is_repository_venue(name: &str) -> bool {
     MARKERS.iter().any(|marker| name.contains(marker))
 }
 
-/// Whether a `#venue:` tag carries a repository name.
-fn tag_is_repository_venue(name: &str) -> bool {
-    let lower = name.trim().to_ascii_lowercase();
-    lower
-        .strip_prefix(VENUE_TAG_PREFIX)
-        .is_some_and(is_repository_venue)
+/// The authoritative published venue, or `None` for empty/repository values.
+fn real_publication(publication: Option<&str>) -> Option<&str> {
+    publication
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !is_repository_venue(s))
 }
 
-/// Pure decision over the current tags + metadata + detection result.
-#[derive(Debug, PartialEq, Eq)]
-pub enum VenueTagUpdate {
-    /// Nothing to write.
-    None,
-    /// Full replacement tag list (caller persists it).
-    Set(Vec<PaperTag>),
-}
-
-/// Decide the next tag set for a paper.
-pub fn plan_venue_tags(
+/// Decide the Host-owned submission tag set for a paper.
+///
+/// `#venue:` is retired and always removed. With a real `publication`, the
+/// submission guess is stale and removed too. Otherwise the existing guess is
+/// kept; a new one is added only when the LaTeX template names a venue that no
+/// user tag already mentions.
+pub fn plan_submission_tags(
     existing: &[PaperTag],
     publication: Option<&str>,
     detected: Option<&DetectedVenue>,
-) -> VenueTagUpdate {
-    // Repository / preprint-server names are not real venues: treat them as "no
-    // published venue" so the template path below can run.
-    let published = publication
-        .map(str::trim)
-        .filter(|s| !s.is_empty() && !is_repository_venue(s));
-
-    // Authoritative published venue wins and replaces any submission guess.
-    if let Some(publication) = published {
-        let target = PaperTag::new(format!("{VENUE_TAG_PREFIX}{publication}"));
-        let has_submitted = existing.iter().any(|t| is_submitted_tag_name(&t.name));
-        let venue_tags: Vec<&PaperTag> = existing
-            .iter()
-            .filter(|t| is_venue_tag_name(&t.name))
-            .collect();
-        if !has_submitted
-            && venue_tags.len() == 1
-            && venue_tags[0]
-                .name
-                .trim()
-                .eq_ignore_ascii_case(target.name.trim())
-        {
-            return VenueTagUpdate::None;
-        }
-        let mut next: Vec<PaperTag> = existing
-            .iter()
-            .filter(|t| !is_venue_tag_name(&t.name) && !is_submitted_tag_name(&t.name))
-            .cloned()
-            .collect();
-        next.push(target);
-        return VenueTagUpdate::Set(next);
-    }
-
-    // Template path. First drop stale repository-derived `#venue:` tags (e.g.
-    // `#venue:arXiv (Cornell University)`) so an earlier run can self-heal.
-    let cleaned: Vec<PaperTag> = existing
+) -> Vec<PaperTag> {
+    let mut next: Vec<PaperTag> = existing
         .iter()
-        .filter(|t| !(is_venue_tag_name(&t.name) && tag_is_repository_venue(&t.name)))
+        .filter(|t| !is_legacy_venue_tag_name(&t.name))
         .cloned()
         .collect();
-    let removed = cleaned.len() != existing.len();
 
-    // Once a real venue/submitted tag exists, leave it alone (but still persist
-    // any repository-tag cleanup).
-    let unchanged = |removed: bool, cleaned: Vec<PaperTag>| {
-        if removed {
-            VenueTagUpdate::Set(cleaned)
-        } else {
-            VenueTagUpdate::None
-        }
-    };
-    if cleaned
-        .iter()
-        .any(|t| is_venue_tag_name(&t.name) || is_submitted_tag_name(&t.name))
-    {
-        return unchanged(removed, cleaned);
+    if real_publication(publication).is_some() {
+        next.retain(|t| !is_submitted_tag_name(&t.name));
+        return next;
+    }
+
+    if next.iter().any(|t| is_submitted_tag_name(&t.name)) {
+        return next;
     }
     let Some(detected) = detected else {
-        return unchanged(removed, cleaned);
+        return next;
     };
-    if cleaned
+    if next
         .iter()
         .any(|t| tag_names_venue(&t.name, detected.venue))
     {
-        return unchanged(removed, cleaned);
+        return next;
     }
-    let mut next = cleaned;
     next.push(PaperTag::new(detected.submitted_tag_name()));
-    VenueTagUpdate::Set(next)
+    next
 }
 
-/// Recompute the venue tags for one paper. Returns the tag written, or `None`
-/// when nothing changed.
-pub fn refresh_venue_tag(
-    vault_root: &Path,
-    paper_path: &str,
-) -> Result<Option<PaperTag>, AppError> {
+/// Recompute the Host-owned submission tag for one paper.
+/// Returns whether the tag set changed.
+pub fn sync_venue_tag(vault_root: &Path, paper_path: &str) -> Result<bool, AppError> {
     let Some(record) = papers::get_by_path(vault_root, paper_path)? else {
-        return Ok(None);
+        return Ok(false);
     };
     let source_dir = vault_root.join(paper_path).join("source");
     let detected = detect_venue(&source_dir);
-    match plan_venue_tags(
+    let next = plan_submission_tags(
         &record.tags,
         record.publication.as_deref(),
         detected.as_ref(),
-    ) {
-        VenueTagUpdate::None => Ok(None),
-        VenueTagUpdate::Set(tags) => {
-            let written = tags.last().cloned();
-            papers::set_tags(vault_root, paper_path, &tags)?;
-            Ok(written)
-        }
+    );
+    if next == record.tags {
+        return Ok(false);
     }
+    papers::set_tags(vault_root, paper_path, &next)?;
+    Ok(true)
 }
 
-/// Recompute venue tags for many papers (manual backfill). Returns the current
-/// catalog rows for every path that still exists; a single failure is logged
-/// and skipped so one bad paper cannot abort the batch.
-pub fn refresh_venue_tags(
+/// Result of one publication sync over a Library scope.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VenueSyncReport {
+    /// Papers whose tag projection changed (submission, legacy cleanup, metrics).
+    pub updated: usize,
+    /// Papers whose EasyScholar metrics were refreshed.
+    pub metrics_updated: usize,
+    /// Papers where the EasyScholar request failed; existing metrics are kept.
+    pub metrics_failed: usize,
+}
+
+fn normalize_paper_path(raw: &str) -> Option<String> {
+    let path = raw.trim().trim_matches('/').replace('\\', "/");
+    (!path.is_empty()).then_some(path)
+}
+
+/// Single Host-side entry point for publication-derived state.
+///
+/// 1. Recompute the `#submitted:` projection and drop legacy `#venue:` tags.
+/// 2. Drop the retired EasyScholar `journal=` tag.
+/// 3. When the scope has a real `publication` and a key is configured, replace
+///    the `#easyscholar:` metrics namespace with fresh data.
+///
+/// A failed EasyScholar request never clears existing metrics; a paper without
+/// a real publication has no valid metrics and is cleaned instead.
+pub async fn sync_publication(
     vault_root: &Path,
     paper_paths: &[String],
-) -> Result<Vec<PaperRecord>, AppError> {
-    let mut out = Vec::with_capacity(paper_paths.len());
+    easyscholar_key: Option<&str>,
+) -> Result<VenueSyncReport, AppError> {
+    let api = easyscholar_key
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(EasyScholarApi::new);
+    let mut report = VenueSyncReport {
+        updated: 0,
+        metrics_updated: 0,
+        metrics_failed: 0,
+    };
+
     for raw in paper_paths {
-        let path = raw.trim().trim_matches('/').replace('\\', "/");
-        if path.is_empty() {
+        let Some(path) = normalize_paper_path(raw) else {
             continue;
+        };
+        let Some(record) = papers::get_by_path(vault_root, &path)? else {
+            continue;
+        };
+        let source_dir = vault_root.join(&path).join("source");
+        let detected = detect_venue(&source_dir);
+        let mut tags = strip_easyscholar_journal_tags(&plan_submission_tags(
+            &record.tags,
+            record.publication.as_deref(),
+            detected.as_ref(),
+        ));
+
+        let published = real_publication(record.publication.as_deref());
+        // Metrics are a function of `publication`. A publication change strips
+        // them in `update_meta`, so presence means "already fetched for the
+        // current venue"; retry only when the namespace is missing/empty.
+        let has_metrics = tags.iter().any(|tag| is_easyscholar_tag(&tag.name));
+        match (published, &api) {
+            (Some(publication), Some(api)) if !has_metrics => {
+                match api
+                    .fetch_metrics(publication, &VenueIdentifiers::default())
+                    .await
+                {
+                    Ok(metrics) => {
+                        let merged = merge_easyscholar_tags(&tags, &tags_from_metrics(&metrics));
+                        if merged != tags {
+                            tags = merged;
+                            report.metrics_updated += 1;
+                        }
+                    }
+                    Err(error) => {
+                        report.metrics_failed += 1;
+                        log::warn!(
+                            target: "agentero::paper",
+                            "EasyScholar metrics refresh failed for {path}: {error}"
+                        );
+                    }
+                }
+            }
+            // No real venue: metrics no longer describe this paper.
+            (None, _) => {
+                let stripped = strip_easyscholar_tags(&tags);
+                if stripped != tags {
+                    tags = stripped;
+                    report.metrics_updated += 1;
+                }
+            }
+            // Key missing or metrics already present for this publication.
+            (Some(_), _) => {}
         }
-        if let Err(e) = refresh_venue_tag(vault_root, &path) {
-            log::warn!(target: "agentero::paper", "venue tag refresh failed for {path}: {e}");
-        }
-        if let Some(row) = papers::get_by_path(vault_root, &path)? {
-            out.push(row);
+
+        if tags != record.tags {
+            papers::set_tags(vault_root, &path, &tags)?;
+            report.updated += 1;
         }
     }
-    Ok(out)
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -505,26 +537,20 @@ mod tests {
     }
 
     #[test]
-    fn plan_skips_when_a_tag_already_exists() {
+    fn plan_keeps_existing_submission_tag() {
         let detected = DetectedVenue {
             venue: "ICLR",
             year: Some(2027),
             evidence: "iclr2027".into(),
         };
-        // Already `#submitted:` → no change.
         assert_eq!(
-            plan_venue_tags(&[tag("#submitted:AAAI 2026")], None, Some(&detected)),
-            VenueTagUpdate::None
+            plan_submission_tags(&[tag("#submitted:AAAI 2026")], None, Some(&detected)),
+            vec![tag("#submitted:AAAI 2026")]
         );
-        // Already `#venue:` → no change.
+        // A bare user tag naming the venue also suppresses a new guess.
         assert_eq!(
-            plan_venue_tags(&[tag("#venue:ICLR")], None, Some(&detected)),
-            VenueTagUpdate::None
-        );
-        // A bare user tag naming the venue → no change.
-        assert_eq!(
-            plan_venue_tags(&[tag("ICLR")], None, Some(&detected)),
-            VenueTagUpdate::None
+            plan_submission_tags(&[tag("ICLR")], None, Some(&detected)),
+            vec![tag("ICLR")]
         );
     }
 
@@ -536,26 +562,38 @@ mod tests {
             evidence: "aaai27".into(),
         };
         assert_eq!(
-            plan_venue_tags(&[tag("nlp")], None, Some(&detected)),
-            VenueTagUpdate::Set(vec![tag("nlp"), tag("#submitted:AAAI 2027")])
+            plan_submission_tags(&[tag("nlp")], None, Some(&detected)),
+            vec![tag("nlp"), tag("#submitted:AAAI 2027")]
         );
     }
 
     #[test]
-    fn plan_overwrites_submitted_with_authoritative_venue() {
-        let existing = vec![tag("nlp"), tag("#submitted:AAAI 2027")];
+    fn published_venue_drops_submission_and_legacy_venue_tags() {
+        let existing = vec![
+            tag("nlp"),
+            tag("#submitted:AAAI 2027"),
+            tag("#venue:AAAI 2027"),
+        ];
         assert_eq!(
-            plan_venue_tags(&existing, Some("ICLR"), None),
-            VenueTagUpdate::Set(vec![tag("nlp"), tag("#venue:ICLR")])
+            plan_submission_tags(&existing, Some("ICLR"), None),
+            vec![tag("nlp")]
         );
     }
 
     #[test]
-    fn plan_is_noop_when_authoritative_tag_matches() {
-        let existing = vec![tag("#venue:ICLR")];
+    fn legacy_venue_tag_is_removed_without_publication() {
+        let detected = DetectedVenue {
+            venue: "ICLR",
+            year: Some(2027),
+            evidence: "iclr2027".into(),
+        };
         assert_eq!(
-            plan_venue_tags(&existing, Some("ICLR"), None),
-            VenueTagUpdate::None
+            plan_submission_tags(&[tag("#venue:ICLR")], Some("arXiv"), Some(&detected)),
+            vec![tag("#submitted:ICLR 2027")]
+        );
+        assert_eq!(
+            plan_submission_tags(&[tag("#venue:arXiv (Cornell University)")], None, None),
+            Vec::<PaperTag>::new()
         );
     }
 
@@ -566,29 +604,24 @@ mod tests {
             year: Some(2027),
             evidence: "iclr2027".into(),
         };
-        // Repository `publication` → template path, not `#venue:`.
+        // Repository `publication` → template path, no authoritative tag.
         assert_eq!(
-            plan_venue_tags(&[], Some("arXiv (Cornell University)"), Some(&detected)),
-            VenueTagUpdate::Set(vec![tag("#submitted:ICLR 2027")])
+            plan_submission_tags(&[], Some("arXiv (Cornell University)"), Some(&detected)),
+            vec![tag("#submitted:ICLR 2027")]
         );
-        // A stale repository `#venue:` tag is dropped and replaced by the guess.
+        // A repository publication keeps the template guess.
         assert_eq!(
-            plan_venue_tags(
-                &[tag("#venue:arXiv (Cornell University)")],
-                Some("arXiv (Cornell University)"),
+            plan_submission_tags(
+                &[tag("#submitted:ICLR 2027")],
+                Some("bioRxiv"),
                 Some(&detected),
             ),
-            VenueTagUpdate::Set(vec![tag("#submitted:ICLR 2027")])
-        );
-        // Repository publication with no source self-heals to no tag.
-        assert_eq!(
-            plan_venue_tags(&[tag("#venue:bioRxiv")], Some("bioRxiv"), None),
-            VenueTagUpdate::Set(vec![])
+            vec![tag("#submitted:ICLR 2027")]
         );
         // A real published venue still wins.
         assert_eq!(
-            plan_venue_tags(&[], Some("NeurIPS"), None),
-            VenueTagUpdate::Set(vec![tag("#venue:NeurIPS")])
+            plan_submission_tags(&[], Some("NeurIPS"), None),
+            Vec::<PaperTag>::new()
         );
     }
 }

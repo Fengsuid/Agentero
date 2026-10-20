@@ -7,7 +7,7 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { cn } from "@/lib/core/utils";
 import { EASY_SCHOLAR_TAG_PREFIX, isEasyScholarTag } from "@/lib/easyscholar";
 import type { PaperTag } from "@/lib/paper/types";
-import { formatVenueTag, isVenueNamespaceTag } from "@/lib/paper/venue-tag";
+import { formatVenueTag, isSubmittedTagName } from "@/lib/paper/venue-tag";
 import { tagChipStyle, tagSwatchStyle } from "@/lib/ui/tag-colors";
 
 function parseEasyScholarTag(
@@ -76,7 +76,7 @@ export function PaperTagChip({
 		className,
 	);
 	const isEasyScholar = isEasyScholarTag(tag.name);
-	const isVenue = isVenueNamespaceTag(tag.name);
+	const isVenue = isSubmittedTagName(tag.name);
 	const displayName = isEasyScholar
 		? formatEasyScholarTag(tag.name)
 		: isVenue

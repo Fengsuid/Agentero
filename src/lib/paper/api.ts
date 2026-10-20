@@ -368,6 +368,35 @@ export async function setPaperTags(
 	return paperFromWire(paper);
 }
 
+export type PublicationSyncResult = {
+	updated: number;
+	metricsUpdated: number;
+	metricsFailed: number;
+};
+
+/**
+ * Host-owned publication sync for a set of papers: refreshes the
+ * `#submitted:` projection, removes retired `#venue:` tags, and updates
+ * EasyScholar metrics when a key is configured.
+ */
+export async function syncPublication(
+	vaultPath: string,
+	paths: string[],
+): Promise<PublicationSyncResult> {
+	if (!isTauri() || paths.length === 0) {
+		return { updated: 0, metricsUpdated: 0, metricsFailed: 0 };
+	}
+	const report = await callApi(
+		() => commands.paperSyncPublication({ vaultPath, paths }),
+		{ fallback: i18n.t("sidebar:papersLibrary.syncPublicationFailed") },
+	);
+	return {
+		updated: report.updated,
+		metricsUpdated: report.metricsUpdated,
+		metricsFailed: report.metricsFailed,
+	};
+}
+
 /**
  * Manual metadata patch: omitted fields keep current values; empty strings
  * clear the column. Mirrors Host `PaperMetaPatch`.

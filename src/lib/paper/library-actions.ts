@@ -28,6 +28,7 @@ import {
 	rescanPapers,
 	resolveIdentifierMetadata,
 	setPaperTags,
+	syncPublication,
 	updatePaperMeta,
 } from "@/lib/paper/api";
 import {
@@ -439,14 +440,16 @@ export async function paperMetaChange(
 }
 
 /**
- * Re-resolve external metadata for the given papers and overwrite catalog fields
- * where the provider returned a non-empty value (library header refresh button).
+ * Sync publication information for the given papers: re-resolve external
+ * metadata when a DOI/arXiv/title is available, then let the Host refresh the
+ * `#submitted:` projection and EasyScholar metrics in one pass.
+ *
  * Runs as one `metadataRefresh` renderer batch job (executor in
  * `library-tasks.ts`): the paper list travels in the job params, progress is
- * reported per item (N/M), cancellation routes through the panel, and partial
+ * reported per item, cancellation routes through the panel, and partial
  * failures surface on the job row.
  */
-export async function refreshLibraryMetadata(
+export async function syncLibraryPublication(
 	vaultPath: string | null | undefined,
 	targets: PaperMetadata[],
 ): Promise<void> {
@@ -457,7 +460,10 @@ export async function refreshLibraryMetadata(
 			query: p.doi?.trim() || p.arxiv_id?.trim() || p.title?.trim() || "",
 		}))
 		.filter((p) => p.path && p.query);
-	if (papers.length === 0) {
+	const syncPaths = targets
+		.map((p) => p.path?.trim())
+		.filter((path): path is string => Boolean(path));
+	if (papers.length === 0 && syncPaths.length === 0) {
 		notifyError(i18n.t("sidebar:papersLibrary.refreshMetadataNoTargets"));
 		return;
 	}
@@ -466,7 +472,7 @@ export async function refreshLibraryMetadata(
 			kind: "metadataRefresh",
 			vaultPath,
 			path: "",
-			params: { papers },
+			params: { papers, syncPaths },
 		});
 	} catch (e) {
 		notifyError(errorText(e));
@@ -523,6 +529,15 @@ export async function refreshPaperMetadata(
 			notifySuccess(i18n.t("sidebar:papersLibrary.refreshMetadataDone"));
 		} else {
 			notifyWarning(i18n.t("sidebar:papersLibrary.refreshMetadataEmpty"));
+		}
+		try {
+			await syncPublication(vaultPath, [paper.path]);
+			scheduleLibraryRefresh();
+		} catch (e) {
+			logger.warn("publication sync after single refresh failed", {
+				path: paper.path,
+				error: errorText(e),
+			});
 		}
 	} catch (e) {
 		logger.error("refresh paper metadata failed", {

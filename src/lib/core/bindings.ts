@@ -40,12 +40,6 @@ export const commands = {
 	 *  PDF. Returns a short human-readable result for the settings UI.
 	 */
 	institutionProxyProbe: () => __TAURI_INVOKE<ApiResult<string>>("institution_proxy_probe"),
-	/**
-	 *  Query EasyScholar for a publication's rank data.
-	 *  Returns the full API response so the WebView can extract `officialRank.all`
-	 *  and build namespaced tags.
-	 */
-	easyScholarGetRank: (publicationName: string) => __TAURI_INVOKE<ApiResult<Json>>("easy_scholar_get_rank", { publicationName }),
 	builtinProviderStatus: () => __TAURI_INVOKE<ApiResult<BuiltinProviderStatus>>("builtin_provider_status"),
 	layoutModelStatus: () => __TAURI_INVOKE<ApiResult<LayoutModelStatus>>("layout_model_status"),
 	layoutRemoteAnalyzePdf: (args: LayoutRemoteAnalyzePdfArgs) => __TAURI_INVOKE<ApiResult<LayoutRemoteAnalyzePdfResult>>("layout_remote_analyze_pdf", { args }),
@@ -357,11 +351,11 @@ export const commands = {
 	/**  Replace catalog tags for a paper (syncs metadata.json projection). */
 	paperSetTags: (args: PaperSetTagsArgs) => __TAURI_INVOKE<ApiResult<PaperRecord_Serialize>>("paper_set_tags", { args }),
 	/**
-	 *  Recompute `#venue:` / `#submitted:` tags from catalog metadata + the arXiv
-	 *  e-print LaTeX template. An authoritative `publication` overwrites a template
-	 *  guess; papers that already carry a venue/submitted tag are left unchanged.
+	 *  Single Host-side publication sync: refresh the `#submitted:` projection,
+	 *  remove retired `#venue:` tags, and refresh EasyScholar metrics when a key is
+	 *  configured. The renderer never writes these system tags itself.
 	 */
-	paperRefreshVenueTags: (args: PaperRefreshVenueTagsArgs) => __TAURI_INVOKE<ApiResult<PaperRecord_Serialize[]>>("paper_refresh_venue_tags", { args }),
+	paperSyncPublication: (args: PaperSyncPublicationArgs) => __TAURI_INVOKE<ApiResult<VenueSyncReport>>("paper_sync_publication", { args }),
 	/**
 	 *  Rebuild catalog rows from `papers/` metadata.json — recovers papers that are
 	 *  on disk but missing from the catalog (added externally, or a lost row).
@@ -4047,12 +4041,6 @@ export type PaperRecord_Serialize = {
 	updated_at: string,
 };
 
-export type PaperRefreshVenueTagsArgs = {
-	vaultPath: string,
-	/**  Vault-relative paper folder paths to process. */
-	paths: string[],
-};
-
 export type PaperRefsListArgs = {
 	vaultPath: string,
 	path: string,
@@ -4153,6 +4141,12 @@ export type PaperSetTagsArgs = {
 	 *  Each item may be a bare string or `{ name, color? }` (Apple-style color id).
 	 */
 	tags: PaperTag[],
+};
+
+export type PaperSyncPublicationArgs = {
+	vaultPath: string,
+	/**  Vault-relative paper folder paths to process. */
+	paths: string[],
 };
 
 /**
@@ -5256,6 +5250,16 @@ export type VaultTreeNode_Serialize = {
 	 *  lazy, so the renderer cannot infer this from the tree itself).
 	 */
 	hasTex?: boolean | null,
+};
+
+/**  Result of one publication sync over a Library scope. */
+export type VenueSyncReport = {
+	/**  Papers whose tag projection changed (submission, legacy cleanup, metrics). */
+	updated: number,
+	/**  Papers whose EasyScholar metrics were refreshed. */
+	metricsUpdated: number,
+	/**  Papers where the EasyScholar request failed; existing metrics are kept. */
+	metricsFailed: number,
 };
 
 export type VisualMarkCandidate = {

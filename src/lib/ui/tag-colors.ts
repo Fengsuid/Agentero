@@ -94,7 +94,12 @@ export function tagChipStyle(
 ): { backgroundColor: string; color: string } | undefined {
 	const t = tagColorTokens(id);
 	if (!t) return undefined;
-	return { backgroundColor: t.bg, color: t.fg };
+	// Mix with the themed background/foreground so chips stay readable in both
+	// light and dark themes instead of using a fixed light background.
+	return {
+		backgroundColor: `color-mix(in oklch, ${t.swatch} 18%, var(--background))`,
+		color: `color-mix(in oklch, ${t.swatch} 70%, var(--foreground))`,
+	};
 }
 
 export function tagSwatchStyle(

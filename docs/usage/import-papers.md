@@ -167,7 +167,7 @@ PDF 拖到窗口任意区域都会导入当前 Papers 目标目录；Library 表
 
 ### 标签
 
-在 Paper Info 中增删标签并可选 Apple 风格 8 色。Library 的 tags 列显示染色 chip；搜索框可匹配标签子串。
+在 Paper Info 中增删标签并可选 Apple 风格 8 色。Library 的 Tags 列只显示用户标签；「发表 / 投稿」列显示 publication、模板推断的投稿目标和 EasyScholar 指标。搜索框可匹配标签、publication 等文本。
 
 ### 补下载资源
 

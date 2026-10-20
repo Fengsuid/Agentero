@@ -5,8 +5,7 @@
 //! refresh, jobs layout cap) subscribe via [`AppSettingsStore::subscribe`]
 //! at app assembly, so this feature imports no other domain.
 
-use crate::core::error::{map_err, ApiResult, AppError};
-use crate::core::json::JsonValue;
+use crate::core::error::{map_err, ApiResult};
 use crate::features::system::settings::{AppSettings, AppSettingsStore, SettingsGetResult};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -146,49 +145,4 @@ pub async fn easy_scholar_probe(app: AppHandle) -> ApiResult<bool> {
         Err(_) => false,
     };
     ApiResult::ok(ok)
-}
-
-/// Query EasyScholar for a publication's rank data.
-/// Returns the full API response so the WebView can extract `officialRank.all`
-/// and build namespaced tags.
-#[tauri::command]
-#[specta::specta]
-pub async fn easy_scholar_get_rank(
-    app: AppHandle,
-    publication_name: String,
-) -> ApiResult<JsonValue> {
-    use crate::features::paper::scholar_api::sources::easy_scholar::EasyScholarApi;
-
-    let store = app.state::<AppSettingsStore>();
-    let Some(key) = store.easy_scholar_key() else {
-        return map_err(AppError::domain(
-            "easyScholarKeyMissing",
-            "EasyScholar key is not configured.",
-        ));
-    };
-    if publication_name.trim().is_empty() {
-        return map_err(AppError::domain(
-            "easyScholarEmptyPublication",
-            "Publication name is empty.",
-        ));
-    }
-
-    let source = EasyScholarApi::new(key);
-    match source.fetch_raw(&publication_name).await {
-        Ok(json) => {
-            if json
-                .get("code")
-                .and_then(|v| v.as_i64())
-                .is_some_and(|code| code == 200)
-            {
-                ApiResult::ok(JsonValue(json))
-            } else {
-                map_err(AppError::domain(
-                    "easyScholarApiError",
-                    "EasyScholar API returned an error response.",
-                ))
-            }
-        }
-        Err(e) => map_err(e.into()),
-    }
 }

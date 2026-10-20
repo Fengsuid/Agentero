@@ -1098,7 +1098,18 @@ pub fn update_meta(
             row.arxiv_id = norm(v);
         }
         if let Some(v) = patch.publication.as_deref() {
-            row.publication = norm(v);
+            let next = norm(v);
+            // Metrics are derived from the venue name; a changed publication
+            // invalidates them immediately instead of leaving stale ranks.
+            if next != row.publication {
+                row.tags.retain(|tag| {
+                    !tag.name
+                        .trim()
+                        .to_ascii_lowercase()
+                        .starts_with("#easyscholar:")
+                });
+            }
+            row.publication = next;
         }
         if let Some(v) = patch.volume.as_deref() {
             row.volume = norm(v);
