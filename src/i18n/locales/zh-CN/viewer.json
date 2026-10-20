@@ -245,6 +245,7 @@
 	"textEditor": {
 		"errorCount": "{{count}} 个错误",
 		"warningCount": "{{count}} 个警告",
-		"infoCount": "{{count}} 个提示"
+		"infoCount": "{{count}} 个提示",
+		"openInScholar": "在 Google Scholar 中打开"
 	}
 }

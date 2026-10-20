@@ -246,6 +246,7 @@
 	"textEditor": {
 		"errorCount": "{{count}} errors",
 		"warningCount": "{{count}} warnings",
-		"infoCount": "{{count}} info"
+		"infoCount": "{{count}} info",
+		"openInScholar": "Open in Google Scholar"
 	}
 }

@@ -11,6 +11,7 @@ import { type Diagnostic, linter } from "@codemirror/lint";
 import type { Extension, Text } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { latex, latexLanguage } from "codemirror-lang-latex";
+import { bibtexScholarExtension } from "@/components/viewer/bibtex-scholar-extension";
 import { commands } from "@/lib/core/bindings";
 import { basenameOf, dirnameOf, joinPath } from "@/lib/core/path";
 import { type FileNode, listVaultDirChildren } from "@/lib/vault";
@@ -415,6 +416,7 @@ export function textLanguageExtensions(path: string): Extension[] {
 			return [
 				bibtexLanguage,
 				bibtexLanguage.data.of({ autocomplete: bibtexCompletion }),
+				bibtexScholarExtension(),
 			];
 		default:
 			return [];
