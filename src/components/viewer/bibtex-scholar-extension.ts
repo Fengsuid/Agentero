@@ -38,7 +38,9 @@ class ScholarButtonWidget extends WidgetType {
 		btn.setAttribute("aria-label", label);
 		btn.title = label;
 		btn.tabIndex = -1;
-		btn.innerHTML = SCHOLAR_ICON_SVG;
+		btn.innerHTML = `${SCHOLAR_ICON_SVG}<span class="cm-bib-scholar-btn-label"></span>`;
+		const labelEl = btn.querySelector(".cm-bib-scholar-btn-label");
+		if (labelEl) labelEl.textContent = label;
 		btn.addEventListener("mousedown", (e) => {
 			e.preventDefault();
 		});
@@ -55,7 +57,6 @@ class ScholarButtonWidget extends WidgetType {
 	}
 }
 
-/** Graduation-cap monogram — icon only, no face text. */
 const SCHOLAR_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 
 const scholarTheme = EditorView.baseTheme({
@@ -63,16 +64,23 @@ const scholarTheme = EditorView.baseTheme({
 		display: "inline-flex",
 		alignItems: "center",
 		justifyContent: "center",
+		gap: "0.25rem",
 		verticalAlign: "middle",
 		marginLeft: "0.5rem",
-		padding: "0.1rem 0.25rem",
+		padding: "0.15rem 0.4rem",
 		border: "1px solid transparent",
 		borderRadius: "0.375rem",
 		background: "transparent",
 		color: "var(--muted-foreground)",
 		cursor: "pointer",
-		lineHeight: "1",
-		opacity: "0.75",
+		fontFamily: "var(--font-sans)",
+		fontSize: "0.75rem",
+		lineHeight: "1.2",
+		whiteSpace: "nowrap",
+		opacity: "0.85",
+	},
+	".cm-bib-scholar-btn svg": {
+		flexShrink: "0",
 	},
 	".cm-bib-scholar-btn:hover, .cm-bib-scholar-btn:focus-visible": {
 		opacity: "1",

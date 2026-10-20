@@ -247,6 +247,6 @@
 		"errorCount": "{{count}} errors",
 		"warningCount": "{{count}} warnings",
 		"infoCount": "{{count}} info",
-		"openInScholar": "Open in Google Scholar"
+		"openInScholar": "Google Scholar"
 	}
 }
