@@ -94,7 +94,7 @@ describe("scholar URL", () => {
 				title: "Attention Is All You Need",
 				eprint: "1706.03762",
 			}),
-		).toBe('"Attention Is All You Need"');
+		).toBe("Attention Is All You Need");
 	});
 
 	it("falls back to doi then arxiv when there is no title", () => {

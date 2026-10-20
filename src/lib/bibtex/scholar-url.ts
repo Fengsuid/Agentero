@@ -32,8 +32,11 @@ export function buildScholarSearchUrl(
  * Scholar `q=` value (not URL-encoded). Empty string when no usable fields.
  *
  * Priority:
- * 1. `"title"` — a title search is the most predictable entry point, and it
- *    still resolves the right record when the entry's DOI is stale.
+ * 1. `title` — unquoted title terms are ANDed by Scholar but not forced into
+ *    one exact phrase. That tolerates punctuation/word-order differences from
+ *    the indexed record and usually returns more candidates, while still
+ *    requiring every title word. Quotes stay out: they make a single stray
+ *    character or a slightly different subtitle drop the paper entirely.
  * 2. `doi:…` when the entry has no title
  * 3. `arxiv:…` from `eprint` / `arxiv` / arXiv-looking `url`
  *
@@ -44,7 +47,7 @@ export function buildScholarSearchUrl(
  */
 export function buildScholarQuery(fields: BibFields): string {
 	const title = fields.title?.trim();
-	if (title) return `"${title}"`;
+	if (title) return title.replace(/\s+/g, " ");
 
 	const doi = normalizeDoi(fields.doi);
 	if (doi) return `doi:${doi}`;
