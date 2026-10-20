@@ -24,8 +24,6 @@ export function LayoutMenu({ value, onValueChange }: LayoutMenuProps) {
 	const closeTimer = useRef<number | undefined>(undefined);
 	/** Clicked open: hover-out must not dismiss it; outside click still does. */
 	const pinned = useRef(false);
-	/** Hover opened the menu first; the first click pins instead of closing. */
-	const suppressNextClose = useRef(false);
 	const selected = value === "custom" ? "" : value;
 
 	const cancelClose = () => window.clearTimeout(closeTimer.current);
@@ -35,25 +33,7 @@ export function LayoutMenu({ value, onValueChange }: LayoutMenuProps) {
 		closeTimer.current = window.setTimeout(() => setOpen(false), 150);
 	};
 
-	const handlePointerDownCapture = () => {
-		if (open && !pinned.current) {
-			// The menu is already visible from hover: a click pins it open so
-			// the pointerdown toggle does not make it flicker closed.
-			pinned.current = true;
-			suppressNextClose.current = true;
-			window.setTimeout(() => {
-				suppressNextClose.current = false;
-			}, 0);
-			return;
-		}
-		pinned.current = true;
-	};
-
 	const handleOpenChange = (next: boolean) => {
-		if (!next && suppressNextClose.current) {
-			suppressNextClose.current = false;
-			return;
-		}
 		if (!next) pinned.current = false;
 		setOpen(next);
 	};
@@ -68,8 +48,17 @@ export function LayoutMenu({ value, onValueChange }: LayoutMenuProps) {
 					variant="ghost"
 					size="icon-xs"
 					aria-label={t("titlebar.layout")}
-					className="transition-transform active:scale-95 data-[state=open]:bg-muted data-[state=open]:text-foreground"
-					onPointerDownCapture={handlePointerDownCapture}
+					className="active:scale-95 data-[state=open]:bg-muted data-[state=open]:text-foreground"
+					onPointerDown={(event) => {
+						// Hover already opened the menu. Prevent Radix's trigger toggle
+						// from closing it, and pin it open instead.
+						if (open && !pinned.current) {
+							event.preventDefault();
+							pinned.current = true;
+						} else if (!open) {
+							pinned.current = true;
+						}
+					}}
 					onMouseEnter={() => {
 						cancelClose();
 						if (!open) {
