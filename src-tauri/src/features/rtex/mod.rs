@@ -95,6 +95,9 @@ pub struct RtexStatus {
     pub error: Option<String>,
 }
 
+/// Wire name of the event envelope forwarded to the owning window.
+pub const RTEX_EVENT: &str = "rtex:event";
+
 /// Event envelope; `event` is rtex's own tagged event JSON.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -283,7 +286,7 @@ pub async fn rtex_start(
                 };
                 let _ = app_handle.emit_to(
                     window_label.as_str(),
-                    "rtex:event",
+                    RTEX_EVENT,
                     RtexEventPayload {
                         session_id: forwarded_id.clone(),
                         event: value,

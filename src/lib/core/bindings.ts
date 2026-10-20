@@ -700,6 +700,7 @@ export const events = {
 	paperAssetsReady: makeEvent<PaperAssetsReadyEvent>("paper:assets-ready"),
 	paperImported: makeEvent<PaperImportedEvent>("paper:imported"),
 	paperRenamed: makeEvent<PaperRenamedEventPayload>("paper:renamed"),
+	rtexEvent: makeEvent<RtexEventEvt>("rtex:event"),
 	settingsChanged: makeEvent<SettingsChangedEvent_Deserialize>("settings:changed"),
 	syncProgress: makeEvent<SyncProgressEvent>("sync:progress"),
 	syncState: makeEvent<SyncStateEvent_Deserialize>("sync:state"),
@@ -4469,6 +4470,23 @@ export type ResolvedLink_Serialize = {
 	status: LinkResolutionStatus,
 	targetPath?: string | null,
 	candidates?: string[],
+};
+
+export type RtexEventEvt = RtexEventPayload;
+
+/**
+ *  Owned mirror of `features::rtex::RtexEventPayload`. The real payload lives
+ *  in a desktop-only module, but the event contract must also compile for
+ *  mobile targets, so the shape is mirrored here (pinned by the shape test
+ *  below). `event` is rtex's own tagged JSON.
+ */
+export type RtexEventPayload = {
+	sessionId: string,
+	/**
+	 *  Specta's built-in `serde_json::Value` shape is inline-recursive and
+	 *  cannot be expanded by the TS exporter; use the named `Json` union.
+	 */
+	event: Json,
 };
 
 export type RtexStartResult = {

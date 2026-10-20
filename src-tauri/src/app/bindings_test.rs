@@ -297,6 +297,7 @@ fn export_typescript_bindings() {
             crate::app::events_contract::PaperAssetsReadyEvent,
             crate::app::events_contract::PaperRenamedEventPayload,
             crate::app::events_contract::CompileLogEvent,
+            crate::app::events_contract::RtexEventEvt,
         ])
         // Tauri IPC serializes `i64`/`u64`/`usize` through serde_json as JSON
         // numbers, which the frontend already parses as JS `number` via the

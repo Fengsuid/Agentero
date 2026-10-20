@@ -231,14 +231,25 @@ pub fn attach_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<ta
             crate::features::compile::clean_latex_aux_files,
             crate::features::compile::chktex_lint,
             crate::features::compile::root::resolve_latex_root,
+            // Real-time preview shells out to LuaLaTeX and is desktop-only
+            // (see `features::rtex`'s cfg gate).
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::rtex::rtex_status,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::rtex::rtex_start,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::rtex::rtex_edit,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::rtex::rtex_set_document,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::rtex::rtex_request_layout,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::rtex::rtex_pause_background,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::rtex::rtex_stop,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::rtex::rtex_kpsewhich,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             crate::features::rtex::rtex_read_tex_file,
             crate::features::jobs::commands::job_latex_compile_enqueue,
             // jEV smart highlights need the desktop PDFium stack (see
