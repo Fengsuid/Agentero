@@ -192,6 +192,88 @@ pub fn trash_paths(vault_root: &Path, rels: &[String]) -> Result<TrashResult, Ap
     })
 }
 
+/// Result of a delete request (trash or permanent).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteResult {
+    pub permanent: bool,
+    /// Present for recycle-bin deletes; `None` for permanent deletes.
+    pub batch_id: Option<String>,
+    pub count: usize,
+    pub paths: Vec<String>,
+    /// Catalog rows removed under `papers/` (permanent deletes only).
+    pub removed_rows: usize,
+}
+
+/// Delete vault paths either into the recycle bin (default, undoable) or
+/// permanently. Shared by CLI `paper delete` and MCP `file_delete`.
+pub fn delete_paths(
+    vault_root: &Path,
+    rels: &[String],
+    permanent: bool,
+) -> Result<DeleteResult, AppError> {
+    if !permanent {
+        let result = trash_paths(vault_root, rels)?;
+        return Ok(DeleteResult {
+            permanent: false,
+            batch_id: Some(result.batch_id),
+            count: result.count,
+            paths: result.rels,
+            removed_rows: 0,
+        });
+    }
+
+    crate::fs::ensure_vault_dir(vault_root)?;
+    let root = vault_root.canonicalize()?;
+    let mut clean: Vec<(String, std::path::PathBuf, bool)> = Vec::new();
+    for raw in rels {
+        let rel = crate::fs::normalize_rel_separators(raw);
+        let rel = rel.trim_matches('/');
+        if rel.is_empty() {
+            continue;
+        }
+        if rel == "papers"
+            || rel == ".agentero"
+            || rel.starts_with(".agentero/")
+            || rel.split('/').any(|s| s == "..")
+        {
+            return Err(AppError::message(format!(
+                "cannot permanently delete protected path: {rel}"
+            )));
+        }
+        let abs = vault_root.join(rel);
+        let meta = fs::symlink_metadata(&abs)
+            .map_err(|_| AppError::message(format!("path not found: {rel}")))?;
+        let resolved = abs.canonicalize()?;
+        if !resolved.starts_with(&root) {
+            return Err(AppError::message(format!("path escapes vault root: {rel}")));
+        }
+        clean.push((rel.to_string(), abs, meta.is_dir()));
+    }
+    if clean.is_empty() {
+        return Err(AppError::message("paths is required"));
+    }
+
+    let mut removed_rows = 0usize;
+    let mut paths = Vec::new();
+    for (rel, abs, is_dir) in clean {
+        removed_rows += papers::delete_under_path(vault_root, &rel)?;
+        if is_dir {
+            fs::remove_dir_all(&abs)?;
+        } else {
+            fs::remove_file(&abs)?;
+        }
+        paths.push(rel);
+    }
+    Ok(DeleteResult {
+        permanent: true,
+        batch_id: None,
+        count: paths.len(),
+        paths,
+        removed_rows,
+    })
+}
+
 /// Restore a recycle-bin batch: move files back and re-insert catalog rows.
 ///
 /// Aborts without changes if any original path has since been re-created, so a
@@ -456,6 +538,29 @@ mod tests {
         assert!(restore_batch(&dir, &res.batch_id).is_err());
         // The reoccupying file is untouched.
         assert_eq!(fs::read_to_string(note.join("a.md")).unwrap(), "two\n");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_paths_supports_trash_and_permanent_modes() {
+        let dir = env::temp_dir().join(format!("agentero-delete-mode-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("notes")).unwrap();
+        fs::write(dir.join("notes/a.md"), "a\n").unwrap();
+
+        let trashed = delete_paths(&dir, &["notes/a.md".into()], false).unwrap();
+        assert!(!trashed.permanent);
+        assert!(trashed.batch_id.is_some());
+        assert_eq!(trashed.count, 1);
+        assert!(restore_batch(&dir, trashed.batch_id.as_deref().unwrap()).is_ok());
+
+        let deleted = delete_paths(&dir, &["notes/a.md".into()], true).unwrap();
+        assert!(deleted.permanent);
+        assert!(deleted.batch_id.is_none());
+        assert!(!dir.join("notes/a.md").exists());
+        assert!(delete_paths(&dir, &["papers".into()], true).is_err());
+        assert!(delete_paths(&dir, &[".agentero/x".into()], true).is_err());
 
         let _ = fs::remove_dir_all(&dir);
     }

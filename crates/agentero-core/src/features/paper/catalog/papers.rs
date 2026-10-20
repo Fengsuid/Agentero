@@ -1163,6 +1163,26 @@ pub fn set_tags(vault_root: &Path, path: &str, tags: &[PaperTag]) -> Result<Pape
     })
 }
 
+/// Replace user tags while preserving internal `@zotero:` / `@arxiv:` tags.
+/// This is the `paper tag set` / `paper_tag_set` semantics.
+pub fn set_user_tags(
+    vault_root: &Path,
+    path: &str,
+    tags: &[PaperTag],
+) -> Result<PaperRecord, AppError> {
+    mutate_paper(vault_root, path, |row| {
+        let mut next: Vec<PaperTag> = row
+            .tags
+            .iter()
+            .filter(|tag| is_internal_tag_name(&tag.name))
+            .cloned()
+            .collect();
+        next.extend(tags.iter().cloned());
+        row.tags = normalize_tags(&next);
+        Ok(())
+    })
+}
+
 /// Append tags to a paper (trim + case-insensitive dedupe). Returns the updated row.
 pub fn add_tags(vault_root: &Path, path: &str, tags: &[PaperTag]) -> Result<PaperRecord, AppError> {
     mutate_paper(vault_root, path, |row| {
@@ -1250,6 +1270,16 @@ pub fn list_all_tags(vault_root: &Path) -> Result<Vec<TagCount>, AppError> {
         .into_values()
         .map(|(name, color, count)| TagCount { name, color, count })
         .collect())
+}
+
+/// Catalog-wide tag inventory, optionally hiding internal `@zotero:` /
+/// `@arxiv:` tags. Shared by CLI `paper tag list` and MCP `paper_tag_list`.
+pub fn list_tags(vault_root: &Path, include_internal: bool) -> Result<Vec<TagCount>, AppError> {
+    let mut tags = list_all_tags(vault_root)?;
+    if !include_internal {
+        tags.retain(|tag| !is_internal_tag_name(&tag.name));
+    }
+    Ok(tags)
 }
 
 /// True if the paper has every tag in `required` (exact match, case-insensitive).
@@ -1809,6 +1839,33 @@ mod tests {
         assert!(get_conn(&other, "papers/x").unwrap().unwrap().is_read);
         super::super::evict_catalog_conn(&dir);
         drop(other);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn user_tag_replace_keeps_internal_tags_and_inventory_filters_them() {
+        let dir = env::temp_dir().join(format!("agentero-tag-replace-{}", uuid::Uuid::new_v4()));
+        let conn = ensure_catalog(&dir).unwrap();
+        insert(&conn, "papers/x");
+        drop(conn);
+        set_tags(
+            &dir,
+            "papers/x",
+            &[PaperTag::new("@zotero:ABCD"), PaperTag::new("old")],
+        )
+        .unwrap();
+
+        let row = set_user_tags(&dir, "papers/x", &[PaperTag::new("new")]).unwrap();
+        let names: Vec<_> = row.tags.iter().map(|tag| tag.name.as_str()).collect();
+        assert_eq!(names, vec!["@zotero:ABCD", "new"]);
+
+        let public = list_tags(&dir, false).unwrap();
+        assert_eq!(public.len(), 1);
+        assert_eq!(public[0].name, "new");
+        let all = list_tags(&dir, true).unwrap();
+        assert_eq!(all.len(), 2);
+
+        super::super::evict_catalog_conn(&dir);
         fs::remove_dir_all(dir).unwrap();
     }
 

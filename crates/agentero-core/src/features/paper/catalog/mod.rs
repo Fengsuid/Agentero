@@ -60,6 +60,47 @@ pub fn plan_paper_move_under(
     Ok((from, new_rel))
 }
 
+/// Related on-disk paths for one paper, in reading order: paper folder,
+/// NOTES.md, PAPER.md, marks/, the local PDF, and source/ when TeX exists.
+///
+/// Shared by CLI `paper paths` and MCP `paper_paths`; never reads file bodies.
+pub fn paper_related_paths(vault: &Path, paper_rel: &str) -> Result<Vec<String>, AppError> {
+    let paper = sanitize_vault_rel(paper_rel).map_err(AppError::message)?;
+    if paper.is_empty() {
+        return Err(AppError::message("paper path is required"));
+    }
+    let dir = vault.join(&paper);
+    if !dir.is_dir() {
+        return Err(AppError::message(format!(
+            "paper folder not found: {paper}"
+        )));
+    }
+    let mut paths = vec![paper.clone()];
+    for name in ["NOTES.md", "PAPER.md"] {
+        let rel = format!("{paper}/{name}");
+        if vault.join(&rel).is_file() {
+            paths.push(rel);
+        }
+    }
+    if dir.join("marks").is_dir() {
+        paths.push(format!("{paper}/marks"));
+    }
+    if let Some(pdf) = find_local_pdf(&dir) {
+        if let Ok(rel) = pdf.strip_prefix(vault) {
+            paths.push(
+                rel.to_string_lossy()
+                    .replace('\\', "/")
+                    .trim_start_matches('/')
+                    .to_string(),
+            );
+        }
+    }
+    if has_local_tex(&dir) && dir.join("source").is_dir() {
+        paths.push(format!("{paper}/source"));
+    }
+    Ok(paths)
+}
+
 /// Move an item under a new `papers/` parent on disk and rewrite matching
 /// catalog path prefixes and incoming links. Uses a fresh Wiki index with no
 /// in-process dirty editors. Never overwrites; rejects escapes and moving a
@@ -216,4 +257,35 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), AppError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn related_paths_follow_assets_on_disk() {
+        let root = tempfile::tempdir().unwrap();
+        let paper = root.path().join("papers/demo");
+        fs::create_dir_all(paper.join("marks")).unwrap();
+        fs::create_dir_all(paper.join("source")).unwrap();
+        fs::write(paper.join("NOTES.md"), "# n\n").unwrap();
+        fs::write(paper.join("PAPER.md"), "# p\n").unwrap();
+        fs::write(paper.join("paper.pdf"), "%PDF").unwrap();
+        fs::write(paper.join("source/main.tex"), "\\section{A}\n").unwrap();
+
+        assert_eq!(
+            paper_related_paths(root.path(), "papers/demo").unwrap(),
+            vec![
+                "papers/demo",
+                "papers/demo/NOTES.md",
+                "papers/demo/PAPER.md",
+                "papers/demo/marks",
+                "papers/demo/paper.pdf",
+                "papers/demo/source",
+            ]
+        );
+        assert!(paper_related_paths(root.path(), "papers/missing").is_err());
+    }
 }

@@ -7,7 +7,7 @@ use crate::core::error::AppError;
 use crate::core::fs::{atomic_write, sanitize_vault_rel};
 use crate::features::paper::catalog::papers;
 use crate::features::vault::rename::{run_local_rename_transaction, WikiIndex, WikiRenameResult};
-use crate::features::vault::trash::{self, TrashResult};
+use crate::features::vault::trash::{self, DeleteResult};
 use crate::features::vault::tree::should_ignore;
 use serde::Serialize;
 use std::fs;
@@ -299,9 +299,14 @@ pub fn move_entry(
     .map_err(|error| AppError::message(error.to_string()))
 }
 
-/// Move vault paths into the recycle bin (undoable). Paper catalog rows under
-/// `papers/` are snapshotted and restored with the files.
-pub fn delete_paths(vault: &Path, rels: &[String]) -> Result<TrashResult, AppError> {
+/// Move vault paths into the recycle bin (default) or delete them permanently.
+/// Paper catalog rows under `papers/` are handled by the shared trash/delete
+/// use case.
+pub fn delete_paths(
+    vault: &Path,
+    rels: &[String],
+    permanent: bool,
+) -> Result<DeleteResult, AppError> {
     let root = canonical_root(vault)?;
     let mut clean = Vec::new();
     for raw in rels {
@@ -324,7 +329,7 @@ pub fn delete_paths(vault: &Path, rels: &[String]) -> Result<TrashResult, AppErr
     if clean.is_empty() {
         return Err(AppError::message("paths is required"));
     }
-    trash::trash_paths(&root, &clean)
+    trash::delete_paths(&root, &clean, permanent)
 }
 
 fn normalize_dir(raw: &str) -> Result<String, AppError> {
@@ -613,16 +618,21 @@ mod tests {
     fn delete_moves_to_trash_and_can_restore() {
         let dir = tempdir().unwrap();
         write_text(dir.path(), "drafts/old.tex", "old\n", WriteMode::Replace).unwrap();
-        let out = delete_paths(dir.path(), &["drafts/old.tex".into()]).unwrap();
+        let out = delete_paths(dir.path(), &["drafts/old.tex".into()], false).unwrap();
         assert_eq!(out.count, 1);
-        assert_eq!(out.rels, vec!["drafts/old.tex"]);
+        assert_eq!(out.paths, vec!["drafts/old.tex"]);
         assert!(!dir.path().join("drafts/old.tex").exists());
-        crate::features::vault::trash::restore_batch(dir.path(), &out.batch_id).unwrap();
+        crate::features::vault::trash::restore_batch(dir.path(), out.batch_id.as_deref().unwrap())
+            .unwrap();
         assert_eq!(
             read_text(dir.path(), "drafts/old.tex").unwrap().content,
             "old\n"
         );
-        assert!(delete_paths(dir.path(), &[".agentero".into()]).is_err());
-        assert!(delete_paths(dir.path(), &["papers".into()]).is_err());
+        let gone = delete_paths(dir.path(), &["drafts/old.tex".into()], true).unwrap();
+        assert!(gone.permanent);
+        assert!(gone.batch_id.is_none());
+        assert!(!dir.path().join("drafts/old.tex").exists());
+        assert!(delete_paths(dir.path(), &[".agentero".into()], false).is_err());
+        assert!(delete_paths(dir.path(), &["papers".into()], false).is_err());
     }
 }

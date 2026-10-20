@@ -243,8 +243,11 @@ struct FileMoveArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct FileDeleteArgs {
-    /// Vault-relative file or directory paths to move into the recycle bin.
+    /// Vault-relative file or directory paths to delete.
     paths: Vec<String>,
+    /// Permanently delete instead of moving to the recycle bin. Default false.
+    #[serde(default)]
+    permanent: bool,
     /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
     #[serde(default)]
     vault: Option<String>,
@@ -262,9 +265,13 @@ struct FileMoveOut {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct FileDeleteOut {
-    batch_id: String,
+    permanent: bool,
+    /// Present for recycle-bin deletes.
+    batch_id: Option<String>,
     count: usize,
     paths: Vec<String>,
+    /// Catalog rows removed under papers/ (permanent deletes only).
+    removed_rows: usize,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -276,6 +283,64 @@ struct TagArgs {
     /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
     #[serde(default)]
     vault: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct TagListArgs {
+    /// Include internal `@zotero:` / `@arxiv:` tags.
+    #[serde(default)]
+    all: bool,
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct TagCountOut {
+    name: String,
+    color: Option<String>,
+    count: usize,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct TagListOut {
+    tags: Vec<TagCountOut>,
+    count: usize,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct PaperMoveArgs {
+    /// Paper id or vault-relative folder path (`papers/…`).
+    r#ref: String,
+    /// Destination parent under `papers/` (basename is preserved).
+    to_parent: String,
+    /// Optional absolute source vault path from `vault_list`.
+    #[serde(default)]
+    vault: Option<String>,
+    /// Optional destination vault path from `vault_list`; omit for same-vault move.
+    #[serde(default)]
+    to_vault: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct PaperMoveOut {
+    from: String,
+    to: String,
+    vault: String,
+    to_vault: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct PaperPathsOut {
+    r#ref: String,
+    id: String,
+    paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -529,6 +594,31 @@ impl AgenteroMcp {
         }
     }
 
+    #[tool(
+        description = "List related on-disk paths for one paper: folder, NOTES.md, PAPER.md, marks/, local PDF, and source/ when TeX exists. Never returns file bodies. Set vault to target a vault from vault_list."
+    )]
+    async fn paper_paths(
+        &self,
+        Parameters(args): Parameters<PaperRefArgs>,
+    ) -> Result<Json<PaperPathsOut>, CallToolResult> {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
+            Ok(v) => v,
+            Err(e) => return Err(tool_err(e)),
+        };
+        let paper = match paper::resolve_paper(&vault, &args.r#ref) {
+            Ok(p) => p,
+            Err(e) => return Err(tool_err(e)),
+        };
+        match catalog::paper_related_paths(&vault, &paper.path) {
+            Ok(paths) => Ok(Json(PaperPathsOut {
+                r#ref: paper.path,
+                id: paper.id,
+                paths,
+            })),
+            Err(e) => Err(tool_err(e)),
+        }
+    }
+
     #[tool(description = "Import a paper into the vault by arXiv id, DOI, or URL (magic wand).")]
     async fn import_id(
         &self,
@@ -700,6 +790,66 @@ impl AgenteroMcp {
         }
     }
 
+    #[tool(
+        description = "List catalog-wide tags with occurrence counts. Internal @zotero:/@arxiv: tags are hidden unless all=true. Set vault to target a vault from vault_list."
+    )]
+    async fn paper_tag_list(
+        &self,
+        Parameters(args): Parameters<TagListArgs>,
+    ) -> Result<Json<TagListOut>, CallToolResult> {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
+            Ok(v) => v,
+            Err(e) => return Err(tool_err(e)),
+        };
+        match papers::list_tags(&vault, args.all) {
+            Ok(tags) => {
+                let tags: Vec<TagCountOut> = tags
+                    .into_iter()
+                    .map(|tag| TagCountOut {
+                        name: tag.name,
+                        color: tag.color,
+                        count: tag.count,
+                    })
+                    .collect();
+                Ok(Json(TagListOut {
+                    count: tags.len(),
+                    tags,
+                }))
+            }
+            Err(e) => Err(tool_err(e)),
+        }
+    }
+
+    #[tool(
+        description = "Replace all user tags on a paper; internal @zotero:/@arxiv: tags are preserved. Use paper_tag_add / paper_tag_rm for incremental edits. Set vault to target a vault from vault_list."
+    )]
+    async fn paper_tag_set(
+        &self,
+        Parameters(args): Parameters<TagArgs>,
+    ) -> Result<Json<paper::PaperGetOut>, CallToolResult> {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
+            Ok(v) => v,
+            Err(e) => return Err(tool_err(e)),
+        };
+        let paper = match paper::resolve_paper(&vault, &args.r#ref) {
+            Ok(p) => p,
+            Err(e) => return Err(tool_err(e)),
+        };
+        let parsed: Result<Vec<_>, _> = args
+            .tags
+            .iter()
+            .map(|t| papers::parse_tag_spec(t))
+            .collect();
+        let parsed = match parsed {
+            Ok(t) => t,
+            Err(e) => return Err(tool_err(e)),
+        };
+        match papers::set_user_tags(&vault, &paper.path, &parsed) {
+            Ok(row) => Ok(Json(paper::PaperGetOut::from_record(&row))),
+            Err(e) => Err(tool_err(e)),
+        }
+    }
+
     #[tool(description = "Remove tags from a paper (case-insensitive names).")]
     async fn paper_tag_rm(
         &self,
@@ -740,6 +890,48 @@ impl AgenteroMcp {
             Ok(row) => Ok(Json(row)),
             Err(e) => Err(tool_err(e)),
         }
+    }
+
+    #[tool(
+        description = "Move a paper or papers organization folder under a new parent under papers/. Preserves the basename, updates wiki links and catalog paths, and optionally migrates to another vault via to_vault (paper id must be unique there). Use file_move for renaming a file or moving non-paper paths."
+    )]
+    async fn paper_move(
+        &self,
+        Parameters(args): Parameters<PaperMoveArgs>,
+    ) -> Result<Json<PaperMoveOut>, CallToolResult> {
+        let ctrl = self.ctrl.clone();
+        tokio::task::spawn_blocking(move || {
+            let vault = ctrl.resolve_vault(args.vault.as_deref())?;
+            let paper = paper::resolve_paper(&vault, &args.r#ref)?;
+            let to_vault = match args.to_vault.as_deref() {
+                Some(raw) => ctrl.resolve_vault(Some(raw))?,
+                None => vault.clone(),
+            };
+            let to = if to_vault == vault {
+                catalog::move_paper_under(&vault, &paper.path, &args.to_parent)?
+            } else {
+                catalog::migrate_paper_between_vaults(
+                    &vault,
+                    &paper.path,
+                    &to_vault,
+                    &args.to_parent,
+                )?
+            };
+            Ok::<_, AppError>(PaperMoveOut {
+                from: paper.path,
+                to,
+                vault: vault.to_string_lossy().into_owned(),
+                to_vault: to_vault.to_string_lossy().into_owned(),
+            })
+        })
+        .await
+        .map_err(|e| {
+            tool_err(AppError::message(format!(
+                "blocking paper_move failed: {e}"
+            )))
+        })?
+        .map(Json)
+        .map_err(tool_err)
     }
 
     #[tool(
@@ -886,7 +1078,7 @@ impl AgenteroMcp {
     }
 
     #[tool(
-        description = "Move one or more vault files/directories into the vault recycle bin (undoable; catalog rows under papers/ are restored too). Use vault to target a vault from vault_list; defaults to the open vault."
+        description = "Delete one or more vault files/directories. Default is the vault recycle bin (undoable; catalog rows under papers/ are restored too). permanent=true removes files and catalog rows without a recycle bin. Use vault to target a vault from vault_list; defaults to the open vault."
     )]
     async fn file_delete(
         &self,
@@ -895,13 +1087,15 @@ impl AgenteroMcp {
         let ctrl = self.ctrl.clone();
         let (vault, out) = tokio::task::spawn_blocking(move || {
             let vault = ctrl.resolve_vault(args.vault.as_deref())?;
-            let result = files::delete_paths(&vault, &args.paths)?;
+            let result = files::delete_paths(&vault, &args.paths, args.permanent)?;
             Ok::<_, AppError>((
                 vault,
                 FileDeleteOut {
+                    permanent: result.permanent,
                     batch_id: result.batch_id,
                     count: result.count,
-                    paths: result.rels,
+                    paths: result.paths,
+                    removed_rows: result.removed_rows,
                 },
             ))
         })
@@ -1006,7 +1200,8 @@ impl ServerHandler for AgenteroMcp {
             "paper_list defaults to id/path/title only — pass fields or full when needed. ",
             "ref is a paper id or vault-relative path. Notes writes only touch NOTES.md. ",
             "Other vault text (a .tex draft outside papers/) uses file_list, file_read, and file_write. ",
-            "file_move updates wiki links and paper paths; file_delete moves paths to the vault recycle bin. ",
+            "Library organization: paper_move changes a paper's parent folder (or vault); file_move renames/moves any path with link updates. ",
+            "file_delete defaults to the vault recycle bin; permanent=true is destructive. ",
             "Confirm with the user before replace of user-written NOTES or other files, and before moves or deletes. ",
             "Optional: agentero://skills/agentero-cli for the bundled CLI skill body."
         ))
@@ -1095,7 +1290,15 @@ mod schema_tests {
         assert!(inputs.get("vaultPath").is_none());
 
         let tools = router.list_all();
-        for name in ["vault_list", "file_move", "file_delete"] {
+        for name in [
+            "vault_list",
+            "file_move",
+            "file_delete",
+            "paper_move",
+            "paper_paths",
+            "paper_tag_set",
+            "paper_tag_list",
+        ] {
             assert!(
                 tools.iter().any(|t| t.name == name),
                 "{name} must be registered"

@@ -11,7 +11,6 @@ use agentero_core::features::import::{self, PaperDownloadAssetsArgs};
 use clap::{Subcommand, ValueHint};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Subcommand)]
@@ -427,10 +426,7 @@ fn list_items(rows: &[PaperRecord], full: bool, fields: &[String]) -> Result<Vec
 
 fn list_tags(globals: &GlobalOpts, include_all: bool) -> Result<Value, CliError> {
     let vault = resolve_vault(globals)?;
-    let pairs = papers::list_all_tags(&vault)?
-        .into_iter()
-        .filter(|t| include_all || !papers::is_internal_tag_name(&t.name))
-        .collect::<Vec<_>>();
+    let pairs = papers::list_tags(&vault, include_all)?;
     let items: Vec<TagCountOut> = pairs
         .into_iter()
         .map(|t| TagCountOut {
@@ -547,31 +543,7 @@ fn get(globals: &GlobalOpts, ref_: &str, include_all: bool) -> Result<Value, Cli
 fn paths(globals: &GlobalOpts, ref_: &str) -> Result<Value, CliError> {
     let vault = resolve_vault(globals)?;
     let paper = resolve_paper(&vault, ref_, globals)?;
-    let dir = paper_dir(&vault, &paper.path);
-    let assets = probe_assets(&dir);
-
-    let mut paths = Vec::new();
-    paths.push(paper.path.clone());
-    for name in ["NOTES.md", "PAPER.md"] {
-        let rel = format!("{}/{}", paper.path, name);
-        if vault.join(&rel).is_file() {
-            paths.push(rel);
-        }
-    }
-    if assets.marks_dir {
-        paths.push(format!("{}/marks", paper.path));
-    }
-    if let Some(pdf) = catalog::find_local_pdf(&dir) {
-        if let Ok(rel) = pdf.strip_prefix(&vault) {
-            paths.push(rel.to_string_lossy().replace('\\', "/"));
-        }
-    }
-    if assets.tex {
-        let src = format!("{}/source", paper.path);
-        if vault.join(&src).is_dir() {
-            paths.push(src);
-        }
-    }
+    let paths = catalog::paper_related_paths(&vault, &paper.path)?;
 
     // Text mode: colorize paths when painting lines wrapper would be skipped for
     // pure string arrays — emit via lines when color is on so path tint applies.
@@ -597,27 +569,23 @@ fn delete(globals: &GlobalOpts, path: &str, files: bool) -> Result<Value, CliErr
         }
     }
 
+    let result =
+        agentero_core::features::trash::delete_paths(&vault, std::slice::from_ref(&path), files)?;
     if files {
-        let removed = papers::delete_under_path(&vault, &path)?;
-        let dir = paper_dir(&vault, &path);
-        if dir.is_dir() {
-            fs::remove_dir_all(&dir)?;
-        }
         let style = globals.style;
         return Ok(json!({
-            "removed": removed,
+            "removed": result.removed_rows,
             "path": path,
             "deletedFiles": true,
             "lines": [format!(
                 "{} removed {} catalog row(s) for {}",
                 style.ok("✓"),
-                removed,
+                result.removed_rows,
                 style.path(&path)
             )]
         }));
     }
 
-    let result = agentero_core::features::trash::trash_paths(&vault, std::slice::from_ref(&path))?;
     Ok(json!({
         "batchId": result.batch_id,
         "count": result.count,
@@ -663,32 +631,24 @@ fn set_tags(
         .iter()
         .map(|tag| parse_tag_spec(tag))
         .collect::<Result<_, _>>()?;
-    let tag_objs = if matches!(mode, TagMode::Replace) {
-        paper
-            .tags
-            .iter()
-            .filter(|tag| papers::is_internal_tag_name(&tag.name))
-            .cloned()
-            .chain(parsed_tags)
-            .collect()
-    } else {
-        parsed_tags
-    };
     let row = match mode {
         TagMode::Add => {
             if tags.is_empty() {
                 return Err(CliError::usage("tag add requires at least one tag"));
             }
-            papers::add_tags(&vault, &paper.path, &tag_objs)?
+            papers::add_tags(&vault, &paper.path, &parsed_tags)?
         }
         TagMode::Remove => {
             if tags.is_empty() {
                 return Err(CliError::usage("tag rm requires at least one tag"));
             }
-            let names = tag_objs.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
+            let names = parsed_tags
+                .iter()
+                .map(|t| t.name.clone())
+                .collect::<Vec<_>>();
             papers::remove_tags(&vault, &paper.path, &names)?
         }
-        TagMode::Replace => papers::set_tags(&vault, &paper.path, &tag_objs)?,
+        TagMode::Replace => papers::set_user_tags(&vault, &paper.path, &parsed_tags)?,
     };
     let style = globals.style;
     let tags_disp = style.tags_join(

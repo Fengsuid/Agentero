@@ -58,6 +58,7 @@ Codex / Inspector 也可直接打 loopback URL。stdio 子进程不是这条通�
 | `vault_list` | 列出用户打开过的所有本地 Vault（绝对路径、`name`、`exists`、`open`）。把返回的 `path` 作为其它工具的 `vault` 参数即可切换作用域；未出现在列表里的路径会被拒绝 |
 | `paper_list` | 列表。**默认**每行只有 `id/path/title`（省 token）。`fields[]?` 按需加字段（`year`/`date`/`tags`/`authors`/`isRead`/…）；`full?` 恢复完整 metadata 行。另有 `query?`、`tag[]?`、`unread?`、`limit?`（默认 50，封顶 200）。abstract 只在 `paper_get`。 |
 | `paper_get` | 单篇 metadata（含 abstract） |
+| `paper_paths` | 相关路径：论文目录、`NOTES.md`、`PAPER.md`、`marks/`、本地 PDF、TeX 存在时的 `source/`；不读正文 |
 | `paper_set_read` | 设置 catalog `isRead`（默认 true） |
 | `import_id` | 魔棒入库（arxiv / DOI / URL）。`parent?` 默认当前 Library 作用域或 `papers` |
 | `discover_arxiv` | 查询式发现：`keywords[]?` / `categories[]?` / `since?` / `until?` / `top?` / `maxCandidates?`，确定性词法排序，返回短名单（含 arXiv id，供后续 `import_id`）。`dedup?`（默认 true）剔除已在库的论文；无 Vault 时也可用（跳过去重）。不写 Vault |
@@ -65,18 +66,27 @@ Codex / Inspector 也可直接打 loopback URL。stdio 子进程不是这条通�
 | `paper_notes_write` | 写 `NOTES.md`。`mode`: `replace`（默认）或 `append` |
 | `paper_tag_add` | 加标签；可用 `topic:blue` 色后缀 |
 | `paper_tag_rm` | 删标签 |
+| `paper_tag_set` | 整体替换用户标签（保留内部 `@zotero:` / `@arxiv:` 标签）；增量修改仍用 add/rm |
+| `paper_tag_list` | 全库标签清单（`name` / `color` / `count`）；`all?` 包含内部标签 |
+| `paper_move` | 论文/组织目录移动到另一个 `papers/` 父目录，保留 basename；同 Vault 更新双链与 catalog，`toVault?` 时跨 Vault 迁移。重命名或非论文路径用 `file_move` |
 | `paper_text_get` | **opt-in**（#676，默认关闭）：读取论文 PDF 的分页文本。`ref` + `pages?`（1-based，缺省全篇）+ `max_chars?`（每页字符预算，默认 20000、上限 50000）。需在设置中开启 `mcpExposePaperText`，未开启时调用直接报错；开启即意味着正文文本将发送给隧道另一端的外部客户端 |
 | `layout_list` | 侧栏版面索引（需 `{paper}/source/layout-index.json`）。`kind[]?`、`minScore?` |
 | `layout_get` | 按 region id 取一条（如 `figure-3`） |
 | `page_read` | 按**物理页**读一篇论文正文（需 `{paper}/source/layout.json`，schemaVersion 3；桌面端跑过版面分析）。`ref` 必填，`page` 为 1-based 物理页。返回该页**阅读顺序**下的全部 region，外加 `textRegions`（段落级）；`pageCount` 为布局页数，越界页返回空数组而非报错 |
-| `vault_search` | 只读全库 Markdown 关键词 AND 搜索（大小写不敏感，非语义检索）。`query` 必填；`limit?` 默认 60，限制到 1–200。根目录由 Host 当前本地 Vault 决定，不接受客户端路径。返回 `hits`（相对 `path`、`snippet`、1-based `line`、`title`、`score`、可选 `paperPath`、可选 `page`）及 `truncated`；`PAPER.md` 正文命中会带上由 `source/layout.json` 映射出的 1-based 物理页码 `page`（无法唯一确定时省略）；命中用 `file_read {"path": hit.path}` 回读。可选元数据过滤 `year`（精确）、`publication` / `doi`（大小写不敏感子串）、`isRead`（bool）：一旦给出，只保留能映射到 catalog 论文且全部匹配的命中，其它一律丢弃 |
+| `vault_search` | 只读全库 Markdown 关键词 AND 搜索（大小写不敏感，非语义检索）。`query` 必填；`limit?` 默认 60，限制到 1–200。根目录由当前作用域 Vault（`vault?`，缺省为打开的 Vault）决定，不接受任意客户端路径。返回 `hits`（相对 `path`、`snippet`、1-based `line`、`title`、`score`、可选 `paperPath`、可选 `page`）及 `truncated`；`PAPER.md` 正文命中会带上由 `source/layout.json` 映射出的 1-based 物理页码 `page`（无法唯一确定时省略）；命中用 `file_read {"path": hit.path}` 回读。可选元数据过滤 `year`（精确）、`publication` / `doi`（大小写不敏感子串）、`isRead`（bool）：一旦给出，只保留能映射到 catalog 论文且全部匹配的命中，其它一律丢弃 |
 | `file_list` | 列一层目录。`path?` 为 Vault 相对路径，空则根目录。跳过 `.agentero`、隐藏目录和 LaTeX 编译产物。`limit?` 默认 200，最多 500 |
 | `file_read` | 读一个 UTF-8 文本文件（如 `drafts/main.tex`、`notes/idea.md`）。不限 `papers/` |
 | `file_write` | 写同一个路径。`mode`: `replace`（默认）或 `append`。父目录不存在会在 Vault 内创建。覆盖前需用户确认 |
 | `file_move` | 移动/重命名 Vault 内一个文件或目录。`from` / `to` 都是 Vault 相对路径，目标必须不存在；同时更新可解析的 wiki 链接与 `papers/` catalog 路径。覆盖前需用户确认 |
-| `file_delete` | 把一个或多个 Vault 路径移入回收站（`.agentero/.trash`，可撤销）。`paths[]` 必填；`papers/` 下的 catalog 行会随文件一起快照/恢复。删除前需用户确认 |
+| `file_delete` | 删除一个或多个 Vault 路径。默认移入回收站（`.agentero/.trash`，可撤销；`papers/` catalog 行随文件快照/恢复）；`permanent=true` 永久删除文件与 catalog 行。删除前需用户确认 |
 
 除 `vault_list` 外，所有工具都接受可选 `vault`（绝对路径）：缺省 = 当前打开的 Vault；给值时必须命中 `vault_list` 返回的本地 Vault。
+
+语义边界：
+
+- `paper_move` 是论文库语义：参数是 `ref` + `toParent`，保留目录 basename，只能落到 `papers/`，可带 `toVault` 跨 Vault；`file_move` 是通用路径语义：`from` → 完整目标 `to`，可重命名，也可处理 `papers/` 外的文件。二者对 `papers/` 的 catalog/双链更新复用同一套 core 事务。
+- `file_delete` 覆盖 CLI `paper delete` 的两种模式：默认回收站，`permanent=true` 对应 `--files`；不再单独提供 `paper_delete` 别名的工具。
+- `paper_tag_set` 是替换，`paper_tag_add` / `paper_tag_rm` 是增量；三者共用 core 的标签写入函数，不会各自实现一套。
 
 `vault_search` 复用 Host 搜索算法，不建索引；在遍历/读取前沿用 `file_read` 的路径过滤与符号链接边界。扫描大小写不敏感的 `*.md`（含 `PAPER.md` / `NOTES.md`），跳过隐藏/系统目录、`source`、超过 2 MiB 的文件；沿用深度 16、最多 20,000 文件的扫描上限。空白 query 返回空结果。`truncated` 仅表示匹配数超过 limit，不是扫描完整性或游标分页的保证。snippet 会去除常见 Markdown 前缀、最多约 200 字符；回读后用 line 定位原行。
 
@@ -110,9 +120,9 @@ cargo test -p agentero-core pdf::layout_index
 - 不写 `NOTES.md`（仍走 `paper_notes_write`，以保留 frontmatter）、`marks/annotations.json`、`source/layout-index.json`、`source/layout.json`、`catalog.sqlite`
 - 原子写。编辑器打开同一文件时走 `vault:file-changed`
 - `file_move` 复用 Host 的 wiki 重命名事务：先移动，再重写链接，失败会回滚；`papers/` 下的路径同步更新 catalog
-- `file_delete` 默认进入 Vault 回收站（undoable），不提供永久删除
+- `file_delete` 默认进入 Vault 回收站（undoable）；`permanent=true` 时永久删除，调用方必须先取得用户确认
 
-不做：永久删除、`paper_paths`、mark（请用 CLI）、把 PDF 当文本读、shell、stdio MCP。
+不做：mark（请用 CLI）、把 PDF 当文本读、shell、stdio MCP。
 
 机器契约与 CLI 共用 `agentero-core::ops`；CLI 侧用 `agentero describe` 自省。
 

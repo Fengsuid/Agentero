@@ -34,7 +34,9 @@ Never dump an entire PDF/TeX/body into context by default.
 - Confirm with the user before overwriting user-written `NOTES.md` or any other file (`replace`). Prefer `append` when unsure.
 - MCP `file_read` / `file_write` take a vault-relative path (`drafts/main.tex`, `notes/idea.md`). They are UTF-8 text only. `file_list` is one directory. Do not use them for `.agentero`, binaries, LaTeX build artifacts, marks, or layout indexes. `NOTES.md` writes still go through `paper_notes_write`.
 - MCP `vault_list` returns every local vault the user has opened. Pass its path as `vault` to target one; the open vault remains the default. Unknown paths are rejected.
-- MCP `file_move` updates resolved wiki links and catalog paper paths; `file_delete` moves paths to the vault recycle bin (undoable). Confirm both with the user.
+- MCP `paper_move` moves a paper/org folder under `papers/` (optionally to another vault); `file_move` is the generic exact-path move/rename. Both update wiki links and catalog paths.
+- MCP `file_delete` defaults to the vault recycle bin (undoable); `permanent=true` is destructive and needs explicit confirmation.
+- MCP `paper_tag_set` replaces user tags while keeping internal `@zotero:` / `@arxiv:` tags; `paper_tag_list` is the catalog inventory.
 - Do not hand-edit `{paper}/marks/annotations.json` or `{paper}/source/layout-index.json`.
 - Do not invent catalog metadata, layout bboxes, or mark coordinates. On `mark_locate_failed`, retry with a longer verbatim quote — never guess rects.
 - If `layout_index_missing`, ask the user to open the paper in Agentero and run layout analysis; do not invent regions.
