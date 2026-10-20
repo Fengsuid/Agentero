@@ -539,7 +539,7 @@ describe("job task projection", () => {
 			params: { papers: [{ path: "papers/a" }, { path: "papers/b" }] },
 		} as JobChangedSnapshot);
 		expect(task("job-refresh-1")?.kind).toBe("metadataRefresh");
-		expect(task("job-refresh-1")?.title).toBe("Refresh metadata");
+		expect(task("job-refresh-1")?.title).toBe("Sync publication info");
 		expect(task("job-refresh-1")?.detail).toContain("0 / 2");
 
 		projectJobToBackgroundTask({
