@@ -1,6 +1,6 @@
 # 用 MCP 连接外部 Agent
 
-设置里打开 **MCP server** 后，ChatGPT / Codex / MCP Inspector 可以调用当前 Vault 的论文库（列表、入库、写 NOTES），不必把 MCP 暴露到公网。
+设置里打开 **MCP server** 后，ChatGPT / Codex / MCP Inspector 可以调用本地 Vault 的论文库（列表、入库、写 NOTES、移动/删除文件），不必把 MCP 暴露到公网。默认操作打开的 Vault；先用 `vault_list` 可查看并切换到其它打开过的本地 Vault。
 
 应用必须开着。远端 Vault 不可用。应用内 Agent 面板走 ACP（[接入 Agent](agents.md)）；本篇是给 **外部** MCP 客户端用的。协议与工具表：[backend/mcp.md](../backend/mcp.md)。
 

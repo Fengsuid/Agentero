@@ -33,6 +33,8 @@ Never dump an entire PDF/TeX/body into context by default.
 
 - Confirm with the user before overwriting user-written `NOTES.md` or any other file (`replace`). Prefer `append` when unsure.
 - MCP `file_read` / `file_write` take a vault-relative path (`drafts/main.tex`, `notes/idea.md`). They are UTF-8 text only. `file_list` is one directory. Do not use them for `.agentero`, binaries, LaTeX build artifacts, marks, or layout indexes. `NOTES.md` writes still go through `paper_notes_write`.
+- MCP `vault_list` returns every local vault the user has opened. Pass its path as `vault` to target one; the open vault remains the default. Unknown paths are rejected.
+- MCP `file_move` updates resolved wiki links and catalog paper paths; `file_delete` moves paths to the vault recycle bin (undoable). Confirm both with the user.
 - Do not hand-edit `{paper}/marks/annotations.json` or `{paper}/source/layout-index.json`.
 - Do not invent catalog metadata, layout bboxes, or mark coordinates. On `mark_locate_failed`, retry with a longer verbatim quote — never guess rects.
 - If `layout_index_missing`, ask the user to open the paper in Agentero and run layout analysis; do not invent regions.
@@ -41,7 +43,7 @@ Never dump an entire PDF/TeX/body into context by default.
 ## Surfaces
 
 - **CLI**: full headless vault/catalog surface (no BYOA / paper-reader runtime).
-- **MCP**: current open local vault only (App must be running). Start with resource `agentero://vault`, then tools. Paper tools use `ref`. Other vault text uses `file_list` / `file_read` / `file_write`.
+- **MCP**: local vaults only (App must be running). Start with resource `agentero://vault`, then tools. Use `vault_list` to discover vaults; pass `vault` to target one other than the open vault. Paper tools use `ref`. Other vault text uses `file_list` / `file_read` / `file_write`; `file_move` and `file_delete` handle moves and recycle-bin deletes.
 - Lecture-style NOTES content is the agent's job (or the separate `paper-reader` skill), not the CLI/MCP.
 "#
 }

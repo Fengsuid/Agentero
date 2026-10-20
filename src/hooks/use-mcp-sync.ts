@@ -12,12 +12,18 @@ import {
 import { errorText } from "@/lib/core/error";
 import { notifyError } from "@/lib/core/notify";
 import { isTauri } from "@/lib/core/tauri";
-import { mcpSetEnabled, mcpSetParentDir, mcpSetVault } from "@/lib/mcp/status";
+import {
+	mcpSetEnabled,
+	mcpSetKnownVaults,
+	mcpSetParentDir,
+	mcpSetVault,
+} from "@/lib/mcp/status";
 import { isRemoteVaultHandle } from "@/lib/vault/remote/remote-vault";
 import { getVaultPath } from "@/lib/vault/store";
 
 export function useMcpSync(): void {
 	const vaultPath = useVaultStore((s) => s.vaultPath);
+	const recentVaults = useVaultStore((s) => s.recentVaults);
 	const libraryScopePath = useLibraryStore((s) => s.scopePath);
 	const mcpEnabled = useSettings((s) => s.mcpEnabled);
 
@@ -29,6 +35,13 @@ export function useMcpSync(): void {
 			console.warn("[mcp] setVault failed", e);
 		});
 	}, [vaultPath]);
+
+	useEffect(() => {
+		if (!isTauri()) return;
+		void mcpSetKnownVaults(recentVaults).catch((e) => {
+			console.warn("[mcp] setKnownVaults failed", e);
+		});
+	}, [recentVaults]);
 
 	useEffect(() => {
 		if (!isTauri() || !mcpEnabled) return;

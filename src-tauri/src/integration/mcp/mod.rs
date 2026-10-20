@@ -17,7 +17,7 @@ pub mod commands;
 use crate::core::error::AppError;
 use crate::features::system::settings::DEFAULT_MCP_PORT;
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -36,12 +36,34 @@ pub struct McpStatus {
     pub vault_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultEntry {
+    /// Absolute local vault path. Pass this as the `vault` tool argument.
+    pub path: String,
+    pub name: String,
+    pub exists: bool,
+    /// True for the vault the desktop app currently has open.
+    pub open: bool,
+}
+
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultListOut {
+    pub vaults: Vec<VaultEntry>,
+    /// Currently open local vault, if any.
+    pub open: Option<String>,
+}
+
 struct Inner {
     enabled: bool,
     listening: bool,
     port: u16,
     last_error: Option<String>,
     vault_handle: Option<String>,
+    /// Local vaults the user has opened, most-recent first. Used only to let
+    /// MCP tools target a known vault by absolute path.
+    known_vaults: Vec<String>,
     parent_dir: String,
     translator_url: Option<String>,
     paper_note_mode: String,
@@ -69,6 +91,7 @@ impl McpController {
                 port: DEFAULT_MCP_PORT,
                 last_error: None,
                 vault_handle: None,
+                known_vaults: Vec::new(),
                 parent_dir: "papers".into(),
                 translator_url: None,
                 paper_note_mode: "standard".into(),
@@ -117,14 +140,36 @@ impl McpController {
     }
 
     pub fn set_vault(&self, vault_path: Option<String>) {
+        let next = vault_path
+            .as_deref()
+            .and_then(normalize_local_vault)
+            .map(|p| p.to_string_lossy().into_owned());
         if let Ok(mut g) = self.inner.lock() {
-            g.vault_handle = vault_path
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string());
+            if let Some(path) = &next {
+                remember_vault(&mut g.known_vaults, path);
+            }
+            g.vault_handle = next.clone();
         }
         self.emit_status();
+    }
+
+    /// Replace the known-vault list with the renderer's recent local vaults.
+    /// Unknown paths are rejected by [`resolve_vault`](Self::resolve_vault), so
+    /// external clients can only target vaults the user has opened.
+    pub fn set_known_vaults(&self, vaults: Vec<String>) {
+        let mut normalized = Vec::new();
+        for path in vaults {
+            if let Some(path) = normalize_local_vault(&path) {
+                remember_vault(&mut normalized, &path.to_string_lossy());
+            }
+        }
+        normalized.reverse();
+        if let Ok(mut g) = self.inner.lock() {
+            if let Some(open) = g.vault_handle.clone() {
+                remember_vault(&mut normalized, &open);
+            }
+            g.known_vaults = normalized;
+        }
     }
 
     pub fn set_parent_dir(&self, parent_dir: String) {
@@ -181,6 +226,68 @@ impl McpController {
             return Err(AppError::message("MCP requires a local vault"));
         }
         crate::core::fs::resolve_vault(&handle)
+    }
+
+    /// All local vaults the user has opened, newest first. The open vault is
+    /// always present even before the renderer has synced its recent list.
+    pub fn vault_list(&self) -> VaultListOut {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let open = g.vault_handle.clone();
+        let open_key = open.as_deref().map(canonical_vault_key);
+        let mut paths = Vec::new();
+        for path in g.known_vaults.iter().rev() {
+            remember_vault(&mut paths, path);
+        }
+        if let Some(path) = &open {
+            remember_vault(&mut paths, path);
+        }
+        let vaults = paths
+            .into_iter()
+            .map(|path| {
+                let exists = Path::new(&path).is_dir();
+                let name = Path::new(&path)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| path.clone());
+                VaultEntry {
+                    open: open_key.as_ref() == Some(&canonical_vault_key(&path)),
+                    path,
+                    name,
+                    exists,
+                }
+            })
+            .collect();
+        VaultListOut { vaults, open }
+    }
+
+    /// Resolve a tool's optional `vault` argument. Only the open vault or a
+    /// renderer-synced recent vault is accepted, so an external client cannot
+    /// point tools at arbitrary filesystem roots.
+    pub fn resolve_vault(&self, requested: Option<&str>) -> Result<PathBuf, AppError> {
+        let Some(raw) = requested.map(str::trim).filter(|s| !s.is_empty()) else {
+            return self.local_vault();
+        };
+        let Some(path) = normalize_local_vault(raw) else {
+            return Err(AppError::message(
+                "vault must be an absolute local vault path from vault_list",
+            ));
+        };
+        let key = canonical_vault_key(&path.to_string_lossy());
+        let known = {
+            let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let open = g.vault_handle.as_deref().map(canonical_vault_key);
+            open.as_ref() == Some(&key)
+                || g.known_vaults.iter().any(|p| canonical_vault_key(p) == key)
+        };
+        if !known {
+            return Err(AppError::message(format!(
+                "vault is not open or known: {} — call vault_list first",
+                path.display()
+            )));
+        }
+        crate::core::fs::resolve_vault(&path.to_string_lossy())
     }
 
     pub async fn set_enabled(self: &Arc<Self>, enabled: bool) -> McpStatus {
@@ -317,6 +424,35 @@ impl McpController {
     }
 }
 
+fn normalize_local_vault(raw: &str) -> Option<PathBuf> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw.starts_with("remote:") {
+        return None;
+    }
+    let path = PathBuf::from(raw);
+    if !path.is_absolute() {
+        return None;
+    }
+    Some(crate::core::fs::canonicalize_best_effort(&path))
+}
+
+fn canonical_vault_key(path: &str) -> String {
+    normalize_local_vault(path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| crate::core::fs::normalize_rel_separators(path.trim()))
+}
+
+fn remember_vault(list: &mut Vec<String>, path: &str) {
+    let Some(path) = normalize_local_vault(path) else {
+        return;
+    };
+    let path = path.to_string_lossy().into_owned();
+    let key = canonical_vault_key(&path);
+    list.retain(|existing| canonical_vault_key(existing) != key);
+    list.insert(0, path);
+    list.truncate(32);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +542,40 @@ mod tests {
         let ctrl = McpController::new();
         let md = resources::vault_markdown(&ctrl);
         assert!(md.contains("No local vault"), "{md}");
+    }
+
+    #[test]
+    fn vault_list_tracks_open_and_known_local_vaults() {
+        let first = tempdir().unwrap();
+        let second = tempdir().unwrap();
+        let unknown = tempdir().unwrap();
+        let key = |p: &std::path::Path| {
+            crate::core::fs::canonicalize_best_effort(p)
+                .to_string_lossy()
+                .into_owned()
+        };
+        let ctrl = McpController::new();
+        ctrl.set_known_vaults(vec![
+            key(second.path()),
+            "remote:session-1".into(),
+            "relative/vault".into(),
+        ]);
+        ctrl.set_vault(Some(key(first.path())));
+
+        let listed = ctrl.vault_list();
+        assert_eq!(listed.open.as_deref(), Some(key(first.path()).as_str()));
+        assert_eq!(listed.vaults.len(), 2);
+        assert!(listed.vaults[0].open);
+        assert_eq!(listed.vaults[0].path, key(first.path()));
+        assert!(listed.vaults.iter().any(|v| v.path == key(second.path())));
+        assert!(listed.vaults.iter().all(|v| v.exists));
+
+        assert_eq!(
+            ctrl.resolve_vault(Some(&key(second.path()))).unwrap(),
+            second.path().canonicalize().unwrap()
+        );
+        assert!(ctrl.resolve_vault(Some(&key(unknown.path()))).is_err());
+        assert!(ctrl.resolve_vault(Some("remote:session-1")).is_err());
     }
 
     #[tokio::test]

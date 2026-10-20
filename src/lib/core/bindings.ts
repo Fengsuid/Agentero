@@ -573,6 +573,11 @@ export const commands = {
 	mcpSetEnabled: (args: McpSetEnabledArgs) => typedError<ApiResult<McpStatus>, string>(__TAURI_INVOKE("mcp_set_enabled", { args })),
 	mcpSetPort: (args: McpSetPortArgs) => typedError<ApiResult<McpStatus>, string>(__TAURI_INVOKE("mcp_set_port", { args })),
 	mcpSetVault: (args: McpSetVaultArgs) => __TAURI_INVOKE<ApiResult<null>>("mcp_set_vault", { args }),
+	/**
+	 *  Sync the renderer's recent local vaults so MCP `vault_list` can advertise
+	 *  every vault the user has opened, not only the currently open one.
+	 */
+	mcpSetKnownVaults: (args: McpSetKnownVaultsArgs) => __TAURI_INVOKE<ApiResult<null>>("mcp_set_known_vaults", { args }),
 	mcpSetParentDir: (args: McpSetParentDirArgs) => __TAURI_INVOKE<ApiResult<null>>("mcp_set_parent_dir", { args }),
 	mcpTunnelStatus: () => __TAURI_INVOKE<ApiResult<McpTunnelStatus>>("mcp_tunnel_status"),
 	mcpTunnelStart: (args: McpTunnelStartArgs) => typedError<ApiResult<McpTunnelStatus>, string>(__TAURI_INVOKE("mcp_tunnel_start", { args })),
@@ -3585,6 +3590,10 @@ export type LookupImportResult_Serialize = {
 
 export type McpSetEnabledArgs = {
 	enabled: boolean,
+};
+
+export type McpSetKnownVaultsArgs = {
+	vaults: string[],
 };
 
 export type McpSetParentDirArgs = {

@@ -85,6 +85,24 @@ pub fn mcp_set_vault(ctrl: State<'_, Arc<McpController>>, args: McpSetVaultArgs)
 
 #[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+pub struct McpSetKnownVaultsArgs {
+    pub vaults: Vec<String>,
+}
+
+/// Sync the renderer's recent local vaults so MCP `vault_list` can advertise
+/// every vault the user has opened, not only the currently open one.
+#[tauri::command]
+#[specta::specta]
+pub fn mcp_set_known_vaults(
+    ctrl: State<'_, Arc<McpController>>,
+    args: McpSetKnownVaultsArgs,
+) -> ApiResult<()> {
+    ctrl.set_known_vaults(args.vaults);
+    ApiResult::ok(())
+}
+
+#[derive(Debug, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct McpSetParentDirArgs {
     pub parent_dir: String,
 }

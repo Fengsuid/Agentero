@@ -13,6 +13,8 @@
 | MCP 瘦 `paper_list` + `fields`/`full` | `integration/mcp` |
 | MCP `paper_set_read` / `layout_list` / `layout_get` | 同上 |
 | MCP `file_list` / `file_read` / `file_write` | Vault 内 UTF-8 文本（Papers 外的 `.tex` 等）；拒绝 `.agentero`、二进制、NOTES 直写 |
+| MCP `vault_list` + `vault` 参数 | 列出用户打开过的本地 Vault；工具可切换到其中任意一个，未知名路径拒绝 |
+| MCP `file_move` / `file_delete` | 链接感知移动（catalog 路径同步、失败回滚）；删除进入 Vault 回收站，可撤销 |
 | MCP `vault_search` | 全库 Markdown 关键词 AND；复用 Host 搜索，沿用 MCP 文件路径限制；返回 path/snippet/line/truncated，见 [backend/mcp](../backend/mcp.md) |
 | MCP resources | `agentero://vault`、`agentero://agent-invariants`、`agentero://skills/agentero-cli` |
 | Skill 削薄 | `templates/vault/.agents/skills/agentero-cli` v16（任务分支协议；`describe`/`set-read`/`vault list` 不再默认开场） |

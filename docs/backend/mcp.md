@@ -1,6 +1,6 @@
 # MCP Server
 
-桌面 Host 内嵌的 Streamable HTTP MCP。设置开关打开后在 loopback 监听；关掉即停。作用域是当前打开的**本地** Vault。
+桌面 Host 内嵌的 Streamable HTTP MCP。设置开关打开后在 loopback 监听；关掉即停。默认作用域是当前打开的**本地** Vault；`vault_list` 会列出用户打开过的本地 Vault，其它工具可用可选参数 `vault`（绝对路径）切换到其中任意一个。
 
 应用内 Quick Chat / 侧边栏用的是另一条会话级 stdio MCP（`agentero-context`），只读本轮授权的来源，不复用这里的全局工具面。见 [context.md](context.md)。
 
@@ -19,7 +19,7 @@
 
 监听 URL：`http://127.0.0.1:{port}/mcp`。设置页端口旁绿点表示正在听；点击 URL 复制。
 
-Host commands：`mcp_get_status` / `mcp_set_enabled` / `mcp_set_port` / `mcp_set_vault` / `mcp_set_parent_dir`，以及隧道相关 `mcp_tunnel_status` / `mcp_tunnel_start` / `mcp_tunnel_stop`。状态事件 `mcp:status`、`mcp:tunnel-status`。
+Host commands：`mcp_get_status` / `mcp_set_enabled` / `mcp_set_port` / `mcp_set_vault` / `mcp_set_known_vaults` / `mcp_set_parent_dir`，以及隧道相关 `mcp_tunnel_status` / `mcp_tunnel_start` / `mcp_tunnel_stop`。状态事件 `mcp:status`、`mcp:tunnel-status`。前端把 `agentero-recent-vaults` 同步给 `mcp_set_known_vaults`；`mcp_set_vault` 也会把当前 Vault 记入已知列表。
 
 `initialize.serverInfo` 带 `title`、`websiteUrl` 和 `icons`（应用 PNG 的 data URI）。客户端可以忽略不画。
 
@@ -41,7 +41,7 @@ Codex / Inspector 也可直接打 loopback URL。stdio 子进程不是这条通�
 
 | URI | MIME | 内容 |
 |---|---|---|
-| `agentero://vault` | Markdown | 路径、schemaVersion、papers、unread |
+| `agentero://vault` | Markdown | 当前路径、schemaVersion、papers、unread，以及已知 Vault 列表 |
 | `agentero://agent-invariants` | Markdown | 与 CLI/`agentero-core::ops` 同源的 agent invariants |
 | `agentero://skills/agentero-cli` | Markdown | 当前平台 bundled `agentero-cli` Skill 正文 |
 
@@ -55,6 +55,7 @@ Codex / Inspector 也可直接打 loopback URL。stdio 子进程不是这条通�
 
 | Tool | 作用 |
 |---|---|
+| `vault_list` | 列出用户打开过的所有本地 Vault（绝对路径、`name`、`exists`、`open`）。把返回的 `path` 作为其它工具的 `vault` 参数即可切换作用域；未出现在列表里的路径会被拒绝 |
 | `paper_list` | 列表。**默认**每行只有 `id/path/title`（省 token）。`fields[]?` 按需加字段（`year`/`date`/`tags`/`authors`/`isRead`/…）；`full?` 恢复完整 metadata 行。另有 `query?`、`tag[]?`、`unread?`、`limit?`（默认 50，封顶 200）。abstract 只在 `paper_get`。 |
 | `paper_get` | 单篇 metadata（含 abstract） |
 | `paper_set_read` | 设置 catalog `isRead`（默认 true） |
@@ -72,6 +73,10 @@ Codex / Inspector 也可直接打 loopback URL。stdio 子进程不是这条通�
 | `file_list` | 列一层目录。`path?` 为 Vault 相对路径，空则根目录。跳过 `.agentero`、隐藏目录和 LaTeX 编译产物。`limit?` 默认 200，最多 500 |
 | `file_read` | 读一个 UTF-8 文本文件（如 `drafts/main.tex`、`notes/idea.md`）。不限 `papers/` |
 | `file_write` | 写同一个路径。`mode`: `replace`（默认）或 `append`。父目录不存在会在 Vault 内创建。覆盖前需用户确认 |
+| `file_move` | 移动/重命名 Vault 内一个文件或目录。`from` / `to` 都是 Vault 相对路径，目标必须不存在；同时更新可解析的 wiki 链接与 `papers/` catalog 路径。覆盖前需用户确认 |
+| `file_delete` | 把一个或多个 Vault 路径移入回收站（`.agentero/.trash`，可撤销）。`paths[]` 必填；`papers/` 下的 catalog 行会随文件一起快照/恢复。删除前需用户确认 |
+
+除 `vault_list` 外，所有工具都接受可选 `vault`（绝对路径）：缺省 = 当前打开的 Vault；给值时必须命中 `vault_list` 返回的本地 Vault。
 
 `vault_search` 复用 Host 搜索算法，不建索引；在遍历/读取前沿用 `file_read` 的路径过滤与符号链接边界。扫描大小写不敏感的 `*.md`（含 `PAPER.md` / `NOTES.md`），跳过隐藏/系统目录、`source`、超过 2 MiB 的文件；沿用深度 16、最多 20,000 文件的扫描上限。空白 query 返回空结果。`truncated` 仅表示匹配数超过 limit，不是扫描完整性或游标分页的保证。snippet 会去除常见 Markdown 前缀、最多约 200 字符；回读后用 line 定位原行。
 
@@ -97,15 +102,17 @@ cargo test -p agentero-core pdf::layout_index
 - `append`：追加正文，保留 frontmatter
 - 编辑器有未存改动时走现有 `vault:file-changed` 冲突逻辑
 
-`file_read` / `file_write`：
+`file_read` / `file_write` / `file_move` / `file_delete`：
 
 - 路径是 Vault 相对路径，禁止 `..`；符号链接解析后必须仍在 Vault 内
-- 只接受 UTF-8 文本，单次最多 2 MiB。拒绝 PDF / 图片 / 压缩包等二进制扩展名，以及内容中的 NUL
+- 只接受 UTF-8 文本，单次最多 2 MiB。拒绝 PDF / 图片 / 压缩包等二进制扩展名，以及内容中的 NUL（`file_move` / `file_delete` 不读取内容，可移动/删除目录和二进制附件）
 - 与文件树相同，拒绝 `.agentero`、`.` 开头的隐藏项（`.agents` 除外）、`target` 等忽略目录，以及 `.aux` / `.log` 等 LaTeX 编译产物
 - 不写 `NOTES.md`（仍走 `paper_notes_write`，以保留 frontmatter）、`marks/annotations.json`、`source/layout-index.json`、`source/layout.json`、`catalog.sqlite`
 - 原子写。编辑器打开同一文件时走 `vault:file-changed`
+- `file_move` 复用 Host 的 wiki 重命名事务：先移动，再重写链接，失败会回滚；`papers/` 下的路径同步更新 catalog
+- `file_delete` 默认进入 Vault 回收站（undoable），不提供永久删除
 
-不做：删除 / 回收站、`paper_paths`、mark（请用 CLI）、把 PDF 当文本读、shell、stdio MCP。
+不做：永久删除、`paper_paths`、mark（请用 CLI）、把 PDF 当文本读、shell、stdio MCP。
 
 机器契约与 CLI 共用 `agentero-core::ops`；CLI 侧用 `agentero describe` 自省。
 
@@ -117,4 +124,5 @@ cargo test -p agentero-core pdf::layout_index
 
 - 仅 `127.0.0.1`；默认关
 - `ref` / `parent` / `file_*` 的 `path` 消毒，解析后的真实路径必须留在 Vault 内
+- `vault` 只接受当前打开或前端同步过的本地 Vault 绝对路径；远程 handle、相对路径和任意目录都被拒绝
 - 不暴露 PDF 二进制、不读 `.agentero` 与 XDG API key

@@ -5,6 +5,9 @@
 
 use crate::core::error::AppError;
 use crate::core::fs::{atomic_write, sanitize_vault_rel};
+use crate::features::paper::catalog::papers;
+use crate::features::vault::rename::{run_local_rename_transaction, WikiIndex, WikiRenameResult};
+use crate::features::vault::trash::{self, TrashResult};
 use crate::features::vault::tree::should_ignore;
 use serde::Serialize;
 use std::fs;
@@ -251,6 +254,77 @@ pub fn write_text(
         mode: mode_name.into(),
         bytes: next.len(),
     })
+}
+
+/// Move or rename a vault path, updating resolved wiki links and catalog paper
+/// path prefixes. The destination must not exist.
+pub fn move_entry(
+    vault: &Path,
+    from: &str,
+    to: &str,
+    index: &mut WikiIndex,
+) -> Result<WikiRenameResult, AppError> {
+    let from = normalize_file(from)?;
+    let to = normalize_file(to)?;
+    if from.is_empty() || to.is_empty() {
+        return Err(AppError::message("path is required"));
+    }
+    reject_segments(&from)?;
+    reject_segments(&to)?;
+    reject_managed(&from)?;
+    reject_managed(&to)?;
+    if from == to {
+        return Err(AppError::message("source and target paths are identical"));
+    }
+    if to.starts_with(&format!("{from}/")) {
+        return Err(AppError::message("cannot move a path into itself"));
+    }
+
+    let root = canonical_root(vault)?;
+    let source = root.join(&from);
+    if !source.exists() {
+        return Err(AppError::message("source path not found"));
+    }
+    contained_existing(&root, &from, source.is_dir())?;
+    if root.join(&to).exists() {
+        return Err(AppError::message("destination path already exists"));
+    }
+    contained_write_target(&root, &to)?;
+
+    run_local_rename_transaction(&root, index, &from, &to, &[], || {
+        papers::move_under_path(&root, &from, &to)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })
+    .map_err(|error| AppError::message(error.to_string()))
+}
+
+/// Move vault paths into the recycle bin (undoable). Paper catalog rows under
+/// `papers/` are snapshotted and restored with the files.
+pub fn delete_paths(vault: &Path, rels: &[String]) -> Result<TrashResult, AppError> {
+    let root = canonical_root(vault)?;
+    let mut clean = Vec::new();
+    for raw in rels {
+        let rel = normalize_file(raw)?;
+        if rel.is_empty() {
+            continue;
+        }
+        reject_segments(&rel)?;
+        reject_managed(&rel)?;
+        if rel == "papers" {
+            return Err(AppError::message("refusing to delete the papers root"));
+        }
+        let path = root.join(&rel);
+        if !path.exists() {
+            return Err(AppError::message(format!("path not found: {rel}")));
+        }
+        contained_existing(&root, &rel, path.is_dir())?;
+        clean.push(rel);
+    }
+    if clean.is_empty() {
+        return Err(AppError::message("paths is required"));
+    }
+    trash::trash_paths(&root, &clean)
 }
 
 fn normalize_dir(raw: &str) -> Result<String, AppError> {
@@ -508,5 +582,47 @@ mod tests {
         let err = write_text(dir.path(), "link/main.tex", "x", WriteMode::Replace).unwrap_err();
         assert!(err.to_string().contains("escapes"), "{err}");
         assert!(!outside.path().join("main.tex").exists());
+    }
+
+    #[test]
+    fn moves_files_and_updates_wiki_links() {
+        let dir = tempdir().unwrap();
+        write_text(dir.path(), "drafts/old.md", "# Old\n", WriteMode::Replace).unwrap();
+        write_text(
+            dir.path(),
+            "notes/Source.md",
+            "See [[old]] for details.\n",
+            WriteMode::Replace,
+        )
+        .unwrap();
+        let mut index = WikiIndex::default();
+        let out = move_entry(dir.path(), "drafts/old.md", "drafts/new.md", &mut index).unwrap();
+        assert_eq!(out.moved_path, "drafts/new.md");
+        assert!(!dir.path().join("drafts/old.md").exists());
+        assert!(dir.path().join("drafts/new.md").exists());
+        let source = read_text(dir.path(), "notes/Source.md").unwrap();
+        assert!(
+            source.content.contains("[[drafts/new]]"),
+            "{}",
+            source.content
+        );
+        assert!(move_entry(dir.path(), "drafts/new.md", "drafts/new.md", &mut index).is_err());
+    }
+
+    #[test]
+    fn delete_moves_to_trash_and_can_restore() {
+        let dir = tempdir().unwrap();
+        write_text(dir.path(), "drafts/old.tex", "old\n", WriteMode::Replace).unwrap();
+        let out = delete_paths(dir.path(), &["drafts/old.tex".into()]).unwrap();
+        assert_eq!(out.count, 1);
+        assert_eq!(out.rels, vec!["drafts/old.tex"]);
+        assert!(!dir.path().join("drafts/old.tex").exists());
+        crate::features::vault::trash::restore_batch(dir.path(), &out.batch_id).unwrap();
+        assert_eq!(
+            read_text(dir.path(), "drafts/old.tex").unwrap().content,
+            "old\n"
+        );
+        assert!(delete_paths(dir.path(), &[".agentero".into()]).is_err());
+        assert!(delete_paths(dir.path(), &["papers".into()]).is_err());
     }
 }

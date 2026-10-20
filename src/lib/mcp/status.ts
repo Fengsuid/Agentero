@@ -47,6 +47,12 @@ export async function mcpSetVault(vaultPath: string | null): Promise<void> {
 	await callApi(() => commands.mcpSetVault({ vaultPath }));
 }
 
+/** Sync recent local vaults so MCP `vault_list` can target any of them. */
+export async function mcpSetKnownVaults(vaults: string[]): Promise<void> {
+	if (!isTauri()) return;
+	await callApi(() => commands.mcpSetKnownVaults({ vaults }));
+}
+
 export async function mcpSetParentDir(parentDir: string): Promise<void> {
 	if (!isTauri()) return;
 	const dir = parentDir

@@ -212,6 +212,7 @@ pub fn attach_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<ta
             crate::integration::mcp::commands::mcp_set_enabled,
             crate::integration::mcp::commands::mcp_set_port,
             crate::integration::mcp::commands::mcp_set_vault,
+            crate::integration::mcp::commands::mcp_set_known_vaults,
             crate::integration::mcp::commands::mcp_set_parent_dir,
             crate::integration::mcp::commands::mcp_tunnel_status,
             crate::integration::mcp::commands::mcp_tunnel_start,

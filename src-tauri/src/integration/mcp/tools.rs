@@ -70,6 +70,10 @@ struct PaperListArgs {
     /// Emit the previous full metadata row shape.
     #[serde(default)]
     full: bool,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -77,6 +81,10 @@ struct PaperListArgs {
 struct PaperRefArgs {
     /// Paper id or vault-relative folder path (`papers/…`).
     r#ref: String,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -87,6 +95,10 @@ struct PaperSetReadArgs {
     /// Default true.
     #[serde(default = "default_true")]
     is_read: bool,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -102,6 +114,10 @@ struct LayoutListArgs {
     kind: Vec<String>,
     #[serde(default)]
     min_score: Option<f64>,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -110,6 +126,10 @@ struct LayoutGetArgs {
     r#ref: String,
     /// Region id from layout_list (e.g. figure-3).
     id: String,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -120,6 +140,10 @@ struct PaperTextArgs {
     pages: Option<Vec<u32>>,
     /// Per-page character budget (default 20000, capped at 50000).
     max_chars: Option<usize>,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -129,6 +153,10 @@ struct PageReadArgs {
     r#ref: String,
     /// 1-based physical page number to read (first page is 1).
     page: u32,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -139,6 +167,10 @@ struct ImportIdArgs {
     /// Vault-relative parent under `papers/` (default: current Library scope).
     #[serde(default)]
     parent: Option<String>,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -149,6 +181,10 @@ struct NotesWriteArgs {
     /// `replace` (default) or `append`.
     #[serde(default)]
     mode: Option<String>,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -160,6 +196,10 @@ struct FileListArgs {
     /// Default 200, capped at 500.
     #[serde(default)]
     limit: Option<u32>,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -167,6 +207,10 @@ struct FileListArgs {
 struct FileReadArgs {
     /// Vault-relative text file, e.g. `drafts/main.tex`.
     path: String,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -178,6 +222,49 @@ struct FileWriteArgs {
     /// `replace` (default) or `append`.
     #[serde(default)]
     mode: Option<String>,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct FileMoveArgs {
+    /// Vault-relative source file or directory.
+    from: String,
+    /// Vault-relative destination path, including the new basename. Must not exist.
+    to: String,
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct FileDeleteArgs {
+    /// Vault-relative file or directory paths to move into the recycle bin.
+    paths: Vec<String>,
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct FileMoveOut {
+    from: String,
+    to: String,
+    updated_sources: Vec<String>,
+    skipped: Vec<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct FileDeleteOut {
+    batch_id: String,
+    count: usize,
+    paths: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -185,6 +272,10 @@ struct FileWriteArgs {
 struct TagArgs {
     r#ref: String,
     tags: Vec<String>,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -243,6 +334,10 @@ struct DiscoverArxivArgs {
     /// Drop candidates already in the library catalog (default true).
     #[serde(default = "default_true")]
     dedup: bool,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -358,12 +453,16 @@ struct VaultSearchArgs {
     /// Catalog read state (true = read); narrows hits to catalog papers.
     #[serde(default)]
     is_read: Option<bool>,
+
+    /// Optional absolute local vault path from `vault_list`; defaults to the open vault.
+    #[serde(default)]
+    vault: Option<String>,
 }
 
 #[tool_router]
 impl AgenteroMcp {
     #[tool(
-        description = "Search Markdown in the open local vault using case-insensitive keyword AND (not semantic search). Returns ranked relative paths, snippets, 1-based lines and truncated; read hits with file_read. limit defaults to 60, clamped to 1..200.",
+        description = "Search Markdown in the selected local vault using case-insensitive keyword AND (not semantic search). Returns ranked relative paths, snippets, 1-based lines and truncated; read hits with file_read. limit defaults to 60, clamped to 1..200. Set vault to target a vault from vault_list.",
         annotations(read_only_hint = true)
     )]
     async fn vault_search(
@@ -373,7 +472,7 @@ impl AgenteroMcp {
         let ctrl = self.ctrl.clone();
         // Root resolution and the walk both do sync I/O; keep them off the MCP runtime.
         tokio::task::spawn_blocking(move || {
-            let vault = ctrl.local_vault()?;
+            let vault = ctrl.resolve_vault(args.vault.as_deref())?;
             files::search(
                 &vault,
                 args.query,
@@ -391,13 +490,13 @@ impl AgenteroMcp {
     }
 
     #[tool(
-        description = "List papers in the open vault. Default rows are only id/path/title (token-cheap). Pass fields (year, date, tags, authors, isRead, …) or full=true for more. Abstract is only on paper_get."
+        description = "List papers in the selected vault. Default rows are only id/path/title (token-cheap). Pass fields (year, date, tags, authors, isRead, …) or full=true for more. Abstract is only on paper_get. Set vault to target a vault from vault_list."
     )]
     async fn paper_list(
         &self,
         Parameters(args): Parameters<PaperListArgs>,
     ) -> Result<Json<paper::PaperListOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -420,7 +519,7 @@ impl AgenteroMcp {
         &self,
         Parameters(args): Parameters<PaperRefArgs>,
     ) -> Result<Json<paper::PaperGetOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -435,7 +534,7 @@ impl AgenteroMcp {
         &self,
         Parameters(args): Parameters<ImportIdArgs>,
     ) -> Result<Json<ImportIdOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -485,7 +584,7 @@ impl AgenteroMcp {
         Parameters(args): Parameters<DiscoverArxivArgs>,
     ) -> Result<Json<DiscoverArxivOut>, CallToolResult> {
         let exclude: HashSet<String> = if args.dedup {
-            match self.ctrl.local_vault() {
+            match self.ctrl.resolve_vault(args.vault.as_deref()) {
                 Ok(vault) => match discover::known_arxiv_ids(&vault) {
                     Ok(ids) => ids,
                     Err(e) => return Err(tool_err(e)),
@@ -518,7 +617,7 @@ impl AgenteroMcp {
         &self,
         Parameters(args): Parameters<PaperRefArgs>,
     ) -> Result<Json<NotesGetOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -543,7 +642,7 @@ impl AgenteroMcp {
         &self,
         Parameters(args): Parameters<NotesWriteArgs>,
     ) -> Result<Json<NotesWriteOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -578,7 +677,7 @@ impl AgenteroMcp {
         &self,
         Parameters(args): Parameters<TagArgs>,
     ) -> Result<Json<paper::PaperGetOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -606,7 +705,7 @@ impl AgenteroMcp {
         &self,
         Parameters(args): Parameters<TagArgs>,
     ) -> Result<Json<paper::PaperGetOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -633,7 +732,7 @@ impl AgenteroMcp {
         &self,
         Parameters(args): Parameters<PaperSetReadArgs>,
     ) -> Result<Json<paper::PaperGetOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -650,7 +749,7 @@ impl AgenteroMcp {
         &self,
         Parameters(args): Parameters<LayoutListArgs>,
     ) -> Result<Json<layout::LayoutListOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -665,7 +764,7 @@ impl AgenteroMcp {
         &self,
         Parameters(args): Parameters<LayoutGetArgs>,
     ) -> Result<Json<layout::LayoutGetOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -698,7 +797,7 @@ impl AgenteroMcp {
                 "paper_text_get is disabled: enable mcpExposePaperText in Settings                  (opt-in — paper full text would be sent to external clients)",
             )));
         }
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -719,7 +818,7 @@ impl AgenteroMcp {
     ) -> Result<Json<layout::PageReadOut>, CallToolResult> {
         let ctrl = self.ctrl.clone();
         tokio::task::spawn_blocking(move || {
-            let vault = ctrl.local_vault()?;
+            let vault = ctrl.resolve_vault(args.vault.as_deref())?;
             layout::read_page(&vault, &args.r#ref, args.page)
         })
         .await
@@ -729,13 +828,114 @@ impl AgenteroMcp {
     }
 
     #[tool(
-        description = "List one directory in the open vault (not the whole tree). path is vault-relative; omit it for the vault root. Skips .agentero, hidden dirs, and LaTeX build artifacts. Use this to find drafts such as main.tex outside papers/."
+        description = "List every local vault the user has opened in Agentero (not just the open one). Pass a returned path as the optional `vault` argument on other tools; `open` marks the vault currently shown in the app."
+    )]
+    async fn vault_list(&self) -> Result<Json<super::VaultListOut>, CallToolResult> {
+        Ok(Json(self.ctrl.vault_list()))
+    }
+
+    #[tool(
+        description = "Move or rename one vault file or directory (vault-relative from/to). Updates resolved wiki links and catalog paper paths. The destination must not exist. Use vault to target a vault from vault_list; defaults to the open vault."
+    )]
+    async fn file_move(
+        &self,
+        Parameters(args): Parameters<FileMoveArgs>,
+    ) -> Result<Json<FileMoveOut>, CallToolResult> {
+        let ctrl = self.ctrl.clone();
+        let index = self.ctrl.app_handle().and_then(|app| {
+            app.try_state::<crate::features::markdown::wiki::WikiIndexState>()
+                .map(|state| state.handle())
+        });
+        tokio::task::spawn_blocking(move || {
+            let vault = ctrl.resolve_vault(args.vault.as_deref())?;
+            let mut fallback = crate::features::vault::rename::WikiIndex::default();
+            // The Host index belongs to the open vault. Rebuilding it for a
+            // different vault would make the desktop UI's index stale, so use a
+            // local snapshot unless we are moving inside the open vault.
+            let open = ctrl.local_vault().ok();
+            let index_handle = if open.as_deref() == Some(vault.as_path()) {
+                index
+            } else {
+                None
+            };
+            let mut guard = index_handle
+                .as_ref()
+                .map(|handle| handle.lock().unwrap_or_else(|e| e.into_inner()));
+            let wiki = guard.as_deref_mut().unwrap_or(&mut fallback);
+            let result = files::move_entry(&vault, &args.from, &args.to, wiki)?;
+            crate::core::usage::rename_path_best_effort(
+                &vault.to_string_lossy(),
+                &args.from,
+                &args.to,
+            );
+            Ok::<_, AppError>(FileMoveOut {
+                from: args.from,
+                to: result.moved_path,
+                updated_sources: result.updated_sources,
+                skipped: result
+                    .skipped
+                    .into_iter()
+                    .map(|entry| format!("{}: {}", entry.path, entry.reason))
+                    .collect(),
+            })
+        })
+        .await
+        .map_err(|e| tool_err(AppError::message(format!("blocking file_move failed: {e}"))))?
+        .map(Json)
+        .map_err(tool_err)
+    }
+
+    #[tool(
+        description = "Move one or more vault files/directories into the vault recycle bin (undoable; catalog rows under papers/ are restored too). Use vault to target a vault from vault_list; defaults to the open vault."
+    )]
+    async fn file_delete(
+        &self,
+        Parameters(args): Parameters<FileDeleteArgs>,
+    ) -> Result<Json<FileDeleteOut>, CallToolResult> {
+        let ctrl = self.ctrl.clone();
+        let (vault, out) = tokio::task::spawn_blocking(move || {
+            let vault = ctrl.resolve_vault(args.vault.as_deref())?;
+            let result = files::delete_paths(&vault, &args.paths)?;
+            Ok::<_, AppError>((
+                vault,
+                FileDeleteOut {
+                    batch_id: result.batch_id,
+                    count: result.count,
+                    paths: result.rels,
+                },
+            ))
+        })
+        .await
+        .map_err(|e| {
+            tool_err(AppError::message(format!(
+                "blocking file_delete failed: {e}"
+            )))
+        })?
+        .map_err(tool_err)?;
+
+        // Match the UI delete path: a removed paper must not keep running
+        // background work (parse/download/layout) against its old path.
+        if let Some(app) = self.ctrl.app_handle() {
+            if let Some(center) = app.try_state::<crate::features::jobs::JobCenter>() {
+                for rel in &out.paths {
+                    for snapshot in center.cancel_for_paper(&vault, rel).await {
+                        crate::features::jobs::emit_job_changed(&app, snapshot);
+                    }
+                }
+                center.drain_and_spawn(&app).await;
+            }
+        }
+        Ok(Json(out))
+    }
+
+    #[tool(
+        description = "List one directory in the selected vault (not the whole tree). path is vault-relative; omit it for the vault root. Skips .agentero, hidden dirs, and LaTeX build artifacts. Use this to find drafts such as main.tex outside papers/. Set vault to target a vault from vault_list."
     )]
     async fn file_list(
         &self,
         Parameters(args): Parameters<FileListArgs>,
     ) -> Result<Json<files::FileListOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -747,13 +947,13 @@ impl AgenteroMcp {
     }
 
     #[tool(
-        description = "Read one UTF-8 text file by vault-relative path (e.g. drafts/main.tex or notes/idea.md). Refuses .agentero, binaries, marks, and layout indexes. Missing file is an error. NOTES.md is allowed here; prefer paper_notes_get for a paper."
+        description = "Read one UTF-8 text file by vault-relative path (e.g. drafts/main.tex or notes/idea.md). Refuses .agentero, binaries, marks, and layout indexes. Missing file is an error. NOTES.md is allowed here; prefer paper_notes_get for a paper. Set vault to target a vault from vault_list."
     )]
     async fn file_read(
         &self,
         Parameters(args): Parameters<FileReadArgs>,
     ) -> Result<Json<files::FileReadOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -764,13 +964,13 @@ impl AgenteroMcp {
     }
 
     #[tool(
-        description = "Write one UTF-8 text file by vault-relative path. mode=replace (default) or append. Creates missing parent directories inside the vault. Use for a LaTeX draft outside papers/. Refuses NOTES.md (use paper_notes_write), .agentero, binaries, marks, and layout indexes. Confirm with the user before replace."
+        description = "Write one UTF-8 text file by vault-relative path. mode=replace (default) or append. Creates missing parent directories inside the vault. Use for a LaTeX draft outside papers/. Refuses NOTES.md (use paper_notes_write), .agentero, binaries, marks, and layout indexes. Confirm with the user before replace. Set vault to target a vault from vault_list."
     )]
     async fn file_write(
         &self,
         Parameters(args): Parameters<FileWriteArgs>,
     ) -> Result<Json<files::FileWriteOut>, CallToolResult> {
-        let vault = match self.ctrl.local_vault() {
+        let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
             Ok(v) => v,
             Err(e) => return Err(tool_err(e)),
         };
@@ -800,12 +1000,14 @@ impl ServerHandler for AgenteroMcp {
                 .build(),
         )
         .with_instructions(concat!(
-            "Agentero research vault MCP (local vault; App must be open). ",
+            "Agentero research vault MCP (local vaults; App must be open). ",
             "Read agentero://vault, then agentero://agent-invariants. ",
+            "Call vault_list first when you may need a vault other than the open one; pass its path as `vault` on other tools. ",
             "paper_list defaults to id/path/title only — pass fields or full when needed. ",
             "ref is a paper id or vault-relative path. Notes writes only touch NOTES.md. ",
             "Other vault text (a .tex draft outside papers/) uses file_list, file_read, and file_write. ",
-            "Confirm with the user before replace of user-written NOTES or other files. ",
+            "file_move updates wiki links and paper paths; file_delete moves paths to the vault recycle bin. ",
+            "Confirm with the user before replace of user-written NOTES or other files, and before moves or deletes. ",
             "Optional: agentero://skills/agentero-cli for the bundled CLI skill body."
         ))
         .with_server_info(
@@ -889,7 +1091,21 @@ mod schema_tests {
         let inputs = tool.input_schema.get("properties").unwrap();
         assert!(inputs.get("query").is_some());
         assert!(inputs.get("limit").is_some());
+        assert!(inputs.get("vault").is_some());
         assert!(inputs.get("vaultPath").is_none());
+
+        let tools = router.list_all();
+        for name in ["vault_list", "file_move", "file_delete"] {
+            assert!(
+                tools.iter().any(|t| t.name == name),
+                "{name} must be registered"
+            );
+        }
+        let move_tool = tools.iter().find(|t| t.name == "file_move").unwrap();
+        let inputs = move_tool.input_schema.get("properties").unwrap();
+        assert!(inputs.get("from").is_some());
+        assert!(inputs.get("to").is_some());
+        assert!(inputs.get("vault").is_some());
     }
 
     #[cfg(unix)]

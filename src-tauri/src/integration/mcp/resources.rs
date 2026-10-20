@@ -15,6 +15,24 @@ pub const SKILL_URI: &str = "agentero://skills/agentero-cli";
 pub const SKILL_NAME: &str = "agentero-cli-skill";
 
 pub fn vault_markdown(ctrl: &McpController) -> String {
+    let listed = ctrl.vault_list();
+    let known = if listed.vaults.is_empty() {
+        "- (none)".to_string()
+    } else {
+        listed
+            .vaults
+            .iter()
+            .map(|v| {
+                format!(
+                    "- `{}`{}{}",
+                    v.path,
+                    if v.open { " (open)" } else { "" },
+                    if v.exists { "" } else { " (missing)" }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     match ctrl.local_vault() {
         Ok(vault) => {
             let (schema_version, papers_n, unread) = match catalog::ensure_catalog(&vault) {
@@ -36,16 +54,19 @@ pub fn vault_markdown(ctrl: &McpController) -> String {
                  - **schemaVersion**: {schema}\n\
                  - **papers**: {papers_n}\n\
                  - **unread**: {unread}\n\n\
+                 ## Known vaults\n\n{known}\n\n\
                  Next: read `{INVARIANTS_URI}`, then `paper_list` (slim by default) / `paper_get`.\n\
                  `ref` is a paper id or vault-relative path. Use `fields` or `full` on `paper_list` only when needed.\n\
+                 To target another known vault, pass its path as `vault` (see `vault_list`).\n\
                  Text outside a paper record (for example `drafts/main.tex`): `file_list`, then `file_read` / `file_write`.\n",
                 vault.display()
             )
         }
-        Err(_) => {
-            "# Agentero vault\n\nNo local vault is open. Open a vault in Agentero, then read this resource again.\n"
-                .into()
-        }
+        Err(_) => format!(
+            "# Agentero vault\n\nNo local vault is open. Open a vault in Agentero, then read this resource again.\n\n\
+             ## Known vaults\n\n{known}\n\n\
+             Pass a known path as `vault` to tools that accept it, or open the vault in Agentero.\n"
+        ),
     }
 }
 
