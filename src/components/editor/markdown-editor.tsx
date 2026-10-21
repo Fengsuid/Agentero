@@ -33,6 +33,7 @@ import { FindReplaceBar } from "@/components/editor/overlays/find-replace-bar";
 import { FrontmatterPanel } from "@/components/editor/overlays/frontmatter-panel";
 import { HeadingRenameDialog } from "@/components/editor/overlays/heading-rename-dialog";
 import { SlashCommandMenu } from "@/components/editor/overlays/slash-command-menu";
+import { MarkdownSourcePeekDialog } from "@/components/editor/overlays/source-peek-dialog";
 import {
 	MINIMUM_TOC_HEADINGS,
 	queryTocHeadings,
@@ -85,6 +86,7 @@ import {
 	setMarkdownScrollTop,
 } from "@/lib/markdown/scroll-memory";
 import { resolveSelectionSourceLines } from "@/lib/markdown/selection-source-lines";
+import { registerMarkdownSourcePeek } from "@/lib/markdown/source-peek-registry";
 import { useUiScale } from "@/lib/settings";
 import { formatModShortcut } from "@/lib/shell/shortcuts";
 import type { LinkFragment, WikiRenameHeadingRequest } from "@/lib/wiki";
@@ -283,6 +285,8 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 	const [findFocusTick, setFindFocusTick] = useState(0);
 	const [exportOpen, setExportOpen] = useState(false);
 	const [exportBusy, setExportBusy] = useState(false);
+	const [sourcePeekOpen, setSourcePeekOpen] = useState(false);
+	const [sourcePeekSource, setSourcePeekSource] = useState("");
 	const [exportPaperHeader, setExportPaperHeader] =
 		useState<MarkdownExportPaperHeader | null>(null);
 	/** Bumped on unmount so in-flight export does not setState after leave. */
@@ -421,6 +425,23 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 		},
 		[persistFrontmatterChange],
 	);
+
+	/**
+	 * Read-only source peek: snapshot the serialized source (frontmatter
+	 * re-attached) when opening. Reading it never calls noteDocumentChanged /
+	 * saveNow, so viewing the source does not dirty the note.
+	 */
+	const openSourcePeek = useCallback(() => {
+		setSourcePeekSource(serialize());
+		setSourcePeekOpen(true);
+	}, [serialize]);
+
+	// Expose this editor's peek to the command palette (active Markdown tab).
+	useEffect(() => {
+		const path = filePath?.trim();
+		if (!path) return;
+		return registerMarkdownSourcePeek(path, { open: openSourcePeek });
+	}, [filePath, openSourcePeek]);
 
 	/**
 	 * External disk change accepted by the tab layer (applyDiskChange / Agent
@@ -849,6 +870,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 									setFindOpen(true);
 									setFindFocusTick((tick) => tick + 1);
 								}}
+								onViewSource={openSourcePeek}
 								onExport={isTauri() ? openExportDialog : undefined}
 								propertiesPanel={
 									<FrontmatterPanel
@@ -1016,6 +1038,14 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 										</ContextMenuItem>
 										<ContextMenuSeparator />
 										<ContextMenuItem
+											disabled={!contextMenuCapabilities.viewSource}
+											onSelect={() => {
+												openSourcePeek();
+											}}
+										>
+											{i18n.t("editor:contextMenu.viewSource")}
+										</ContextMenuItem>
+										<ContextMenuItem
 											disabled={
 												!contextMenuCapabilities.exportNote || exportBusy
 											}
@@ -1073,6 +1103,11 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 							busy={headingRenameBusy}
 							onOpenChange={setHeadingRenameOpen}
 							onConfirm={confirmHeadingRename}
+						/>
+						<MarkdownSourcePeekDialog
+							open={sourcePeekOpen}
+							source={sourcePeekSource}
+							onClose={() => setSourcePeekOpen(false)}
 						/>
 						<MarkdownExportDialog
 							open={exportOpen}

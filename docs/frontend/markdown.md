@@ -40,6 +40,7 @@ Plate WYSIWYG；用于普通笔记与论文 `NOTES.md`。磁盘上始终是标�
 - **内嵌图**（见下表）。
 - **双链 / 嵌入**：见 [wiki.md](wiki.md)。
 - **导出 PDF / PNG / Markdown**（桌面端）：工具栏分享按钮或右键「导出笔记…」。Markdown 格式直接把当前序列化内容（含未保存改动与 frontmatter）另存为独立 `.md` 文件。PDF / PNG 离屏只读渲染当前序列化内容；页面背景贴边；正文内边距对齐编辑器 `default`（`px-16 pt-4`，底边 `pb-10`）。默认完整展开 `![[…]]` 嵌入，就绪后用 `html-to-image` 截视觉层。**PDF**（`pdf-lib`）在位图上叠 **不可见可选中文字层**（DOM 测量 + Host `export_system_cjk_font`）与 **http(s)/mailto 链接注解**，再按 A4 分页；**PNG** 仍为纯位图。可选论文页眉、每页水印（logo + `muted-foreground`）。完整 PDF 附件嵌入为路径占位。导出默认带水印，可在对话框内临时取消。
+- **源码预览（只读）**：工具栏源码按钮、编辑器右键「查看 Markdown 源码」或命令面板（⇧⌘P，「查看 Markdown 源码」）打开当前笔记的完整 Markdown 源码叠层：frontmatter 与当前序列化的正文（含未保存改动）以等宽只读文本展示，可全选，「全部复制」写入剪贴板。源码在打开时由既有 `serialize()` 生成一次，仅展示，不写回、不标记未保存、不触发自动保存；命令面板入口只在当前活动面板是已加载的 Markdown 笔记时出现。当前版本不支持在源码里逐字编辑（见「限制与后续」）。
 - **外部改盘**：无未存改动则重载；有未存则 toast；内容相等抑制自写回声。主窗与文档弹出窗（「移动至新窗口」）各自监听本窗 Vault watcher，规则相同。
 - **保存冲突**：写盘前比对上次落盘内容；磁盘已被外部改则中止并警告。
 
@@ -73,6 +74,7 @@ Plate WYSIWYG；用于普通笔记与论文 `NOTES.md`。磁盘上始终是标�
 - **macOS 未启用块级 `content-visibility`**：见 §阅读与打开性能第 1 条与 #702；WebKit 逐元素 CV 只在内容进入视口时才 reveal（[WebKit #276735](https://bugs.webkit.org/show_bug.cgi?id=276735) 未修），打开它会把卡顿从拖拽搬到滚动，故仍不开。**拖动分隔条这一条已用「手势期间冻结重排」绕开**；仍未覆盖的是原生窗口缩放，以及拖动期间 `@container/editor` 的每帧 style recalc（见 [bug_fix/dockview-sash-pdf-resize-jank.md](../bug_fix/dockview-sash-pdf-resize-jank.md) §5）。
 - **笔记滚动记忆是像素偏移**：记下 `scrollTop` 和当时的可滚动高度。文档仍够高时恢复原偏移；首屏高度不够（窗口变矮，或离屏块还没测高）则按比例落在当前范围内，避免被夹到文末。改字号、栏宽或正文后，位置会相对上次阅读点漂移。
 - **Agent 写盘光标保护**：`applyExternalMarkdown` 整篇 `setValue` + `deselect()`，Agent 流式写笔记时可能打断正在输入的光标；后续计划 setValue 后恢复 selection（pathRef 吸收位移）。
+- **源码编辑未支持**：当前只提供只读源码预览（见「能力」），不能在源码叠层里逐字编辑；需要逐字改 Markdown 时仍可导出 `.md` 或用外部编辑器打开文件（外部改盘会自动重载）。源码模式下的直接编辑留给后续阶段。
 - **对话面板剩余 memo**：流式合帧与窄订阅已落地（见 [agent.md](agent.md)），composer / config bar 等与 lines 无关的子树仍随面板重渲染，待逐个补 memo。
 
 
@@ -166,6 +168,8 @@ Markdown 已能表达的语法不做 HTML 语义化转换，只处理 Markdown �
 | `src/components/editor/hooks/` | 有状态逻辑：自动保存、双链编辑语义、补全菜单、右键菜单、选区发布 |
 | `src/components/editor/markdown-export-dialog.tsx` | 导出格式与选项对话框 |
 | `src/components/editor/markdown-export-surface.tsx` | 离屏只读导出渲染（export mode） |
+| `src/components/editor/overlays/source-peek-dialog.tsx` | 只读 Markdown 源码预览叠层（完整源码 + 全部复制） |
+| `src/lib/markdown/source-peek-registry.ts` | 按文件路径注册源码预览入口，命令面板据此打开当前笔记源码 |
 | `src/lib/markdown/export/` | 论文页眉解析、就绪等待、截图 / 可检索 PDF、保存 |
 | `src/components/editor/overlays/frontmatter-panel.tsx` | 可折叠 Properties / YAML frontmatter 编辑 |
 | `src/lib/markdown/frontmatter.ts` | frontmatter 围栏拆装与属性计数 |

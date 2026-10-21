@@ -28,6 +28,7 @@
 		"catLibrary": "Library",
 		"catTab": "Tab",
 		"catPdf": "PDF",
+		"catEditor": "Editor",
 		"settingsOpen": "Open Settings",
 		"settingsClose": "Close Settings",
 		"vaultOpen": "Open Vault…",
@@ -50,6 +51,7 @@
 		"tabNext": "Next Tab",
 		"tabPrev": "Previous Tab",
 		"exportAnnotatedPdf": "Export Annotated PDF",
+		"viewMarkdownSource": "View Markdown source",
 		"wandOpen": "Magic Wand (Import by ID)"
 	},
 	"titlebar": {

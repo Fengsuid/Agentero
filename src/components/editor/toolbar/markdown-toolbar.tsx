@@ -11,6 +11,7 @@ import { insertImage } from "@platejs/media";
 import {
 	Bold,
 	Code,
+	FileCode2,
 	Heading1,
 	Heading2,
 	Heading3,
@@ -221,11 +222,14 @@ function FetchKimiNotesButton() {
  */
 export function MarkdownEditorToolbar({
 	onOpenFind,
+	onViewSource,
 	onExport,
 	propertiesPanel,
 }: {
 	/** Show the Search button at the right end; opens the find & replace bar. */
 	onOpenFind?: () => void;
+	/** Open the read-only Markdown source peek. */
+	onViewSource?: () => void;
 	/** Export the current note as PDF / PNG. */
 	onExport?: () => void;
 	/** Content rendered in the Properties toolbar popover. */
@@ -339,6 +343,15 @@ export function MarkdownEditorToolbar({
 						</Popover>
 					) : null}
 					<FetchKimiNotesButton />
+					{onViewSource ? (
+						<ToolbarButton
+							tooltip={t("toolbar.viewSource")}
+							aria-label={t("toolbar.viewSource")}
+							onClick={onViewSource}
+						>
+							<FileCode2 />
+						</ToolbarButton>
+					) : null}
 					{onExport ? (
 						<ToolbarButton
 							tooltip={t("export.toolbar")}

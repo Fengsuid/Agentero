@@ -19,6 +19,7 @@
 		"todoList": "To-do list",
 		"image": "Insert image",
 		"properties": "Properties",
+		"viewSource": "View Markdown source",
 		"fetchKimiNotes": "Get Cool Paper notes",
 		"fetchKimiNotesShort": "Notes",
 		"more": "More"
@@ -90,6 +91,7 @@
 		"cut": "Cut",
 		"copy": "Copy",
 		"paste": "Paste",
+		"viewSource": "View Markdown source",
 		"exportNote": "Export note…",
 		"insertWikiLink": "Add internal link",
 		"insertExternalLink": "Add external link",
@@ -117,6 +119,12 @@
 		"failed": "Could not export this note",
 		"desktopOnly": "Note export is available only in the desktop app.",
 		"pdfEmbedPlaceholder": "PDF embed: {{path}}"
+	},
+	"sourcePeek": {
+		"title": "Markdown source",
+		"copy": "Copy all",
+		"copied": "Source copied",
+		"copyFailed": "Could not copy the source."
 	},
 	"headingRename": {
 		"menu": "Rename current heading",

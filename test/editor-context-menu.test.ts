@@ -117,7 +117,7 @@ describe("Markdown editor context menu", () => {
 		expect(peekExternalLinkEditId(editor)).toBeTruthy();
 	});
 
-	it("keeps copy available in read-only notes and blocks mutations", () => {
+	it("keeps copy and source peek available in read-only notes and blocks mutations", () => {
 		expect(
 			editorContextMenuCapabilities({
 				exportAvailable: true,
@@ -132,6 +132,7 @@ describe("Markdown editor context menu", () => {
 			insertLink: false,
 			paste: false,
 			renameHeading: false,
+			viewSource: true,
 		});
 	});
 
@@ -150,6 +151,7 @@ describe("Markdown editor context menu", () => {
 			insertLink: true,
 			paste: true,
 			renameHeading: true,
+			viewSource: true,
 		});
 	});
 

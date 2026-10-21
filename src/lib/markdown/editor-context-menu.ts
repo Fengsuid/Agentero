@@ -16,6 +16,8 @@ export type EditorContextMenuCapabilities = {
 	insertLink: boolean;
 	paste: boolean;
 	renameHeading: boolean;
+	/** Read-only source peek — available in every mode, including read-only. */
+	viewSource: boolean;
 };
 
 export function editorContextMenuCapabilities({
@@ -41,6 +43,7 @@ export function editorContextMenuCapabilities({
 		insertLink: !readOnly,
 		paste: !readOnly,
 		renameHeading: headingRenameAvailable,
+		viewSource: true,
 	};
 }
 

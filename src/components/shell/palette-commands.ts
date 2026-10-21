@@ -7,6 +7,10 @@
 import { fileTreeHandle } from "@/components/shell/file-tree-registry";
 import { focusAgentComposer } from "@/lib/agent/composer-focus";
 import { pinActiveSelection } from "@/lib/agent/selection-store";
+import {
+	canOpenActiveMarkdownSourcePeek,
+	openActiveMarkdownSourcePeek,
+} from "@/lib/markdown/source-peek-registry";
 import { openMagicWand } from "@/lib/paper/import-actions";
 import { refreshLibrary } from "@/lib/paper/library-store";
 import { registerBuiltinCommands } from "@/lib/shell/commands/registry";
@@ -193,6 +197,16 @@ export const paletteCommands: AppCommand[] = [
 		run: () => {
 			const handle = resolveActivePdfHandle();
 			if (handle) void handle.exportAnnotatedPdf();
+		},
+	},
+	{
+		id: "editor.viewMarkdownSource",
+		titleKey: "commands.viewMarkdownSource",
+		categoryKey: "commands.catEditor",
+		keywords: ["markdown", "source", "raw", "peek"],
+		when: canOpenActiveMarkdownSourcePeek,
+		run: () => {
+			openActiveMarkdownSourcePeek();
 		},
 	},
 	{

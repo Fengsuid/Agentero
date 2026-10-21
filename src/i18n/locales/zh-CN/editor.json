@@ -19,6 +19,7 @@
 		"todoList": "待办列表",
 		"image": "插入图片",
 		"properties": "属性",
+		"viewSource": "查看 Markdown 源码",
 		"fetchKimiNotes": "获取 Cool Paper 笔记",
 		"fetchKimiNotesShort": "笔记",
 		"more": "更多"
@@ -90,6 +91,7 @@
 		"cut": "剪切",
 		"copy": "复制",
 		"paste": "粘贴",
+		"viewSource": "查看 Markdown 源码",
 		"exportNote": "导出笔记…",
 		"insertWikiLink": "新增双链",
 		"insertExternalLink": "新增外部链接",
@@ -117,6 +119,12 @@
 		"failed": "无法导出此笔记",
 		"desktopOnly": "笔记导出仅在桌面应用中可用。",
 		"pdfEmbedPlaceholder": "PDF 嵌入：{{path}}"
+	},
+	"sourcePeek": {
+		"title": "Markdown 源码",
+		"copy": "全部复制",
+		"copied": "已复制源码",
+		"copyFailed": "无法复制源码。"
 	},
 	"headingRename": {
 		"menu": "重命名当前标题",
