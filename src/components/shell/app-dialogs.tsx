@@ -11,7 +11,7 @@ import { ZoteroMigrateDialog } from "@/components/dialogs/zotero-migrate-dialog"
 import { ZoteroSyncDialog } from "@/components/dialogs/zotero-sync-dialog";
 import { CitingScanDialog } from "@/components/library/citing-scan-dialog";
 import { EditPaperMetaDialog } from "@/components/library/edit-paper-meta-dialog";
-import { paletteCommands } from "@/components/shell/palette-commands";
+import "@/components/shell/palette-commands";
 import {
 	useLibraryStore,
 	useUiStore,
@@ -27,6 +27,7 @@ import {
 } from "@/lib/paper/import-actions";
 import { paperMetaChange } from "@/lib/paper/library-actions";
 import { setEditMetaDraft } from "@/lib/paper/library-store";
+import { listCommands } from "@/lib/shell/commands/registry";
 import {
 	setCommandOpen,
 	setZoteroOpen,
@@ -97,7 +98,7 @@ export function AppDialogs() {
 				mode={commandMode}
 				vaultPath={vaultPath}
 				papers={libraryPapers}
-				commands={paletteCommands}
+				commands={listCommands()}
 				onOpenPaper={(rel) => {
 					if (vaultPath) openPaper(joinVaultPath(vaultPath, rel));
 				}}

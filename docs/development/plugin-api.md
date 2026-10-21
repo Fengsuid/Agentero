@@ -88,3 +88,15 @@
 宿主实际 payload 还带 `timestamp`；`paper:renamed` 还带 `updatedSources`。这两项不在 v0 契约字段里。字段名与 `src/lib/lifecycle/events.ts` 一致。`paper:imported` / `paper:assets-ready` / `paper:renamed` 的发射在 `crates/agentero-core/src/features/lifecycle.rs`；`vault:opened` 和 `paper:opened` 由前端发出。
 
 没有订阅 API。这张表只规定名字和字段。
+
+## 进程内命令注册表
+
+命令面板的命令列表是进程内注册表（`src/lib/shell/commands/registry.ts`），不是一份写死的数组。这一层只在应用进程里追加命令，不加载外部代码。外部列表在生产环境是空的。没有插件宿主。
+
+两份列表按各自的注册顺序拼接：先内置，再外部。`listCommands()` 原样返回，不在这里看 `when`。命令面板自己决定隐藏哪些命令。
+
+内置命令在 `src/components/shell/palette-commands.ts` 加载时通过 `registerBuiltinCommands` 显式以 `"builtin"` 注册。`registerCommand` 不写 source 时记为 `"external"`，避免调用方漏参数就登记成内置。同一个 id 再注册会抛错，并保留第一次的那条，不会替换。模块再次求值时，已经注册过的内置 id 会跳过，不会因为重复而抛错。
+
+内置命令继续用 `titleKey` 和可选的 `categoryKey`（现有 i18n）。外部命令用普通字符串 `title` 和可选的 `category`，不需要 `titleKey`，文案不进 `src/i18n/locales`。面板用 `commandTitle` / `commandCategory` 取显示文案。
+
+快捷键仍绑定 `src/lib/shell/shortcuts.ts` 里的内置 id。外部命令不会从这份注册表拿走快捷键。
