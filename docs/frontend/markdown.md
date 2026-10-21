@@ -49,14 +49,14 @@ Plate WYSIWYG；用于普通笔记与论文 `NOTES.md`。磁盘上始终是标�
 - **预处理按需执行**：`prepareMarkdownForDeserialize` 仅在存在连续空行 / `$$` / `<` / `{` `}` 时才跑对应的整篇扫描，纯文本笔记直接原样返回。
 - **本地图片懒读 + 共享缓存**：图片节点进入视口（`rootMargin 800px`）才走 `readFile` → `blob:`；同一路径多引用与重开共用同一源（引用计数 + LRU=48 + 撤销），导出模式强制立即加载。
 - **打开路径种子缓存**：`loadTabResources` 读 Markdown/NOTES 走会话内 LRU=24 文本缓存，外部变更由 Vault watcher 失效、写盘后回填；保存冲突检测与 `applyDiskChange` 仍读原始文件，冲突语义不变。
-- **编辑器保活 LRU=4**：最近 4 个 Markdown / 文本编辑器常驻，切回跳过插件初始化与整篇反序列化；滚动位置按文件记忆（`scroll-memory`），淘汰重开回到上次位置。
+- **编辑器保活 LRU=4**：最近 4 个 Markdown / 文本编辑器常驻，切回跳过插件初始化与整篇反序列化。滚动位置按文件记在 localStorage（`agentero-md-scroll`）：同一次运行里被淘汰后重开，以及重启应用后再打开，都回到上次位置。
 - **重块懒渲染**：Mermaid 预览、块级 KaTeX 公式与 `![[…]]` 嵌入进入视口才渲染/反序列化（导出模式立即渲染），长笔记首屏不为离屏图表/公式/嵌入买单；行内公式数量多且小，保持即时渲染。
 - **反链查询延后**：状态栏反链在 idle（`scheduleIdle`，超时 2s）里查询，不抢首屏。
 - **图片引用计数种子延后**：打开时不再同步遍历全树统计图片引用，改到 idle 执行；在它落地前自动保存跳过 asset GC diff，不会误删。
 - **滚动期探针门控**：`onScrollCapture` 只在存在 `[[` 双链 / slash 候选菜单草稿时才跑补全探针（DOM 读取 + 编辑器树遍历）；纯滚动（含滚动条拖拽）不再每事件付探针成本。
 - **自动保存单次序列化**：写盘前快照 `editor.children` 与 frontmatter 引用，写后按引用相等判断文档是否在写盘期间变动，只有真变了才做二次全文档序列化（此前每次保存固定序列化两遍）。
 - **编辑器 memo 边界**：`MarkdownEditor` 按 props memo；`onDirtyChange` 在 DocView 内 `useCallback` 固定；`patchTab` 对无变化 patch 返回原数组与原 tab 引用——`notesDirty` 重复跳变、PDF 编译状态等 tab patch 不再重渲染其它面板的编辑器（Plate 全量协调）。
-- **跳转优先于滚动记忆**：`navigationIntent`（`[[note#标题]]` / 块锚 / 划词来源跳转）生效期间，scroll-memory 的挂载恢复让位，不再把视图拉回旧偏移；`scroll-memory` 本身保持 passive（只写 ref，不触发渲染）。
+- **跳转优先于滚动记忆**：`navigationIntent`（`[[note#标题]]` / 块锚 / 划词来源跳转）生效期间，scroll-memory 的挂载恢复让位，不再把视图拉回旧偏移；记录滚动不触发渲染，写入 localStorage 有 400ms 合并，退出时立刻落盘。
 
 三面板（PDF + 笔记 + 对话）同开的整体调优见 [bug_fix/notes-pane-jank-multi-panel.md](../bug_fix/notes-pane-jank-multi-panel.md)。
 
@@ -64,6 +64,7 @@ Plate WYSIWYG；用于普通笔记与论文 `NOTES.md`。磁盘上始终是标�
 
 - **~~`@platejs/toc` 每 scroll 事件重建 IntersectionObserver~~**：已修复（`patches/@platejs__toc@53.0.0.patch`）。原实现里 scroll 监听每事件 `setStatus(Date.now())`，observer effect 依赖它，于是每个 scroll 事件都 disconnect + 重建 IO（每个标题一次 `NodeApi.get` + `toDOMNode` + `observe`）并全量重渲染 TOC（约 2–5ms/事件，与滚动距离无关）。现在 observer 长生命周期保留，滚动只按 rAF 合并做一次 diff 重挂（仅重新 observe DOM 节点真的换过的标题），也不再触发 React 状态更新。见 [bug_fix/toc-scroll-observer-rebuild.md](../bug_fix/toc-scroll-observer-rebuild.md)。
 - **macOS 未启用块级 `content-visibility`**：见 §阅读与打开性能第 1 条与 #702；WebKit 逐元素 CV 只在内容进入视口时才 reveal（[WebKit #276735](https://bugs.webkit.org/show_bug.cgi?id=276735) 未修），打开它会把卡顿从拖拽搬到滚动，故仍不开。**拖动分隔条这一条已用「手势期间冻结重排」绕开**；仍未覆盖的是原生窗口缩放，以及拖动期间 `@container/editor` 的每帧 style recalc（见 [bug_fix/dockview-sash-pdf-resize-jank.md](../bug_fix/dockview-sash-pdf-resize-jank.md) §5）。
+- **笔记滚动记忆是像素偏移**：记下 `scrollTop` 和当时的可滚动高度。文档仍够高时恢复原偏移；首屏高度不够（窗口变矮，或离屏块还没测高）则按比例落在当前范围内，避免被夹到文末。改字号、栏宽或正文后，位置会相对上次阅读点漂移。
 - **Agent 写盘光标保护**：`applyExternalMarkdown` 整篇 `setValue` + `deselect()`，Agent 流式写笔记时可能打断正在输入的光标；后续计划 setValue 后恢复 selection（pathRef 吸收位移）。
 - **对话面板剩余 memo**：流式合帧与窄订阅已落地（见 [agent.md](agent.md)），composer / config bar 等与 lines 无关的子树仍随面板重渲染，待逐个补 memo。
 
@@ -178,7 +179,7 @@ Markdown 已能表达的语法不做 HTML 语义化转换，只处理 Markdown �
 | `src/lib/markdown/image-source-cache.ts` | 本地图片 `blob:` 源共享缓存（引用计数 + LRU + 撤销） |
 | `src/lib/markdown/remark-plugins.ts` | 全量 remark 管线与按内容裁剪的反序列化选择器 |
 | `src/lib/markdown/deserialize-md.ts` | 统一的反序列化入口（预处理 + 裁剪后的 remark 插件） |
-| `src/lib/markdown/scroll-memory.ts` | 每文件会话内滚动位置记忆 |
+| `src/lib/markdown/scroll-memory.ts` | 每文件滚动位置（localStorage，跨重启） |
 | `src/lib/vault/seed-cache.ts` | Markdown/NOTES 打开路径文本种子缓存 |
 | `src/hooks/use-in-view.ts` | 进入视口才执行重活的 IntersectionObserver hook |
 | `src/lib/core/idle.ts` | idle 调度（`requestIdleCallback`，WebKit 回退短定时器） |

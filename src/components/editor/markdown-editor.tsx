@@ -79,7 +79,9 @@ import { saveImageToMarkdownAssets } from "@/lib/markdown/image";
 import { convertInlineMathAtCaret } from "@/lib/markdown/inline-math-auto-close";
 import { registerMarkdownSelectionLinesProvider } from "@/lib/markdown/markdown-selection-lines-registry";
 import {
-	getMarkdownScrollTop,
+	flushMarkdownScrollMemory,
+	getMarkdownScrollAnchor,
+	markdownScrollTopToRestore,
 	setMarkdownScrollTop,
 } from "@/lib/markdown/scroll-memory";
 import { resolveSelectionSourceLines } from "@/lib/markdown/selection-source-lines";
@@ -236,9 +238,15 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 	const onAssetsChangedRef = useRef(onAssetsChanged);
 	onAssetsChangedRef.current = onAssetsChanged;
 	const editorContainerRef = useRef<HTMLDivElement | null>(null);
-	// Reading position survives keep-alive eviction (see scroll-memory).
+	// Reading position survives keep-alive eviction and app restart (see scroll-memory).
 	const scrollKey = filePath ?? null;
 	const scrollTopRef = useRef(0);
+	/** False until the saved offset has been applied, so a mount scroll cannot wipe it. */
+	const scrollReadyRef = useRef(false);
+	/** User scrolled before restore ran; do not yank the view back. */
+	const scrolledBeforeRestoreRef = useRef(false);
+	/** True while applying a saved offset, so that write does not replace it. */
+	const restoringScrollRef = useRef(false);
 	// Body text keeps its own px font size (editorFontSize setting) so it must
 	// follow the UI zoom (uiScale) explicitly — rem-based chrome scales for free.
 	const uiScale = useUiScale();
@@ -435,26 +443,53 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 		});
 	}, [reloadKey, initialMarkdown, applyExternalMarkdown]);
 
-	// Restore the last reading position when a keep-alive-evicted note remounts,
-	// and persist it (bounded, no re-render) when this instance unmounts.
+	// Restore the last reading position when a note mounts (keep-alive eviction
+	// or a restarted app). Retry while the document has no scroll range yet.
+	// The scroll handler records the position; unmount flushes it.
 	useEffect(() => {
 		if (!scrollKey) return;
-		const frame = window.requestAnimationFrame(() => {
+		scrollReadyRef.current = false;
+		scrolledBeforeRestoreRef.current = false;
+		let cancelled = false;
+		let frames = 0;
+		let frame = 0;
+		const tick = () => {
+			if (cancelled) return;
 			const el = editorContainerRef.current;
 			if (!el) return;
-			// A navigation jump owns the position this frame; restoring the
-			// remembered offset would cancel its (smooth) scroll.
-			if (navigationJumpRef.current) {
+			// A navigation jump owns the position; restoring would cancel its scroll.
+			// Later scroll events (scrollReady) record where the jump landed.
+			if (navigationJumpRef.current || scrolledBeforeRestoreRef.current) {
 				scrollTopRef.current = el.scrollTop;
+				scrollReadyRef.current = true;
 				return;
 			}
-			const top = getMarkdownScrollTop(scrollKey);
-			if (top > 0) el.scrollTop = top;
+			const saved = getMarkdownScrollAnchor(scrollKey);
+			const viewportMax = Math.max(0, el.scrollHeight - el.clientHeight);
+			if (saved && saved.top > 0 && viewportMax <= 0 && frames < 8) {
+				frames += 1;
+				frame = window.requestAnimationFrame(tick);
+				return;
+			}
+			if (saved && saved.top > 0 && viewportMax > 0) {
+				// Hold through the next frame so an async scroll echo cannot
+				// replace the saved offset with a shorter layout's fraction.
+				restoringScrollRef.current = true;
+				el.scrollTop = markdownScrollTopToRestore(saved, viewportMax);
+			}
 			scrollTopRef.current = el.scrollTop;
-		});
+			scrollReadyRef.current = true;
+			frame = window.requestAnimationFrame(() => {
+				if (!cancelled) restoringScrollRef.current = false;
+			});
+		};
+		frame = window.requestAnimationFrame(tick);
 		return () => {
+			cancelled = true;
+			scrollReadyRef.current = false;
+			restoringScrollRef.current = false;
 			window.cancelAnimationFrame(frame);
-			setMarkdownScrollTop(scrollKey, scrollTopRef.current);
+			flushMarkdownScrollMemory();
 		};
 	}, [scrollKey]);
 
@@ -844,7 +879,26 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 											className="agentero-scroll h-full min-w-0 overflow-y-auto"
 											onScrollCapture={() => {
 												const el = editorContainerRef.current;
-												if (el) scrollTopRef.current = el.scrollTop;
+												if (el) {
+													scrollTopRef.current = el.scrollTop;
+													if (!scrollReadyRef.current) {
+														if (el.scrollTop > 1) {
+															scrolledBeforeRestoreRef.current = true;
+														}
+													} else if (
+														scrollKey &&
+														el.isConnected &&
+														!restoringScrollRef.current
+													) {
+														// Ignore the restore write and a detach reset.
+														// Both would replace the saved offset.
+														setMarkdownScrollTop(
+															scrollKey,
+															el.scrollTop,
+															el.scrollHeight - el.clientHeight,
+														);
+													}
+												}
 												// Reposition instead of hard-dismiss: arrow-key list
 												// updates can reflow and fire scroll without leaving [[.
 												// Only probe while a menu is open — the probe reads the
