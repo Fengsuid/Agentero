@@ -213,32 +213,6 @@ jobs:
           uploadUpdaterSignatures: true
           updaterJsonPreferNsis: true
 
-  # tauri-action writes api.github.com/releases/assets/:id URLs into
-  # latest.json. The updater plugin downloads those with
-  # Accept: application/octet-stream and GitHub 403s unauthenticated
-  # clients, so every in-app install fails. Rewrite to public
-  # browser_download_url values before the draft is published.
-  updater-latest-urls:
-    name: Rewrite updater latest.json URLs
-    needs: installers
-    runs-on: ubuntu-latest
-    if: always() && needs.installers.result != 'cancelled'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
-      - name: Rewrite latest.json asset URLs
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-        run: node scripts/rewrite-updater-latest.mjs
-
   # Android ships its own signed APK into the same draft. Kept out of the
   # `installers` matrix because it needs the Android SDK/NDK and a keystore
   # instead of per-OS desktop toolchains. The matrix is the ABI list: add

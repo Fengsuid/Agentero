@@ -96,11 +96,10 @@ GitHub Actions 必须配置以下 repository secrets；`release.yml` 会在创�
 | `TAURI_SIGNING_PRIVATE_KEY` | `tauri signer generate` 产生的完整 minisign 私钥内容 |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 生成该私钥时使用的密码 |
 
-发布工作流设置 `createUpdaterArtifacts`，由 `tauri-apps/tauri-action@v1` 上传签名更新包、`.sig` 和聚合后的 `latest.json`。installer 矩阵结束后，`updater-latest-urls` job 把 `latest.json` 里的 `api.github.com/repos/.../releases/assets/:id` 改写成公开的 `browser_download_url`（否则应用内更新下载会 403）。已发布 Release 可在 Actions 里手动跑 **Rewrite updater latest.json URLs** 并填入 tag 补修。客户端请求 `https://github.com/poco-ai/Agentero/releases/latest/download/latest.json`，因此：
+发布工作流设置 `createUpdaterArtifacts`，由 `tauri-apps/tauri-action@v1` 上传签名更新包、`.sig` 和聚合后的 `latest.json`。客户端请求 `https://github.com/poco-ai/Agentero/releases/latest/download/latest.json`，因此：
 
 - Draft Release 用于验收，发布前不会被客户端读取；
 - 只有完整、已发布的稳定版 Release 才会成为更新源；
-- `latest.json` 各平台 `url` 为 `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>`，不是 GitHub API asset URL；
 - Windows metadata 优先采用 NSIS updater 包；macOS 与 Linux 使用 Tauri 生成的对应更新产物；
 - 上述签名只证明更新包完整性，macOS 的 Developer ID 签名和 notarization 仍必须照常完成。
 
