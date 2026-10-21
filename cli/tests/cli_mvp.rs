@@ -17,6 +17,7 @@ fn create_vault(dir: &Path) -> PathBuf {
     fs::create_dir_all(&home).unwrap();
     agentero()
         .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
         .args(["vault", "create", dir.to_str().unwrap(), "--json"])
         .assert()
         .success()
@@ -96,6 +97,7 @@ fn vault_create_and_list() {
 
     let list = agentero()
         .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
         .args(["vault", "list", "--json"])
         .assert()
         .success()

@@ -138,7 +138,7 @@ cargo test -p agentero-cli
 
 ### Vault 列表
 
-`agentero vault create <PATH>` 会把 Vault 绝对路径记录到 `~/.config/agentero/config.toml` 的 `known_vaults` 数组中（去重追加）。`agentero vault list` 可列出这些已知 Vault，并标出当前 `default_vault`：
+`agentero vault create <PATH>` 会把 Vault 绝对路径记录到共享配置目录中的 `agentero/config.toml` 的 `known_vaults` 数组中（去重追加）。路径统一经 core `paths` 解析：优先 `$XDG_CONFIG_HOME`，Unix 默认 `~/.config`，Windows 默认 `%APPDATA%`。`agentero vault list` 可列出这些已知 Vault，并标出当前 `default_vault`：
 
 ```bash
 agentero vault list
@@ -151,6 +151,10 @@ agentero vault list --json
 default_vault = "/Users/philfan/l/paper"
 known_vaults = ["/Users/philfan/l/paper", "/Users/philfan/l/video-acc"]
 ```
+
+新位置没有配置时，CLI 会校验并原样复制旧 `~/.config/agentero/config.toml`，保留旧文件；新位置已有文件时始终优先它，迁移不覆盖并发创建的文件。旧 `vaults.md` 列表合并去重并成功原子写入后才删除来源。配置解析或写入失败会返回错误，旧文件保留；保存也保留不认识的 TOML 字段，避免新版配置被旧版 CLI 丢弃。
+
+普通保存复用 core 原子写，使用唯一同目录 `.tmp`、Unix `0600`，替换前同步文件内容；旧位置迁移使用 `tempfile::persist_noclobber` 保证不覆盖已有新配置。原子替换失败不会退化为截断写。
 
 ## 发现（discover）
 

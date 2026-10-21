@@ -54,9 +54,8 @@ src-tauri/src/
 | `tauri-plugin-dialog` | 选 Vault 目录 |
 | `tauri-plugin-opener` | `revealItemInDir`、外链 |
 | `tauri-plugin-log` | 运行日志 |
-| shell / 子进程 | spawn ACP agent（及 SSH 相关） |
 
-应用设置走 XDG `settings.json`（`features/system/settings`），不依赖把论文 meta 放进 Store。
+ACP / SSH 子进程由 Rust 与 ACP SDK 启动，不注册 Tauri shell 插件。应用设置走 XDG `settings.json`（`features/system/settings`），也不依赖 Tauri store 插件。
 
 ## 主要 Rust crates
 
@@ -91,6 +90,10 @@ src-tauri/src/
 | 可重建索引 | 双链图 | 内存 / 可重建缓存，非业务权威 |
 
 原则：Store/设置不存论文 meta；`PAPERS.md` / `library.bib` 默认不生成，仅导出。
+
+本地原子写共用 core `fs::atomic_write[_with]`：通过 `tempfile` 独占创建同目录临时文件，再原子替换目标；写入或替换失败返回错误，保留原目标并清理本次临时文件，不退化为直接截断。默认使用短唯一名称且以 `.tmp` 结尾，避免并发共用 staging、长文件名溢出，并保持同步扫描排除规则。Wiki 自定义的 UUID 临时文件名与 `.agentero-rename-` watcher 标记保留；若名称已存在则报错，不覆盖其他写者的 staging。
+
+普通文件保留 Unix `0666 & umask` 创建行为，settings / sync 凭据和 CLI 配置使用 `0600`。`sync_file` 可选在替换前同步文件内容（CLI 开启），不承诺父目录 rename 的断电持久性。Doctor alias repair 与引用侧写入的 FSEvents 特例仍保留原地写，见 [doctor.md](doctor.md)。
 
 ## 与前端边界（Host 侧）
 
