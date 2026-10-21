@@ -11,6 +11,7 @@ import {
 import { AgentCustomForm } from "@/components/settings/panes/agent/agent-custom-form";
 import { AgentDefaultBlock } from "@/components/settings/panes/agent/agent-default-block";
 import { AgentEmbeddingBlock } from "@/components/settings/panes/agent/agent-embedding-block";
+import { AgentNodeNotice } from "@/components/settings/panes/agent/agent-node-notice";
 import { AgentPersonalPromptBlock } from "@/components/settings/panes/agent/agent-personal-prompt-block";
 import { AgentUserAgentBlock } from "@/components/settings/panes/agent/agent-user-agent-block";
 import { useAgentCatalog } from "@/components/settings/panes/agent/use-agent-catalog";
@@ -41,9 +42,12 @@ import { remoteAgentOpenInstallTerminal } from "@/lib/vault/remote/remote-vault"
 export function AgentPane({
 	settings,
 	patch,
+	onOpenDiagnostics,
 }: {
 	settings: AppSettings;
 	patch: (p: Partial<AppSettings>) => void;
+	/** Switch the settings window to Environment diagnostics. */
+	onOpenDiagnostics: () => void;
 }) {
 	const { t } = useTranslation(["settings", "agent", "common"]);
 	const {
@@ -145,6 +149,13 @@ export function AgentPane({
 	return (
 		<>
 			<PageTitle title={t("agent.title")} />
+			<AgentNodeNotice
+				nodeMissing={lifecycle.hostNode.nodeMissing}
+				npmMissing={lifecycle.hostNode.npmMissing}
+				installing={lifecycle.hostNode.installing}
+				onInstall={() => void lifecycle.hostNode.installNode()}
+				onOpenDiagnostics={onOpenDiagnostics}
+			/>
 			<SettingsGroup>
 				<AgentCommonRows settings={settings} patch={patch} />
 			</SettingsGroup>
@@ -173,7 +184,12 @@ export function AgentPane({
 					aria-label={t("agent.probe")}
 					title={t("agent.probe")}
 					disabled={busy || !isTauri()}
-					onClick={() => void rescanAndProbe(true)}
+					onClick={() => {
+						// Re-probe the host tools too: Node.js may have been installed
+						// outside the app since the pane mounted.
+						void lifecycle.hostNode.refresh();
+						void rescanAndProbe(true);
+					}}
 				>
 					{/* Loader2 while busy — avoid RefreshCw+spin (looks like two arrows, one stuck). */}
 					{busy ? (
