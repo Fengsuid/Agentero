@@ -838,6 +838,7 @@
 			"downloadingProgress": "正在下载更新：{{progress}}%",
 			"installing": "正在安装更新并重启...",
 			"installFailed": "无法安装更新，请重试",
+			"checkFailed": "无法检查更新，请重试",
 			"check": "检查更新",
 			"downloadInstall": "安装并重启",
 			"tagNew": "新版本",

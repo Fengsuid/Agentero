@@ -145,10 +145,11 @@ export async function checkForUpdate(): Promise<UpdateSnapshot> {
 				notes: update.body,
 			});
 		} catch (error) {
+			const message = errorText(error);
 			logger.warn("op end updater_check ok=false", {
-				error: errorText(error),
+				error: message,
 			});
-			return emit({ phase: "error", errorOperation: "check" });
+			return emit({ phase: "error", errorOperation: "check", error: message });
 		} finally {
 			checkPromise = null;
 		}
@@ -218,12 +219,17 @@ export async function installAvailableUpdate(): Promise<UpdateSnapshot> {
 			await relaunch();
 			return getUpdateSnapshot();
 		} catch (error) {
+			const message = errorText(error);
 			logger.error("op end updater_install ok=false", {
 				version: update.version,
-				error: errorText(error),
+				error: message,
 			});
 			await closeAvailableUpdate();
-			return emit({ phase: "error", errorOperation: "install" });
+			return emit({
+				phase: "error",
+				errorOperation: "install",
+				error: message,
+			});
 		} finally {
 			installPromise = null;
 		}

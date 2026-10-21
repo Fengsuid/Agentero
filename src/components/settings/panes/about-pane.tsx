@@ -113,14 +113,22 @@ export function AboutPane() {
 	const installing =
 		update.phase === "downloading" || update.phase === "installing";
 	const onCheck = () => {
-		void checkForUpdate();
+		void checkForUpdate().then((next) => {
+			if (next.phase === "error") {
+				notifyError(t("about.update.checkFailed"), {
+					description: next.error,
+				});
+			}
+		});
 	};
 	const onInstall = () => {
 		void warnIfNoProxyForDownload()
 			.then(() => installAvailableUpdate())
 			.then((next) => {
 				if (next.phase === "error") {
-					notifyError(t("about.update.installFailed"));
+					notifyError(t("about.update.installFailed"), {
+						description: next.error,
+					});
 				}
 			});
 	};
