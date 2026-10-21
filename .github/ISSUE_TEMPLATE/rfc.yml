@@ -74,20 +74,6 @@ body:
       required: true
 
   - type: textarea
-    id: impact
-    attributes:
-      label: 影响范围
-      description: 涉及的层与模块，以及兼容、迁移与平台差异
-      placeholder: |
-        - 前端：
-        - Host / CLI：
-        - 数据结构 / Catalog 迁移：
-        - 兼容性（旧版本、旧 Vault）：
-        - 平台差异（macOS / Windows）：
-    validations:
-      required: true
-
-  - type: textarea
     id: implementation
     attributes:
       label: 实施与验收
@@ -98,16 +84,7 @@ body:
           - 验收：
         Phase 2：
           - 内容：
-          - 验收：
-
-  - type: textarea
-    id: risks
-    attributes:
-      label: 风险与回滚
-      description: 可能失败的点、灰度与回滚方式
-      placeholder: |
-        风险：
-        回滚：
+          - 验收:
 
   - type: textarea
     id: open_questions
