@@ -838,7 +838,6 @@
 			"downloadingProgress": "Downloading update: {{progress}}%",
 			"installing": "Installing update and restarting...",
 			"installFailed": "Couldn't install the update. Try again",
-			"checkFailed": "Couldn't check for updates. Try again",
 			"check": "Check for updates",
 			"downloadInstall": "Install and restart",
 			"tagNew": "New version",

@@ -256,9 +256,7 @@ async function checkForStartupUpdate(): Promise<void> {
 						.then(() => installAvailableUpdate())
 						.then((next) => {
 							if (next.phase === "error") {
-								notifyError(i18n.t("settings:about.update.installFailed"), {
-									description: next.error,
-								});
+								notifyError(i18n.t("settings:about.update.installFailed"));
 							}
 						});
 				},

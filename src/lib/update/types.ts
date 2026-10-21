@@ -18,5 +18,4 @@ export type UpdateSnapshot = {
 	downloadedBytes?: number;
 	totalBytes?: number;
 	errorOperation?: UpdateOperation;
-	error?: string;
 };

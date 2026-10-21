@@ -77,9 +77,7 @@ export function UpdateIndicator() {
 			.then(() => installAvailableUpdate())
 			.then((next) => {
 				if (next.phase === "error") {
-					notifyError(t("about.update.installFailed"), {
-						description: next.error,
-					});
+					notifyError(t("about.update.installFailed"));
 				}
 			});
 	};
