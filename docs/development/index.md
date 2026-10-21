@@ -7,6 +7,8 @@
 
 已实现功能的说明在 [`../frontend/`](../frontend/index.md) 与 [`../backend/`](../backend/index.md)，按功能分篇。
 
+较大的设计改动先在 GitHub 开 [RFC issue](https://github.com/poco-ai/Agentero/issues/new?template=rfc.yml) 评审，结论收敛后再把设计稿落到本目录。
+
 ## 未实现草稿
 
 | 文档 | 主题 |
