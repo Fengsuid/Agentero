@@ -305,7 +305,6 @@ pub(super) fn open(spec: &AppSpec) -> Result<(), AppError> {
 }
 
 fn launch_command(app: &InstalledApp) -> std::process::Command {
-    use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
     let mut command = match &app.aumid {
         Some(aumid) => {
@@ -315,8 +314,8 @@ fn launch_command(app: &InstalledApp) -> std::process::Command {
         }
         None => Command::new(&app.path),
     };
+    crate::core::process::hide_console_window(&mut command);
     command
-        .creation_flags(0x0800_0000)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());

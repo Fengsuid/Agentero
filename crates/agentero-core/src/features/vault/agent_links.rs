@@ -93,10 +93,7 @@ fn create_dir_link(_rel_target: &Path, _abs_target: &Path, _link: &Path) -> io::
 
 #[cfg(windows)]
 fn create_junction(target: &Path, link: &Path) -> io::Result<()> {
-    use std::os::windows::process::CommandExt;
     use std::process::Command;
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     // `mklink` needs existing absolute paths and rejects the `\\?\` prefix that
     // `canonicalize` returns for drive paths. The link itself does not exist yet,
@@ -113,15 +110,16 @@ fn create_junction(target: &Path, link: &Path) -> io::Result<()> {
     .join(link_name);
     let target_abs = crate::process::windows_shell_path(&target.canonicalize()?);
 
-    let output = Command::new("cmd")
+    let mut command = Command::new("cmd");
+    command
         .arg("/D")
         .arg("/C")
         .arg("mklink")
         .arg("/J")
         .arg(&link_abs)
-        .arg(&target_abs)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()?;
+        .arg(&target_abs);
+    crate::process::hide_console_window(&mut command);
+    let output = command.output()?;
     if output.status.success() {
         return Ok(());
     }

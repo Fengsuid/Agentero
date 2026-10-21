@@ -1,7 +1,7 @@
 use crate::install_dirs;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Extra directories GUI apps often miss when launched outside a login shell.
 /// Shares the candidate list with the remote SSH bootstrap (`core::install_dirs`).
@@ -196,7 +196,27 @@ pub fn probe_command(command: &str) -> Result<PathBuf, String> {
 /// inherit the user's interactive shell configuration (`.zshrc`, `.bashrc`, etc.).
 /// BYOA agents like `codex-acp` expect variables such as `OPENAI_API_KEY` and
 /// `OPENAI_BASE_URL` to be present, so we bootstrap them from the login shell.
-static LOGIN_SHELL_ENV: OnceLock<Option<HashMap<String, String>>> = OnceLock::new();
+#[derive(Default)]
+struct LoginShellEnvCache {
+    loaded: bool,
+    values: Option<Arc<HashMap<String, String>>>,
+}
+
+static LOGIN_SHELL_ENV: OnceLock<Mutex<LoginShellEnvCache>> = OnceLock::new();
+
+impl LoginShellEnvCache {
+    fn read(
+        &mut self,
+        refresh: bool,
+        read: impl FnOnce() -> Option<HashMap<String, String>>,
+    ) -> Option<Arc<HashMap<String, String>>> {
+        if refresh || !self.loaded {
+            self.values = read().map(Arc::new);
+            self.loaded = true;
+        }
+        self.values.clone()
+    }
+}
 
 /// Parse `env -0` output (null-separated `key=value` entries).
 // Only the unix `login_shell_env` calls this; Windows keeps it compiled for
@@ -216,37 +236,50 @@ fn parse_env_zero(output: &[u8]) -> HashMap<String, String> {
     map
 }
 
-/// Read the user's login-shell environment once and cache it.
-///
-/// Returns `None` if the shell cannot be queried. The result is intentionally
-/// not logged to avoid leaking secrets.
-#[cfg(not(windows))]
-pub fn login_shell_env() -> Option<&'static HashMap<String, String>> {
-    LOGIN_SHELL_ENV
-        .get_or_init(|| {
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-            let output = std::process::Command::new(&shell)
-                .args(["-lic", "env -0"])
-                .output()
-                .ok()?;
-            if !output.status.success() {
-                return None;
-            }
-            let map = parse_env_zero(&output.stdout);
-            if map.is_empty() {
-                None
-            } else {
-                Some(map)
-            }
-        })
-        .as_ref()
+/// Read the cached login-shell environment. Snapshots remain valid while an
+/// installer refreshes the cache; neither the values nor failures are logged.
+pub fn login_shell_env() -> Option<Arc<HashMap<String, String>>> {
+    login_shell_env_snapshot(false)
 }
 
-/// Windows GUI apps inherit a reasonably complete environment block from the
-/// Explorer shell; there is no single "login shell" equivalent to query.
+/// Installers need a fresh PATH before running, then invalidate after completion
+/// because installers may edit shell startup files even on partial failure.
+pub fn refresh_login_shell_env() -> Option<Arc<HashMap<String, String>>> {
+    login_shell_env_snapshot(true)
+}
+
+pub fn invalidate_login_shell_env() {
+    if let Some(cache) = LOGIN_SHELL_ENV.get() {
+        *cache.lock().unwrap_or_else(|error| error.into_inner()) = LoginShellEnvCache::default();
+    }
+}
+
+fn login_shell_env_snapshot(refresh: bool) -> Option<Arc<HashMap<String, String>>> {
+    LOGIN_SHELL_ENV
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .read(refresh, read_login_shell_env)
+}
+
+#[cfg(not(windows))]
+fn read_login_shell_env() -> Option<HashMap<String, String>> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let output = std::process::Command::new(&shell)
+        .args(["-lic", "env -0"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let map = parse_env_zero(&output.stdout);
+    (!map.is_empty()).then_some(map)
+}
+
+/// Windows GUI apps inherit Explorer's environment; there is no login shell.
 #[cfg(windows)]
-pub fn login_shell_env() -> Option<&'static HashMap<String, String>> {
-    LOGIN_SHELL_ENV.get_or_init(|| None).as_ref()
+fn read_login_shell_env() -> Option<HashMap<String, String>> {
+    None
 }
 
 #[cfg(test)]
@@ -287,5 +320,30 @@ mod tests {
         assert_eq!(map.get("FOO"), Some(&"bar".to_string()));
         assert_eq!(map.get("BAZ"), Some(&"qux".to_string()));
         assert!(!map.contains_key("BAD_NO_EQUAL"));
+    }
+
+    #[test]
+    fn shell_cache_refreshes_without_invalidating_existing_snapshots() {
+        let mut cache = super::LoginShellEnvCache::default();
+        let original = cache
+            .read(false, || Some([("PATH".into(), "/old/bin".into())].into()))
+            .unwrap();
+        let cached = cache
+            .read(false, || panic!("must reuse the snapshot"))
+            .unwrap();
+        assert!(std::sync::Arc::ptr_eq(&original, &cached));
+        let refreshed = cache
+            .read(true, || Some([("PATH".into(), "/new/bin".into())].into()))
+            .unwrap();
+        assert_eq!(original["PATH"], "/old/bin");
+        assert_eq!(refreshed["PATH"], "/new/bin");
+    }
+
+    #[test]
+    fn shell_cache_can_recover_after_an_unavailable_shell() {
+        let mut cache = super::LoginShellEnvCache::default();
+        assert!(cache.read(false, || None).is_none());
+        assert!(cache.read(false, || panic!("cache failures too")).is_none());
+        assert!(cache.read(true, || Some(Default::default())).is_some());
     }
 }

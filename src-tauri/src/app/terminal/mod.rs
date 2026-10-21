@@ -567,16 +567,15 @@ fn open_terminal_at(cwd: &Path) -> Result<(), AppError> {
 
 #[cfg(windows)]
 fn cmd_terminal_command(cwd: &Path) -> Command {
-    use std::os::windows::process::CommandExt;
-
     // `start` gives the interactive shell its own console handles. Directly
     // spawning cmd with CREATE_NEW_CONSOLE can inherit closed/redirected stdin
     // from the desktop app and exit immediately. Never put the path in script.
     let mut command = Command::new("cmd.exe");
     command
         .args(["/D", "/C", "start", "", "cmd.exe", "/D"])
-        .current_dir(cwd)
-        .creation_flags(0x0800_0000); // CREATE_NO_WINDOW for the launcher only.
+        .current_dir(cwd);
+    // Hide only the launcher; `start` still opens the interactive console.
+    crate::core::process::hide_console_window(&mut command);
     command
 }
 

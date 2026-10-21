@@ -28,13 +28,6 @@ pub enum NodeInstallOutcome {
     NoPackageManager,
 }
 
-/// Doctor spawns `<tool> --version` probes for every host runtime and registered
-/// Agent. The app ships as a GUI subsystem binary, so a console child without
-/// this flag makes Windows allocate a visible console window — one black window
-/// per probed tool on every Doctor refresh.
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "kebab-case")]
 pub enum HostToolStatus {
@@ -134,7 +127,7 @@ fn codex_descriptor(registry: &AgentRegistry) -> Result<AgentDescriptor, AppErro
 
 fn diagnostic_command(path: &Path, args: &[&str]) -> Command {
     let mut command = base_command(path, args);
-    hide_console_window(&mut command);
+    crate::core::process::hide_console_window_tokio(&mut command);
     command
 }
 
@@ -164,17 +157,6 @@ fn base_command(path: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(path);
     command.args(args);
     command
-}
-
-fn hide_console_window(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = command;
-    }
 }
 
 async fn run_command(

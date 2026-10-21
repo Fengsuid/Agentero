@@ -136,14 +136,7 @@ pub fn bundled_adapter(template_id: &str) -> Option<BundledAdapter> {
 fn node_major_of(node: &Path) -> Option<u32> {
     let mut command = std::process::Command::new(node);
     command.arg("--version");
-    // GUI-subsystem binary: a stray console window on every probe would look
-    // broken (telemetry/device.rs precedent).
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
+    crate::core::process::hide_console_window(&mut command);
     let output = command.output().ok()?;
     if !output.status.success() {
         return None;
