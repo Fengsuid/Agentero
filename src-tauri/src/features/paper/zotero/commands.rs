@@ -58,13 +58,14 @@ pub async fn zotero_migrate(
         migrate_zotero(args, report, Some(&app), note_mode).await,
         |r| {
             format!(
-                "imported={} skipped={} ignored_unsupported={} merged_duplicates={} relocated={} notes_added={}",
+                "imported={} skipped={} ignored_unsupported={} merged_duplicates={} relocated={} notes_added={} standalone_notes={}",
                 r.imported,
                 r.skipped,
                 r.ignored_unsupported,
                 r.merged_duplicates,
                 r.relocated,
-                r.notes_added
+                r.notes_added,
+                r.standalone_notes
             )
         },
     )

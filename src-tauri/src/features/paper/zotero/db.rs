@@ -17,7 +17,8 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -103,7 +104,8 @@ pub struct ZoteroMigrateArgs {
     /// the user expects even when they also live in other collections.
     #[serde(default)]
     pub prefer_collection: Option<i64>,
-    /// Migrate each item's Zotero notes (HTML → Markdown) into NOTES.md.
+    /// Migrate Zotero notes: child notes into each paper's NOTES.md, and
+    /// standalone notes (no parent item) into `notes/` as Markdown files.
     #[serde(default)]
     pub migrate_notes: bool,
     /// Migrate each item's PDF annotations (highlights/comments) into NOTES.md.
@@ -123,6 +125,8 @@ pub struct ZoteroMigrateResult {
     pub copied_pdfs: usize,
     /// Zotero notes backfilled into existing papers' NOTES.md (already-present papers).
     pub notes_added: usize,
+    /// Standalone Zotero notes (no parent item) written as Markdown files under `notes/`.
+    pub standalone_notes: usize,
     /// Already-imported papers moved into their collection folder on re-migration.
     pub relocated: usize,
     /// Duplicate Zotero items merged into an already-imported paper (one
@@ -157,15 +161,22 @@ pub fn scan_zotero(args: ZoteroScanArgs) -> Result<ZoteroScan, AppError> {
     if !dir.is_dir() {
         return Err(AppError::message("selected path is not a folder"));
     }
-    let (read_items, collections) = read_all_items(&dir)?;
+    let ZoteroRead {
+        items: read_items,
+        standalone_notes,
+        collections,
+    } = read_all_items(&dir)?;
     let with_pdf = read_items.iter().filter(|i| !i.pdfs.is_empty()).count();
-    let note_count = read_items.iter().map(|i| i.note_html.len()).sum();
-    let items = read_items.iter().map(item_info).collect();
+    let child_notes: usize = read_items.iter().map(|i| i.note_html.len()).sum();
+    let mut items: Vec<ZoteroItemInfo> = read_items.iter().map(item_info).collect();
+    for note in &standalone_notes {
+        items.push(standalone_item_info(note));
+    }
     Ok(ZoteroScan {
         valid: true,
-        item_count: read_items.len(),
+        item_count: items.len(),
         with_pdf_count: with_pdf,
-        note_count,
+        note_count: child_notes + standalone_notes.len(),
         collections,
         items,
         warning: None,
@@ -215,7 +226,11 @@ pub async fn migrate_zotero(
     }
     let parent_rel = normalize_parent_dir(args.parent_dir.as_deref().unwrap_or("papers"))?;
 
-    let (items, collections) = read_all_items(&zotero_dir)?;
+    let ZoteroRead {
+        items,
+        standalone_notes,
+        collections,
+    } = read_all_items(&zotero_dir)?;
 
     // Deleting paper folders outside the app leaves orphan catalog rows; drop them
     // first so dedup does not block re-import and the Library shows no ghosts.
@@ -293,19 +308,29 @@ pub async fn migrate_zotero(
     let selected_items: Vec<ReadItem> = items
         .into_iter()
         .filter(|item| {
-            if let Some(set) = &include_items {
-                set.contains(&item.item_id)
-            } else if let Some(set) = &include_colls {
-                if item.collection_ids.is_empty() {
-                    set.contains(&0)
-                } else {
-                    item.collection_ids.iter().any(|c| set.contains(c))
-                }
-            } else {
-                true
-            }
+            item_included(
+                item.item_id,
+                &item.collection_ids,
+                &include_items,
+                &include_colls,
+            )
         })
         .collect();
+    let selected_notes: Vec<StandaloneNote> = if flags.migrate_notes {
+        standalone_notes
+            .into_iter()
+            .filter(|note| {
+                item_included(
+                    note.item_id,
+                    &note.collection_ids,
+                    &include_items,
+                    &include_colls,
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     // Placement lookup: collectionID -> sanitized path segments. Used to
     // honor the selected-collection preference for multi-folder items.
@@ -323,7 +348,8 @@ pub async fn migrate_zotero(
         })
         .collect();
 
-    let total = selected_items.len();
+    let paper_total = selected_items.len();
+    let total = paper_total + selected_notes.len();
     for (idx, item) in selected_items.into_iter().enumerate() {
         progress(idx, total, "migrate");
         // Placement path honors the selected-collection preference.
@@ -377,6 +403,32 @@ pub async fn migrate_zotero(
                 }
             }
             Err(e) => out.errors.push(e.to_string()),
+        }
+    }
+
+    if !selected_notes.is_empty() {
+        let mut known = index_zotero_notes(&vault.join("notes"));
+        for (idx, note) in selected_notes.into_iter().enumerate() {
+            progress(paper_total + idx, total, "migrate");
+            let coll_path = if flags.prefer_collection.is_some() {
+                collection_path_prefer(&id_to_path, &note.collection_ids, flags.prefer_collection)
+            } else {
+                note.collection_path.clone()
+            };
+            match import_standalone_note(
+                &vault,
+                &note,
+                &coll_path,
+                flags.preserve_collections,
+                &known,
+            ) {
+                Ok(StandaloneNoteWrite::Created(path)) => {
+                    known.insert(note_identity(&note.key, note.item_id), path);
+                    out.standalone_notes += 1;
+                }
+                Ok(StandaloneNoteWrite::Skipped) => {}
+                Err(e) => out.errors.push(e.to_string()),
+            }
         }
     }
 
@@ -768,9 +820,13 @@ fn pdf_dest_name(id: &str) -> String {
 // Zotero SQLite reading
 // ---------------------------------------------------------------------------
 
-fn read_all_items(
-    zotero_dir: &Path,
-) -> Result<(Vec<ReadItem>, Vec<ZoteroCollectionInfo>), AppError> {
+struct ZoteroRead {
+    items: Vec<ReadItem>,
+    standalone_notes: Vec<StandaloneNote>,
+    collections: Vec<ZoteroCollectionInfo>,
+}
+
+fn read_all_items(zotero_dir: &Path) -> Result<ZoteroRead, AppError> {
     let (conn, tmp_dir) = copy_zotero_sqlite(zotero_dir)?;
     let result = read_items_conn(&conn, zotero_dir);
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -915,10 +971,7 @@ fn read_sync_notes(conn: &Connection, parent_item_id: i64) -> Result<Vec<SyncNot
     Ok(out)
 }
 
-fn read_items_conn(
-    conn: &Connection,
-    zotero_dir: &Path,
-) -> Result<(Vec<ReadItem>, Vec<ZoteroCollectionInfo>), AppError> {
+fn read_items_conn(conn: &Connection, zotero_dir: &Path) -> Result<ZoteroRead, AppError> {
     let collections = read_collections(conn)?;
     let mut stmt = conn.prepare(
         "SELECT i.itemID, it.typeName
@@ -983,6 +1036,17 @@ fn read_items_conn(
         });
     }
 
+    let standalone_notes = read_standalone_notes(conn, &collections)?;
+    for note in &standalone_notes {
+        if note.collection_ids.is_empty() {
+            unfiled += 1;
+        } else {
+            for id in &note.collection_ids {
+                *coll_counts.entry(*id).or_insert(0) += 1;
+            }
+        }
+    }
+
     // Every Zotero collection, including empty ones: folder materialization and
     // the scan picker both need the full tree, not only collections that have
     // at least one item in this pass.
@@ -1003,7 +1067,310 @@ fn read_items_conn(
             item_count: unfiled,
         });
     }
-    Ok((out, infos))
+    Ok(ZoteroRead {
+        items: out,
+        standalone_notes,
+        collections: infos,
+    })
+}
+
+/// A Zotero note with no parent item. These are documents, not paper annotations,
+/// so migration writes one Markdown file under `notes/` instead of a paper.
+struct StandaloneNote {
+    item_id: i64,
+    key: String,
+    /// Note HTML, then any child-note HTML. Sync echoes are already removed.
+    html_parts: Vec<String>,
+    title: Option<String>,
+    collection_path: Vec<String>,
+    collection_ids: Vec<i64>,
+}
+
+enum StandaloneNoteWrite {
+    Created(PathBuf),
+    Skipped,
+}
+
+/// Stable identity stored in the file marker. Zotero keys are alphanumeric;
+/// anything else falls back to the numeric item id.
+fn note_identity(key: &str, item_id: i64) -> String {
+    if !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric()) {
+        key.to_string()
+    } else {
+        format!("id{item_id}")
+    }
+}
+
+fn zotero_note_marker(identity: &str) -> String {
+    format!("<!-- zotero-note:{identity} -->")
+}
+
+fn parse_zotero_note_marker(line: &str) -> Option<&str> {
+    let line = line.trim();
+    let rest = line.strip_prefix("<!-- zotero-note:")?;
+    let rest = rest.strip_suffix("-->")?.trim();
+    if rest.is_empty() || !rest.chars().all(|c| c.is_ascii_alphanumeric()) {
+        None
+    } else {
+        Some(rest)
+    }
+}
+
+fn collapse_ws(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        s.chars().take(max).collect::<String>().trim().to_string()
+    }
+}
+
+fn first_markdown_line(markdown: &str) -> Option<String> {
+    for line in markdown.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with("<!--") {
+            continue;
+        }
+        let t = t.trim_start_matches('#').trim();
+        if t.is_empty() {
+            continue;
+        }
+        return Some(collapse_ws(t));
+    }
+    None
+}
+
+fn html_parts_to_markdown(parts: &[String]) -> String {
+    parts
+        .iter()
+        .filter_map(|html| {
+            if super::codec::looks_like_sync_note(html) {
+                return None;
+            }
+            let md = htmd::convert(html).unwrap_or_else(|_| html.clone());
+            let md = md.trim().to_string();
+            if md.is_empty() {
+                None
+            } else {
+                Some(md)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n")
+}
+
+fn standalone_note_label(note: &StandaloneNote, markdown: &str) -> String {
+    if let Some(title) = note
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return collapse_ws(title);
+    }
+    first_markdown_line(markdown).unwrap_or_else(|| note_identity(&note.key, note.item_id))
+}
+
+fn standalone_note_stem(label: &str, identity: &str) -> String {
+    let truncated = truncate_chars(&collapse_ws(label), 80);
+    sanitize_segment(&truncated).unwrap_or_else(|| identity.to_string())
+}
+
+fn standalone_item_info(note: &StandaloneNote) -> ZoteroItemInfo {
+    let markdown = html_parts_to_markdown(&note.html_parts);
+    ZoteroItemInfo {
+        id: note.item_id,
+        title: standalone_note_label(note, &markdown),
+        item_type: "note".into(),
+        year: None,
+        has_pdf: false,
+        notes: 0,
+        collections: note.collection_ids.clone(),
+    }
+}
+
+fn item_included(
+    item_id: i64,
+    collection_ids: &[i64],
+    include_items: &Option<HashSet<i64>>,
+    include_colls: &Option<HashSet<i64>>,
+) -> bool {
+    if let Some(set) = include_items {
+        set.contains(&item_id)
+    } else if let Some(set) = include_colls {
+        if collection_ids.is_empty() {
+            set.contains(&0)
+        } else {
+            collection_ids.iter().any(|c| set.contains(c))
+        }
+    } else {
+        true
+    }
+}
+
+fn read_standalone_notes(
+    conn: &Connection,
+    collections: &HashMap<i64, Collection>,
+) -> Result<Vec<StandaloneNote>, AppError> {
+    let sql = "SELECT i.itemID, i.key, n.note, n.title
+         FROM items i
+         JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+         JOIN itemNotes n ON n.itemID = i.itemID
+         WHERE it.typeName = 'note'
+           AND (n.parentItemID IS NULL OR n.parentItemID = 0)
+           AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
+         ORDER BY i.itemID";
+    let mut stmt = match conn.prepare(sql) {
+        Ok(s) => s,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let rows = stmt.query_map(params![], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, Option<String>>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, Option<String>>(3)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (item_id, key, html, title) = row?;
+        let mut parts = Vec::new();
+        if let Some(html) = html {
+            if !html.trim().is_empty() && !super::codec::looks_like_sync_note(&html) {
+                parts.push(html);
+            }
+        }
+        for child in read_notes(conn, item_id)? {
+            if !super::codec::looks_like_sync_note(&child) {
+                parts.push(child);
+            }
+        }
+        if parts.is_empty() {
+            continue;
+        }
+        let coll_ids = read_item_collection_ids(conn, item_id)?;
+        let title = title.and_then(|t| {
+            let t = t.trim().to_string();
+            (!t.is_empty()).then_some(t)
+        });
+        out.push(StandaloneNote {
+            item_id,
+            key: key.unwrap_or_default(),
+            html_parts: parts,
+            title,
+            collection_path: chosen_collection_path(collections, &coll_ids),
+            collection_ids: coll_ids,
+        });
+    }
+    Ok(out)
+}
+
+/// Map `<!-- zotero-note:KEY -->` markers under `notes/` to their files.
+fn index_zotero_notes(notes_root: &Path) -> HashMap<String, PathBuf> {
+    fn walk(dir: &Path, depth: usize, out: &mut HashMap<String, PathBuf>) {
+        if depth > 32 {
+            return;
+        }
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                walk(&path, depth + 1, out);
+            } else if kind.is_file() {
+                let is_md = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+                if !is_md {
+                    continue;
+                }
+                if let Some(key) = marker_key_in_file(&path) {
+                    out.entry(key).or_insert(path);
+                }
+            }
+        }
+    }
+
+    let mut out = HashMap::new();
+    if notes_root.is_dir() {
+        walk(notes_root, 0, &mut out);
+    }
+    out
+}
+
+fn marker_key_in_file(path: &Path) -> Option<String> {
+    let mut file = File::open(path).ok()?;
+    let mut buf = [0u8; 4096];
+    let n = file.read(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf[..n]);
+    for line in text.lines().take(40) {
+        if let Some(key) = parse_zotero_note_marker(line) {
+            return Some(key.to_string());
+        }
+    }
+    None
+}
+
+fn standalone_note_dir(vault: &Path, preserve: bool, coll_path: &[String]) -> PathBuf {
+    let mut dir = vault.join("notes");
+    if preserve {
+        for seg in coll_path {
+            if !seg.is_empty() {
+                dir.push(seg);
+            }
+        }
+    }
+    dir
+}
+
+fn allocate_note_filename(dir: &Path, stem: &str) -> String {
+    let stem = if stem.is_empty() { "note" } else { stem };
+    let first = format!("{stem}.md");
+    if !dir.join(&first).exists() {
+        return first;
+    }
+    for n in 2..1000 {
+        let name = format!("{stem}-{n}.md");
+        if !dir.join(&name).exists() {
+            return name;
+        }
+    }
+    format!("{stem}-{}.md", now_nanos())
+}
+
+fn import_standalone_note(
+    vault: &Path,
+    note: &StandaloneNote,
+    coll_path: &[String],
+    preserve_collections: bool,
+    known: &HashMap<String, PathBuf>,
+) -> Result<StandaloneNoteWrite, AppError> {
+    let identity = note_identity(&note.key, note.item_id);
+    if known.get(&identity).is_some_and(|path| path.is_file()) {
+        return Ok(StandaloneNoteWrite::Skipped);
+    }
+    let markdown = html_parts_to_markdown(&note.html_parts);
+    if markdown.trim().is_empty() {
+        return Ok(StandaloneNoteWrite::Skipped);
+    }
+    let label = standalone_note_label(note, &markdown);
+    let stem = standalone_note_stem(&label, &identity);
+    let dir = standalone_note_dir(vault, preserve_collections, coll_path);
+    fs::create_dir_all(&dir)?;
+    let name = allocate_note_filename(&dir, &stem);
+    let path = dir.join(&name);
+    let body = format!("{}\n\n{markdown}\n", zotero_note_marker(&identity));
+    fs::write(&path, body)?;
+    Ok(StandaloneNoteWrite::Created(path))
 }
 
 fn read_fields(conn: &Connection, item_id: i64) -> Result<Map<String, Value>, AppError> {
@@ -1464,7 +1831,7 @@ mod tests {
              INSERT INTO items VALUES (11,2,'BBBB2222');
              INSERT INTO itemAttachments VALUES (11,10,0,'application/pdf','storage:paper.pdf');
 
-             -- standalone note (excluded)
+             -- standalone note shell without a body (not a paper; nothing to write)
              INSERT INTO items VALUES (20,3,'CCCC3333');
              -- trashed regular item (excluded)
              INSERT INTO items VALUES (30,1,'DDDD4444');
@@ -1481,7 +1848,7 @@ mod tests {
     #[test]
     fn reads_only_regular_non_trashed_items() {
         let conn = seed_db();
-        let (items, _collections) =
+        let ZoteroRead { items, .. } =
             read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
         assert_eq!(items.len(), 1, "note + trashed items must be excluded");
         let it = &items[0];
@@ -1499,7 +1866,7 @@ mod tests {
     #[test]
     fn assembled_item_maps_to_expected_citekey() {
         let conn = seed_db();
-        let (items, _collections) =
+        let ZoteroRead { items, .. } =
             read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
         let meta = map_zotero_item_to_record(&items[0].json).unwrap();
         assert_eq!(meta.title, "Attention Is All You Need");
@@ -1512,8 +1879,9 @@ mod tests {
     #[test]
     fn recreates_collection_path_and_tags() {
         let conn = seed_db();
-        let (items, collections) =
-            read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
+        let ZoteroRead {
+            items, collections, ..
+        } = read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
         let it = &items[0];
         assert_eq!(it.collection_path, vec!["NLP", "Transformers"]);
         assert_eq!(it.collection_ids, vec![2]);
@@ -1542,7 +1910,8 @@ mod tests {
              INSERT INTO collectionItems VALUES (1,50,0),(2,50,1);",
         )
         .unwrap();
-        let (items, _c) = read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
+        let ZoteroRead { items, .. } =
+            read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
         let it = items.iter().find(|i| i.item_id == 50).unwrap();
         assert_eq!(it.collection_path, vec!["NLP", "Transformers"]);
         // Every membership still surfaces as a tag.
@@ -1566,7 +1935,8 @@ mod tests {
              INSERT INTO collectionItems VALUES (3,51,0),(4,51,0);",
         )
         .unwrap();
-        let (items, _c) = read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
+        let ZoteroRead { items, .. } =
+            read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
         let it = items.iter().find(|i| i.item_id == 51).unwrap();
         // Both paths are equally deep, so their lexical order is the documented tie-breaker.
         assert_eq!(it.collection_path, vec!["Review"]);
@@ -1584,7 +1954,8 @@ mod tests {
              INSERT INTO itemData VALUES (40,1,400);",
         )
         .unwrap();
-        let (items, _c) = read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
+        let ZoteroRead { items, .. } =
+            read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
         assert_eq!(
             items.len(),
             1,
@@ -1756,7 +2127,8 @@ mod tests {
         fs::create_dir_all(vault.join(flat_rel)).unwrap();
         fs::write(vault.join(flat_rel).join("NOTES.md"), "# user notes\n").unwrap();
         let conn = seed_db();
-        let (items, _c) = read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
+        let ZoteroRead { items, .. } =
+            read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
         let record = map_zotero_item_to_record(&items[0].json)
             .unwrap()
             .at_path(flat_rel);
@@ -1805,7 +2177,8 @@ mod tests {
     #[test]
     fn reads_pdf_annotations() {
         let conn = seed_db();
-        let (items, _c) = read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
+        let ZoteroRead { items, .. } =
+            read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
         let a = &items[0].annotations;
         assert_eq!(a.len(), 1);
         assert!(a[0].contains("> Key finding here"), "got: {}", a[0]);
@@ -1859,5 +2232,231 @@ mod tests {
     fn pdf_dest_name_sanitizes() {
         assert_eq!(pdf_dest_name("1706.03762"), "1706.03762.pdf");
         assert_eq!(pdf_dest_name("10.1000/xyz"), "10.1000_xyz.pdf");
+    }
+
+    const STANDALONE_NOTE_SQL: &str = "INSERT INTO itemNotes VALUES (20, NULL, '<p>A root <strong>idea</strong>.</p>', 'Root idea');
+             INSERT INTO items VALUES (21,3,'DDDDNOTE');
+             INSERT INTO itemNotes VALUES (21, NULL, '<p>Margin thoughts</p>', NULL);
+             INSERT INTO collectionItems VALUES (2, 21, 0);
+             INSERT INTO items VALUES (24,3,'GGGG2222');
+             INSERT INTO itemNotes VALUES (24, 20, '<p>child of root</p>', NULL);
+             INSERT INTO items VALUES (23,3,'FFFF1111');
+             INSERT INTO itemNotes VALUES (23, NULL, '<p>gone</p>', 'Gone');
+             INSERT INTO deletedItems VALUES (23);
+             INSERT INTO items VALUES (22,3,'EEEE0000');
+             INSERT INTO itemNotes VALUES (22, NULL, '   ', 'Empty');";
+
+    fn zotero_migrate_args(
+        vault: &Path,
+        zdir: &Path,
+        preserve_collections: bool,
+        migrate_notes: bool,
+    ) -> ZoteroMigrateArgs {
+        ZoteroMigrateArgs {
+            vault_path: vault.to_string_lossy().to_string(),
+            zotero_dir: zdir.to_string_lossy().to_string(),
+            parent_dir: Some("papers".into()),
+            copy_pdfs: false,
+            preserve_collections,
+            include_collections: None,
+            include_items: None,
+            prefer_collection: None,
+            migrate_notes,
+            migrate_annotations: false,
+        }
+    }
+
+    /// File-backed library: the seeded paper, plus root / collection / empty / trashed notes.
+    fn standalone_library() -> (PathBuf, PathBuf, PathBuf) {
+        let base = std::env::temp_dir().join(format!("motif-znote-{}", now_nanos()));
+        let vault = base.join("vault");
+        let zdir = base.join("zotero");
+        fs::create_dir_all(&vault).unwrap();
+        fs::create_dir_all(&zdir).unwrap();
+        let conn = Connection::open(zdir.join("zotero.sqlite")).unwrap();
+        conn.execute_batch(SEED_SQL).unwrap();
+        conn.execute_batch(STANDALONE_NOTE_SQL).unwrap();
+        (base, vault, zdir)
+    }
+
+    #[test]
+    fn standalone_note_names_and_markers() {
+        assert_eq!(
+            parse_zotero_note_marker("<!-- zotero-note:CCCC3333 -->"),
+            Some("CCCC3333")
+        );
+        assert_eq!(
+            parse_zotero_note_marker("<!-- zotero-note:nope --> extra"),
+            None
+        );
+        assert_eq!(standalone_note_stem("Root idea", "CCCC3333"), "Root idea");
+        assert_eq!(standalone_note_stem("a/b:c", "CCCC3333"), "a_b_c");
+        assert_eq!(standalone_note_stem("...", "DDDDNOTE"), "DDDDNOTE");
+        assert_eq!(
+            first_markdown_line("# Margin thoughts\n\nbody").as_deref(),
+            Some("Margin thoughts")
+        );
+    }
+
+    #[test]
+    fn reads_standalone_notes_apart_from_papers() {
+        let conn = seed_db();
+        conn.execute_batch(STANDALONE_NOTE_SQL).unwrap();
+        let ZoteroRead {
+            items,
+            standalone_notes: notes,
+            collections,
+        } = read_items_conn(&conn, Path::new("/nonexistent-zotero")).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_id, 10);
+        assert_eq!(
+            notes.len(),
+            2,
+            "root + collection note; empty, trashed, and nested notes stay out of the list"
+        );
+        let root = notes.iter().find(|n| n.item_id == 20).unwrap();
+        assert!(root.collection_ids.is_empty());
+        assert_eq!(root.title.as_deref(), Some("Root idea"));
+        assert_eq!(root.html_parts.len(), 2, "child note rides along");
+        let margin = notes.iter().find(|n| n.item_id == 21).unwrap();
+        assert_eq!(
+            margin.collection_path,
+            vec!["NLP".to_string(), "Transformers".to_string()]
+        );
+        assert!(collections.iter().any(|c| c.id == 0 && c.item_count == 1));
+        let transformers = collections
+            .iter()
+            .find(|c| c.path == "NLP/Transformers")
+            .unwrap();
+        assert_eq!(transformers.item_count, 2);
+    }
+
+    #[tokio::test]
+    async fn imports_standalone_notes_under_notes_tree() {
+        let (base, vault, zdir) = standalone_library();
+        let out = migrate_zotero(
+            zotero_migrate_args(&vault, &zdir, true, true),
+            |_c, _t, _p| {},
+            None,
+            NoteShellMode::Standard,
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.imported, 1);
+        assert_eq!(out.standalone_notes, 2);
+
+        let root = fs::read_to_string(vault.join("notes/Root idea.md")).unwrap();
+        assert!(root.starts_with("<!-- zotero-note:CCCC3333 -->"));
+        assert!(root.contains("**idea**"), "got: {root}");
+        assert!(root.contains("child of root"), "got: {root}");
+
+        let margin_path = vault.join("notes/NLP/Transformers/Margin thoughts.md");
+        let margin = fs::read_to_string(&margin_path).unwrap();
+        assert!(margin.contains("<!-- zotero-note:DDDDNOTE -->"));
+        assert!(margin.contains("Margin thoughts"));
+        assert!(!vault.join("notes/Gone.md").exists());
+        assert!(!vault.join("notes/Empty.md").exists());
+
+        let paper_notes =
+            fs::read_to_string(vault.join("papers/NLP/Transformers/10_5555_abc/NOTES.md")).unwrap();
+        assert!(paper_notes.contains("**paper**"), "got: {paper_notes}");
+
+        let again = migrate_zotero(
+            zotero_migrate_args(&vault, &zdir, true, true),
+            |_c, _t, _p| {},
+            None,
+            NoteShellMode::Standard,
+        )
+        .await
+        .unwrap();
+        assert_eq!(again.standalone_notes, 0);
+        assert_eq!(
+            fs::read_to_string(vault.join("notes/Root idea.md")).unwrap(),
+            root
+        );
+        assert!(!vault.join("notes/Root idea-2.md").exists());
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn standalone_note_does_not_overwrite_user_file() {
+        let (base, vault, zdir) = standalone_library();
+        fs::create_dir_all(vault.join("notes")).unwrap();
+        fs::write(vault.join("notes/Root idea.md"), "keep me\n").unwrap();
+
+        let out = migrate_zotero(
+            zotero_migrate_args(&vault, &zdir, true, true),
+            |_c, _t, _p| {},
+            None,
+            NoteShellMode::Standard,
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.standalone_notes, 2);
+        assert_eq!(
+            fs::read_to_string(vault.join("notes/Root idea.md")).unwrap(),
+            "keep me\n"
+        );
+        let written = fs::read_to_string(vault.join("notes/Root idea-2.md")).unwrap();
+        assert!(written.contains("<!-- zotero-note:CCCC3333 -->"));
+        assert!(written.contains("child of root"));
+
+        let again = migrate_zotero(
+            zotero_migrate_args(&vault, &zdir, true, true),
+            |_c, _t, _p| {},
+            None,
+            NoteShellMode::Standard,
+        )
+        .await
+        .unwrap();
+        assert_eq!(again.standalone_notes, 0);
+        assert!(!vault.join("notes/Root idea-3.md").exists());
+        assert_eq!(
+            fs::read_to_string(vault.join("notes/Root idea-2.md")).unwrap(),
+            written
+        );
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn standalone_notes_flatten_when_collections_are_off() {
+        let (base, vault, zdir) = standalone_library();
+        let out = migrate_zotero(
+            zotero_migrate_args(&vault, &zdir, false, true),
+            |_c, _t, _p| {},
+            None,
+            NoteShellMode::Standard,
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.standalone_notes, 2);
+        assert!(vault.join("notes/Root idea.md").is_file());
+        assert!(vault.join("notes/Margin thoughts.md").is_file());
+        assert!(!vault.join("notes/NLP").exists());
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn skipping_note_migration_leaves_standalone_notes_out() {
+        let (base, vault, zdir) = standalone_library();
+        let out = migrate_zotero(
+            zotero_migrate_args(&vault, &zdir, true, false),
+            |_c, _t, _p| {},
+            None,
+            NoteShellMode::Standard,
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.imported, 1);
+        assert_eq!(out.standalone_notes, 0);
+        assert!(!vault.join("notes/Root idea.md").exists());
+        let paper_notes =
+            fs::read_to_string(vault.join("papers/NLP/Transformers/10_5555_abc/NOTES.md")).unwrap();
+        assert!(!paper_notes.contains("Great"), "got: {paper_notes}");
+
+        let _ = fs::remove_dir_all(&base);
     }
 }

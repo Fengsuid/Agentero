@@ -262,7 +262,10 @@ export function ZoteroMigrateDialog({
 	// visible in more than one Zotero collection so the user can make an
 	// informed choice before recreating the collection tree as folders.
 	const multiCollectionCount = useMemo(
-		() => scan?.items.filter((item) => item.collections.length > 1).length ?? 0,
+		() =>
+			scan?.items.filter(
+				(item) => item.itemType !== "note" && item.collections.length > 1,
+			).length ?? 0,
 		[scan],
 	);
 
@@ -380,6 +383,13 @@ export function ZoteroMigrateDialog({
 									<li>
 										{t("sidebar:zoteroMigrate.summaryNotes", {
 											count: result.notesAdded,
+										})}
+									</li>
+								) : null}
+								{result.standaloneNotes > 0 ? (
+									<li>
+										{t("sidebar:zoteroMigrate.summaryStandaloneNotes", {
+											count: result.standaloneNotes,
 										})}
 									</li>
 								) : null}

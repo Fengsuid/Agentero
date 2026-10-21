@@ -5760,7 +5760,10 @@ export type ZoteroMigrateArgs = {
 	 *  the user expects even when they also live in other collections.
 	 */
 	preferCollection?: number | null,
-	/**  Migrate each item's Zotero notes (HTML → Markdown) into NOTES.md. */
+	/**
+	 *  Migrate Zotero notes: child notes into each paper's NOTES.md, and
+	 *  standalone notes (no parent item) into `notes/` as Markdown files.
+	 */
 	migrateNotes?: boolean,
 	/**  Migrate each item's PDF annotations (highlights/comments) into NOTES.md. */
 	migrateAnnotations?: boolean,
@@ -5778,6 +5781,8 @@ export type ZoteroMigrateResult = {
 	copiedPdfs: number,
 	/**  Zotero notes backfilled into existing papers' NOTES.md (already-present papers). */
 	notesAdded: number,
+	/**  Standalone Zotero notes (no parent item) written as Markdown files under `notes/`. */
+	standaloneNotes: number,
 	/**  Already-imported papers moved into their collection folder on re-migration. */
 	relocated: number,
 	/**
