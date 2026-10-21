@@ -15,13 +15,39 @@ import {
 	type PlazaSource,
 	plazaSourceLabel,
 } from "@/lib/plaza";
+import type { MenuContext } from "@/lib/shell/commands/menu-contributions";
+import {
+	activateMenuContribution,
+	visibleMenuContributions,
+} from "@/lib/shell/commands/menu-contributions";
 import { formatShortcutById } from "@/lib/shell/shortcuts";
+import { vaultRelativePath } from "@/lib/vault";
 import { revealInOsLabelKey } from "@/lib/vault/reveal";
 import type { TreeContextMenu } from "./types";
+
+function fileTreeItemContext(
+	vaultPath: string | null,
+	path: string,
+	paperId: string | undefined,
+): MenuContext {
+	const rel = vaultPath ? vaultRelativePath(vaultPath, path) : null;
+	return {
+		vaultPath,
+		...(rel != null ? { relPath: rel } : {}),
+		...(paperId ? { paperId } : {}),
+	};
+}
 
 export type TreeContextMenuPortalProps = {
 	menu: TreeContextMenu;
 	menuRef: RefObject<HTMLDivElement | null>;
+	/** Vault root the tree already has. Null when no vault is open. */
+	vaultPath: string | null;
+	/**
+	 * Catalog id when this row is a paper directory and metadata is loaded.
+	 * Omitted for files, folders, and papers with no id.
+	 */
+	paperId?: string;
 	menuCount: number;
 	menuNodeName?: string;
 	isPaperMenu: boolean;
@@ -64,6 +90,8 @@ export type TreeContextMenuPortalProps = {
 export function TreeContextMenuPortal({
 	menu,
 	menuRef,
+	vaultPath,
+	paperId,
 	menuCount,
 	menuNodeName,
 	isPaperMenu,
@@ -125,6 +153,19 @@ export function TreeContextMenuPortal({
 
 	const isTrashMenu = menu.path === TRASH_VIRTUAL_PATH;
 	const isPlazaMenu = menu.path === PLAZA_VIRTUAL_PATH;
+	// Recycle / Plaza roots are different menus. Contributions attach only to
+	// the item menu that already has path-based actions.
+	const isItemMenu = !isTrashMenu && !isPlazaMenu;
+	const itemContributions = isItemMenu
+		? visibleMenuContributions(
+				"fileTree.item",
+				fileTreeItemContext(
+					vaultPath,
+					menu.path,
+					isPaperMenu ? paperId : undefined,
+				),
+			)
+		: [];
 
 	const revealLabel = t(revealInOsLabelKey());
 	const revealShortcut = formatShortcutById("revealInFinder");
@@ -422,6 +463,25 @@ export function TreeContextMenuPortal({
 								</span>
 							) : null}
 						</button>
+					) : null}
+					{itemContributions.length > 0 ? (
+						<>
+							<div className="-mx-1 my-1 h-px bg-border" />
+							{itemContributions.map((item) => (
+								<button
+									key={item.id}
+									type="button"
+									role="menuitem"
+									className="flex w-full cursor-default items-center gap-4 rounded-md px-2 py-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+									onClick={() => {
+										onClose();
+										activateMenuContribution(item);
+									}}
+								>
+									<span>{item.title}</span>
+								</button>
+							))}
+						</>
 					) : null}
 				</>
 			)}

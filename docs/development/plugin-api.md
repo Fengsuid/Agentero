@@ -1,6 +1,6 @@
 # 插件 API 契约（Phase 0）
 
-状态：只冻结契约。没有插件进程、没有宿主、没有 Tauri command、没有设置页或 UI。
+状态：只冻结契约。没有插件进程、没有宿主、没有 Tauri command、没有设置页。命令面板和三个菜单贡献位是进程内空列表，生产代码不登记条目。
 
 机器可调用的操作目录本来就在 `agentero-core::ops`，给 CLI `describe` 和 MCP 共用。这一步给每条操作补上稳定性、权限和代际（`since`），并单独列出允许对外的生命周期事件。前端事件名仍以 `src/lib/lifecycle/events.ts` 为准，本步不改那个文件。
 
@@ -100,3 +100,17 @@
 内置命令继续用 `titleKey` 和可选的 `categoryKey`（现有 i18n）。外部命令用普通字符串 `title` 和可选的 `category`，不需要 `titleKey`，文案不进 `src/i18n/locales`。面板用 `commandTitle` / `commandCategory` 取显示文案。
 
 快捷键仍绑定 `src/lib/shell/shortcuts.ts` 里的内置 id。外部命令不会从这份注册表拿走快捷键。
+
+## 进程内菜单贡献
+
+三个菜单在内置项后面留了贡献位（`src/lib/shell/commands/menu-contributions.ts`）。内置项仍是各自组件里的 JSX，不进这份列表。有可见贡献时，菜单末尾先加一条分隔线，再追加贡献项；一条都没有时不渲染分隔线。
+
+| menu id | 表面 | 上下文 |
+|---|---|---|
+| `fileTree.item` | 文件树里已经有路径操作的行菜单。回收站和广场根是另一套菜单，不挂 | 右键那一行的 vault 相对路径；树已经知道 vault 根时带上。只有论文目录、且 catalog id 已经在树上时才带 `paperId` |
+| `library.row` | 论文库一行的右键菜单 | 行记录上已有的 `id` 和 `path`。库视图已经有 vault 根时带上 |
+| `pdf.selection` | PDF 划词浮动工具栏（高亮 / 复制 / 提问 / 加入对话 / 翻译） | 当前选中文本，以及查看器已有的路径。查看器已经知道论文 id 时带上，否则 `paperId` 留空 |
+
+贡献的 `title` 是普通字符串，不是 i18n key，文案不进 locale。`order` 小的在前，相同则按注册顺序。`when` 返回 false 或抛错，或 `commandId` 当前不在命令注册表里，该项隐藏，渲染时不抛错。点击调用该命令的 `run()`。同步抛错和失败的 Promise 用已有的 `notifyError(errorText)` 提示，菜单处理函数本身不抛。
+
+`registerMenuContribution` 遇到重复 id 会抛错，并保留第一次。生产代码目前不注册任何贡献，列表为空。没有 `plugins.json`，也没有对外宿主。
