@@ -78,8 +78,6 @@ export function ComposerContextChips({
 	labelForPath,
 	onRemoveContextPath,
 }: {
-	/** @deprecated Ignored — chips always expand on hover. */
-	compact?: boolean;
 	currentFilePath: string | null;
 	currentFileLabel: string;
 	mentionChipPaths: string[];

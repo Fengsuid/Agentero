@@ -93,7 +93,6 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(logging::build_log_plugin().build());
@@ -115,11 +114,6 @@ pub fn run() {
                     .with_filter(|label| label == "main")
                     .build(),
             );
-    }
-
-    #[cfg(not(target_os = "ios"))]
-    {
-        builder = builder.plugin(tauri_plugin_shell::init());
     }
 
     let settings_store = AppSettingsStore::load();

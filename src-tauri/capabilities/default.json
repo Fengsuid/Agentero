@@ -42,8 +42,6 @@
 				{ "path": "$DOWNLOAD/**" }
 			]
 		},
-		"shell:default",
-		"store:default",
 		"dialog:default",
 		"log:default"
 	]

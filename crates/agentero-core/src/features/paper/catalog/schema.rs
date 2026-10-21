@@ -184,6 +184,7 @@ type ConnCache = HashMap<PathBuf, Arc<Mutex<Connection>>>;
 
 static CONN_CACHE: OnceLock<Mutex<ConnCache>> = OnceLock::new();
 /// Physical opens per vault key (diagnostics; asserted by perf tests).
+#[cfg(test)]
 static OPEN_COUNTS: OnceLock<Mutex<HashMap<PathBuf, u64>>> = OnceLock::new();
 
 fn conn_cache() -> &'static Mutex<ConnCache> {
@@ -195,7 +196,7 @@ fn conn_cache_key(vault_root: &Path) -> PathBuf {
 }
 
 /// How many times `with_catalog` physically opened the catalog for this vault.
-/// Test-only observer; the counter itself is always maintained.
+/// Test-only observer; no counters are maintained in production.
 #[cfg(test)]
 pub fn catalog_open_count(vault_root: &Path) -> u64 {
     let key = conn_cache_key(vault_root);
@@ -240,11 +241,14 @@ pub fn with_catalog<T>(
             None => {
                 let conn = Arc::new(Mutex::new(ensure_catalog(vault_root)?));
                 cache.insert(key.clone(), Arc::clone(&conn));
-                let mut counts = OPEN_COUNTS
-                    .get_or_init(Default::default)
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner());
-                *counts.entry(key.clone()).or_insert(0) += 1;
+                #[cfg(test)]
+                {
+                    let mut counts = OPEN_COUNTS
+                        .get_or_init(Default::default)
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner());
+                    *counts.entry(key.clone()).or_insert(0) += 1;
+                }
                 conn
             }
         }

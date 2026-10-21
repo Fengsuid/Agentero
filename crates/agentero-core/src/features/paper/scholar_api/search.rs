@@ -170,7 +170,7 @@ struct DuplicateGroup {
 /// The search is concurrent per source with independent timeouts. S2's
 /// `/paper/search/match` fast path is used when the scope includes S2. The
 /// returned list is unranked and may still contain duplicates; use
-/// [`fuse_and_rank_candidates`] (or the convenience [`rank_candidates`]) to
+/// [`fuse_and_rank_candidates`] to
 /// order and trim it.
 pub async fn search_papers_by_title(
     query: &str,
@@ -386,13 +386,6 @@ pub fn fuse_and_rank_candidates(hits: Vec<ApiPaper>, query: &str, limit: usize) 
     scored.into_iter().map(|s| s.paper).collect()
 }
 
-/// Rank and truncate raw search hits (backward-compatible alias).
-///
-/// Equivalent to `fuse_and_rank_candidates` with the default match threshold.
-pub fn rank_candidates(hits: Vec<ApiPaper>, query: &str, limit: usize) -> Vec<ApiPaper> {
-    fuse_and_rank_candidates(hits, query, limit)
-}
-
 fn source_priority(name: &str) -> i32 {
     ALL_TITLE_SOURCES
         .iter()
@@ -582,28 +575,6 @@ mod tests {
         assert_eq!(ranked[0].source, "s2");
         // Crossref's DOI is merged in.
         assert_eq!(ranked[0].identifiers.doi.as_deref(), Some("10.1/attention"));
-    }
-
-    #[test]
-    fn rank_candidates_alias_floats_exact_match() {
-        let hits = vec![
-            paper(
-                "s2",
-                "Not Attention",
-                &[],
-                None,
-                PaperIdentifiers::default(),
-            ),
-            paper(
-                "s2",
-                "Attention Is All You Need",
-                &["Vaswani"],
-                Some(2017),
-                PaperIdentifiers::default(),
-            ),
-        ];
-        let ranked = rank_candidates(hits, "attention is all you need", 2);
-        assert_eq!(ranked[0].title, "Attention Is All You Need");
     }
 
     #[test]
