@@ -24,6 +24,10 @@ import {
 	type EditorLinkTemplateKind,
 	insertEditorLinkTemplate,
 } from "@/lib/markdown/editor-context-menu";
+import {
+	mathClipboardPayload,
+	serializeSelectionAsMarkdown,
+} from "@/lib/markdown/selection-markdown";
 import type { WikiRenameHeadingRequest } from "@/lib/wiki";
 import {
 	canRenameWikiHeading,
@@ -53,6 +57,8 @@ export type EditorContextMenu = {
 	onContextMenu: () => void;
 	onOpenChange: (open: boolean) => void;
 	copy: () => Promise<void>;
+	/** Copy the current selection (or selected blocks) as Markdown source. */
+	copyAsMarkdown: () => Promise<void>;
 	cut: () => Promise<void>;
 	paste: () => Promise<void>;
 	insertLink: (kind: EditorLinkTemplateKind) => void;
@@ -128,14 +134,30 @@ export function useEditorContextMenu({
 			if (!isEditorClipboardTarget(event.target, editorContainerRef.current)) {
 				return;
 			}
-			if (!hasSelectedBlocks(editor)) return;
-			const markdown = serializeSelectedBlocksAsMarkdown(editor);
-			if (!markdown) return;
+			if (hasSelectedBlocks(editor)) {
+				const markdown = serializeSelectedBlocksAsMarkdown(editor);
+				if (!markdown) return;
+				event.preventDefault();
+				event.stopPropagation();
+				event.clipboardData?.setData("text/plain", markdown);
+				if (event.type === "cut" && !readOnly) {
+					editor
+						.getTransforms(BlockSelectionPlugin)
+						.blockSelection.removeNodes();
+				}
+				return;
+			}
+			// Text selection that touches math: the default clipboard path copies
+			// rendered KaTeX glyphs from the DOM and loses the LaTeX source, so
+			// copy the selection as Markdown (`$…$` / `$$…$$`) instead.
+			const math = mathClipboardPayload(editor);
+			if (!math) return;
 			event.preventDefault();
 			event.stopPropagation();
-			event.clipboardData?.setData("text/plain", markdown);
+			event.clipboardData?.setData("text/plain", math.markdown);
 			if (event.type === "cut" && !readOnly) {
-				editor.getTransforms(BlockSelectionPlugin).blockSelection.removeNodes();
+				if (math.path) editor.tf.removeNodes({ at: math.path });
+				else editor.tf.deleteFragment();
 			}
 		};
 		document.addEventListener("copy", onCopyOrCut, true);
@@ -220,8 +242,20 @@ export function useEditorContextMenu({
 		}
 		const selection = takeSelection();
 		if (!selection || RangeApi.isCollapsed(selection)) return;
-		const text = editor.api.string(selection);
+		const text =
+			mathClipboardPayload(editor, selection)?.markdown ??
+			editor.api.string(selection);
 		await copyTextToClipboard(text, {
+			errorMessage: i18n.t("editor:contextMenu.copyFailed"),
+		});
+	}, [editor, takeSelection]);
+
+	const copyAsMarkdown = useCallback(async () => {
+		const markdown = hasSelectedBlocks(editor)
+			? serializeSelectedBlocksAsMarkdown(editor)
+			: serializeSelectionAsMarkdown(editor, takeSelection());
+		if (!markdown) return;
+		await copyTextToClipboard(markdown, {
 			errorMessage: i18n.t("editor:contextMenu.copyFailed"),
 		});
 	}, [editor, takeSelection]);
@@ -240,13 +274,18 @@ export function useEditorContextMenu({
 		}
 		const selection = takeSelection();
 		if (!selection || RangeApi.isCollapsed(selection)) return;
-		const text = editor.api.string(selection);
+		const math = mathClipboardPayload(editor, selection);
+		const text = math?.markdown ?? editor.api.string(selection);
 		const copied = await copyTextToClipboard(text, {
 			errorMessage: i18n.t("editor:contextMenu.copyFailed"),
 		});
 		if (!copied || !editorContainerRef.current?.isConnected) return;
-		editor.tf.focus({ at: selection });
-		editor.tf.deleteFragment();
+		if (math?.path) {
+			editor.tf.removeNodes({ at: math.path });
+		} else {
+			editor.tf.focus({ at: selection });
+			editor.tf.deleteFragment();
+		}
 	}, [editor, editorContainerRef, readOnly, takeSelection]);
 
 	const paste = useCallback(async () => {
@@ -337,6 +376,7 @@ export function useEditorContextMenu({
 		onContextMenu,
 		onOpenChange,
 		copy,
+		copyAsMarkdown,
 		cut,
 		paste,
 		insertLink,
