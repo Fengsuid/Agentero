@@ -93,10 +93,13 @@ fn cached_slot() -> &'static RwLock<Option<CachedClient>> {
     SHARED_CLIENT.get_or_init(|| RwLock::new(None))
 }
 
-/// The OS-wide ("system") proxy, if one is configured. reqwest only honors
-/// `HTTP_PROXY`-style env vars, so without this every Host request would
-/// bypass the system proxy that browsers and WebView2 use — the classic
-/// "browser works, app pages fail" split on Windows proxy clients.
+/// The Windows system proxy selected by Agentero's fallback policy.
+///
+/// Reqwest 0.12 also offers native discovery through `system-proxy`, but its
+/// matcher does not expose the selected URL for settings or child processes.
+/// Keep this small adapter for those consumers and our dynamic TTL; delegate
+/// URL validation and HTTP routing to `reqwest::Proxy::all`. Enabling native
+/// discovery here would also change macOS and per-scheme bypass behavior.
 pub fn system_proxy_url() -> Option<String> {
     #[cfg(windows)]
     {
@@ -215,7 +218,10 @@ pub fn shared_client() -> Result<reqwest::Client, AppError> {
             }
         }
     }
-    let client = client_builder()
+    // Build from the same snapshot used as the cache key. A settings change
+    // between two effective_proxy_url calls must not label a new client with
+    // the previous proxy.
+    let client = client_builder_with_proxy(proxy.as_deref())
         .pool_idle_timeout(Duration::from_secs(90))
         .pool_max_idle_per_host(8)
         .redirect(reqwest::redirect::Policy::limited(DEFAULT_REDIRECT_LIMIT))
@@ -242,9 +248,13 @@ pub fn shared_client() -> Result<reqwest::Client, AppError> {
 /// flow must deviate from their defaults (e.g. no timeout at all).
 pub fn client_builder() -> reqwest::ClientBuilder {
     let proxy = effective_proxy_url();
+    client_builder_with_proxy(proxy.as_deref())
+}
+
+fn client_builder_with_proxy(proxy: Option<&str>) -> reqwest::ClientBuilder {
     let builder = reqwest::Client::builder();
     match proxy {
-        Some(url) => match reqwest::Proxy::all(&url) {
+        Some(url) => match reqwest::Proxy::all(url) {
             Ok(proxy) => builder.proxy(proxy),
             Err(error) => {
                 log::error!(target: "agentero::network", "invalid configured proxy: {error}");
