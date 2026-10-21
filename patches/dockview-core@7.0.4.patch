@@ -1,0 +1,166 @@
+diff --git a/dist/cjs/dnd/dnd.js b/dist/cjs/dnd/dnd.js
+index 63cfeb2b1fd7ebde26b99d98b850bacb3cd928e8..430f9308724821a744c2e5c01c7b5f1a5c38e820 100644
+--- a/dist/cjs/dnd/dnd.js
++++ b/dist/cjs/dnd/dnd.js
+@@ -39,7 +39,7 @@ var DragAndDropObserver = /** @class */ (function (_super) {
+         }
+     };
+     DragAndDropObserver.prototype.onDragLeave = function (e) {
+-        if (this.target === e.target) {
++        if (!e.relatedTarget || !this.element.contains(e.relatedTarget)) {
+             this.target = null;
+             this.callbacks.onDragLeave(e);
+         }
+diff --git a/dist/cjs/dnd/droptarget.js b/dist/cjs/dnd/droptarget.js
+index 6dfadc59ff5d15638af259e9144f1280dbe5371c..2f1fc877faf0bd745750219050a4228d13066f61 100644
+--- a/dist/cjs/dnd/droptarget.js
++++ b/dist/cjs/dnd/droptarget.js
+@@ -169,12 +169,7 @@ var Droptarget = /** @class */ (function (_super) {
+                 _this._state = quadrant;
+             },
+             onDragLeave: function () {
+-                var _a, _b;
+-                var target = (_b = (_a = _this.options).getOverrideTarget) === null || _b === void 0 ? void 0 : _b.call(_a);
+-                if (target) {
+-                    return;
+-                }
+-                _this.removeDropTarget();
++                _this.clearOverlay();
+             },
+             onDragEnd: function (e) {
+                 var _a, _b;
+@@ -208,6 +203,10 @@ var Droptarget = /** @class */ (function (_super) {
+             },
+         });
+         _this.addDisposables(_this._onDrop, _this._onWillShowOverlay, _this.dnd);
++        var targetWindow = _this.element.ownerDocument.defaultView;
++        if (targetWindow) {
++            _this.addDisposables((0, events_1.addDisposableListener)(targetWindow, 'dragend', function () { _this.clearOverlay(); }));
++        }
+         return _this;
+     }
+     Object.defineProperty(Droptarget.prototype, "disabled", {
+diff --git a/dist/esm/dnd/dnd.js b/dist/esm/dnd/dnd.js
+index 39e6a127dab997545f5082f5e3207db653a39cbc..3dffe7bf5795e2cf28373da5947e05d6c662729d 100644
+--- a/dist/esm/dnd/dnd.js
++++ b/dist/esm/dnd/dnd.js
+@@ -19,7 +19,7 @@ export class DragAndDropObserver extends CompositeDisposable {
+         }
+     }
+     onDragLeave(e) {
+-        if (this.target === e.target) {
++        if (!e.relatedTarget || !this.element.contains(e.relatedTarget)) {
+             this.target = null;
+             this.callbacks.onDragLeave(e);
+         }
+diff --git a/dist/esm/dnd/droptarget.js b/dist/esm/dnd/droptarget.js
+index 545c4a761271ee7d70dde6e680947f95097e20c1..493b5e1a0668ab7748f95e38a7e8774dd89ca34f 100644
+--- a/dist/esm/dnd/droptarget.js
++++ b/dist/esm/dnd/droptarget.js
+@@ -1,4 +1,4 @@
+-import { DockviewEvent, Emitter } from '../events';
++import { DockviewEvent, Emitter, addDisposableListener } from '../events';
+ import { CompositeDisposable } from '../lifecycle';
+ import { DragAndDropObserver } from './dnd';
+ import { createOverlayElements, renderAnchoredOverlay, renderInPlaceOverlay, } from './dropOverlay';
+@@ -143,12 +143,7 @@ export class Droptarget extends CompositeDisposable {
+                 this._state = quadrant;
+             },
+             onDragLeave: () => {
+-                var _a, _b;
+-                const target = (_b = (_a = this.options).getOverrideTarget) === null || _b === void 0 ? void 0 : _b.call(_a);
+-                if (target) {
+-                    return;
+-                }
+-                this.removeDropTarget();
++                this.clearOverlay();
+             },
+             onDragEnd: (e) => {
+                 var _a, _b;
+@@ -182,6 +177,10 @@ export class Droptarget extends CompositeDisposable {
+             },
+         });
+         this.addDisposables(this._onDrop, this._onWillShowOverlay, this.dnd);
++        const targetWindow = this.element.ownerDocument.defaultView;
++        if (targetWindow) {
++            this.addDisposables(addDisposableListener(targetWindow, 'dragend', () => this.clearOverlay()));
++        }
+     }
+     setTargetZones(acceptedTargetZones) {
+         this._acceptedTargetZonesSet = new Set(acceptedTargetZones);
+diff --git a/dist/package/main.cjs.js b/dist/package/main.cjs.js
+index 4f8826a38527ee47e4e48e5b4f55746a1500afdb..42a6d9bf50779eb4d8b1203f2fe659e161dcebd1 100644
+--- a/dist/package/main.cjs.js
++++ b/dist/package/main.cjs.js
+@@ -4050,7 +4050,7 @@ class DragAndDropObserver extends CompositeDisposable {
+         }
+     }
+     onDragLeave(e) {
+-        if (this.target === e.target) {
++        if (!e.relatedTarget || !this.element.contains(e.relatedTarget)) {
+             this.target = null;
+             this.callbacks.onDragLeave(e);
+         }
+@@ -4411,12 +4411,7 @@ class Droptarget extends CompositeDisposable {
+                 this._state = quadrant;
+             },
+             onDragLeave: () => {
+-                var _a, _b;
+-                const target = (_b = (_a = this.options).getOverrideTarget) === null || _b === void 0 ? void 0 : _b.call(_a);
+-                if (target) {
+-                    return;
+-                }
+-                this.removeDropTarget();
++                this.clearOverlay();
+             },
+             onDragEnd: (e) => {
+                 var _a, _b;
+@@ -4450,6 +4445,10 @@ class Droptarget extends CompositeDisposable {
+             },
+         });
+         this.addDisposables(this._onDrop, this._onWillShowOverlay, this.dnd);
++        const targetWindow = this.element.ownerDocument.defaultView;
++        if (targetWindow) {
++            this.addDisposables(addDisposableListener(targetWindow, 'dragend', () => this.clearOverlay()));
++        }
+     }
+     setTargetZones(acceptedTargetZones) {
+         this._acceptedTargetZonesSet = new Set(acceptedTargetZones);
+diff --git a/dist/package/main.esm.mjs b/dist/package/main.esm.mjs
+index 99dd087bf8f1c74cf20a0cd650b4acac2bd84cc1..a273b7b179d6f0189c092de69729c8e6ddcd5299 100644
+--- a/dist/package/main.esm.mjs
++++ b/dist/package/main.esm.mjs
+@@ -4046,7 +4046,7 @@ class DragAndDropObserver extends CompositeDisposable {
+         }
+     }
+     onDragLeave(e) {
+-        if (this.target === e.target) {
++        if (!e.relatedTarget || !this.element.contains(e.relatedTarget)) {
+             this.target = null;
+             this.callbacks.onDragLeave(e);
+         }
+@@ -4407,12 +4407,7 @@ class Droptarget extends CompositeDisposable {
+                 this._state = quadrant;
+             },
+             onDragLeave: () => {
+-                var _a, _b;
+-                const target = (_b = (_a = this.options).getOverrideTarget) === null || _b === void 0 ? void 0 : _b.call(_a);
+-                if (target) {
+-                    return;
+-                }
+-                this.removeDropTarget();
++                this.clearOverlay();
+             },
+             onDragEnd: (e) => {
+                 var _a, _b;
+@@ -4446,6 +4441,10 @@ class Droptarget extends CompositeDisposable {
+             },
+         });
+         this.addDisposables(this._onDrop, this._onWillShowOverlay, this.dnd);
++        const targetWindow = this.element.ownerDocument.defaultView;
++        if (targetWindow) {
++            this.addDisposables(addDisposableListener(targetWindow, 'dragend', () => this.clearOverlay()));
++        }
+     }
+     setTargetZones(acceptedTargetZones) {
+         this._acceptedTargetZonesSet = new Set(acceptedTargetZones);

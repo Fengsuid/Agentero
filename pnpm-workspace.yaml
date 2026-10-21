@@ -44,3 +44,6 @@ patchedDependencies:
   # The heading IntersectionObserver was rebuilt on every scroll event, which
   # showed up as a scrollbar thumb that would not follow a drag on macOS.
   '@platejs/toc@53.0.0': patches/@platejs__toc@53.0.0.patch
+  # Clear native HTML5 overlays through their owners, including the shared
+  # anchor model; application-side DOM removal leaves stale internal handles.
+  dockview-core@7.0.4: patches/dockview-core@7.0.4.patch
