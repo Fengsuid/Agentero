@@ -147,7 +147,6 @@ import {
 	wikiTargetForPaper,
 } from "@/lib/pdf/annotation-ref";
 import { embedPdfDocumentId } from "@/lib/pdf/document-id";
-import "@/lib/pdf/dual-pane-scroll";
 import {
 	HIGHLIGHT_HEX_LIST,
 	normalizeHighlightColor,
@@ -592,15 +591,23 @@ function PdfViewerInner({
 		}
 	}, [importIdentifier, importBusy]);
 
-	const { pageField, setPageField, pageFocusedRef, goToPage, commitPageField } =
-		usePdfNavigation({
-			paperKey,
-			currentPage,
-			totalPages,
-			scroll,
-			scrollRef,
-			scrollReady,
-		});
+	const {
+		pageField,
+		setPageField,
+		pageFocusedRef,
+		goToPage,
+		goToRegion,
+		commitPageField,
+	} = usePdfNavigation({
+		docId,
+		baseDocId,
+		docCapRef,
+		paperKey,
+		currentPage,
+		totalPages,
+		scroll,
+		scrollRef,
+	});
 
 	// Latest-ref wrappers: the hook's helpers close over the fresh-per-render
 	// scroll scope, but the chrome consumers (outline panel, bottom bar) only
@@ -1717,6 +1724,7 @@ function PdfViewerInner({
 
 	usePdfViewerHandle({
 		docId,
+		goToRegion,
 		paperAbsPath,
 		defaultExportName,
 		onHandle,

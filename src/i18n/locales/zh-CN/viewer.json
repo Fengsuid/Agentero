@@ -26,6 +26,7 @@
 		"findNext": "下一个",
 		"findClose": "关闭查找",
 		"findNoResults": "无结果",
+		"annotationDeleteFailed": "批注删除提交失败",
 		"exportAnnotatedPdf": "导出带批注的 PDF",
 		"exportingAnnotatedPdf": "正在导出带批注的 PDF…",
 		"exportAnnotatedPdfFailed": "导出带批注的 PDF 失败",

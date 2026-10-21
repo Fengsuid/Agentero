@@ -87,31 +87,6 @@ index f28a4a85e0b86b398da43e4c2ab163593de4cfc9..5e86c01017429eae8cb4912e5593aace
    }
    /**
     * Convert coordinate of point from device coordinate to page coordinate
-diff --git a/dist/lib/pdfium/web/direct-engine.js b/dist/lib/pdfium/web/direct-engine.js
-index be9c8a709659616c182a3f449bfdf6666358f2e6..d3c409e83a446a7ffce6783e689fe8fc4f423cd8 100644
---- a/dist/lib/pdfium/web/direct-engine.js
-+++ b/dist/lib/pdfium/web/direct-engine.js
-@@ -1,8 +1,18 @@
- import "@embedpdf/pdfium";
--import { d } from "../../../direct-engine-C8xTbxym.js";
-+import { d as createPdfiumDirectEngine } from "../../../direct-engine-C8xTbxym.js";
- import "../../../pdf-engine-D9v0RfKe.js";
- import "../../../browser-BKLM0ThC.js";
-+import { Task } from "@embedpdf/models";
-+function createPdfiumEngine(wasmUrl, options) {
-+  const engine = createPdfiumDirectEngine(wasmUrl, options);
-+  engine.whenReady = () => {
-+    const task = new Task();
-+    task.resolve(true);
-+    return task;
-+  };
-+  return engine;
-+}
- export {
--  d as createPdfiumEngine
-+  createPdfiumEngine
- };
- //# sourceMappingURL=direct-engine.js.map
 diff --git a/dist/lib/pdfium/web/worker-engine.js b/dist/lib/pdfium/web/worker-engine.js
 index 1c40ef8dd3aa8050f3a23242d23258dbd04b3604..b4ec1a03398e136e038b8f8fe59ab9d59b3e349a 100644
 --- a/dist/lib/pdfium/web/worker-engine.js

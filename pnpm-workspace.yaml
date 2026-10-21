@@ -36,6 +36,9 @@ overrides:
 patchedDependencies:
   '@embedpdf/ai@0.0.1': patches/@embedpdf__ai@0.0.1.patch
   '@embedpdf/engines@2.14.4': patches/@embedpdf__engines@2.14.4.patch
+  # Bind the failure callback so rejected deletes settle their Task instead
+  # of leaving the annotation commit permanently pending (ESM and CJS).
+  '@embedpdf/plugin-annotation@2.14.4': patches/@embedpdf__plugin-annotation@2.14.4.patch
   '@embedpdf/plugin-scroll@2.14.4': patches/@embedpdf__plugin-scroll@2.14.4.patch
   '@embedpdf/plugin-tiling@2.14.4': patches/@embedpdf__plugin-tiling@2.14.4.patch
   # The heading IntersectionObserver was rebuilt on every scroll event, which

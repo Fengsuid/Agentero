@@ -34,10 +34,6 @@ export default defineConfig(async () => ({
 			"@embedpdf/engines",
 			"onnxruntime-web",
 			"@embedpdf/ai",
-			// Patched in-repo. Prebundling freezes the published copy, so a
-			// patch fix in plugin-tiling or plugin-scroll never reaches `vite dev`.
-			"@embedpdf/plugin-tiling",
-			"@embedpdf/plugin-scroll",
 			// Do NOT add `@platejs/toc` here even though it is patched in-repo.
 			// It imports the CommonJS-only `react-compiler-runtime`
 			// (`import { c } from "react-compiler-runtime"`), and only the

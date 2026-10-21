@@ -40,6 +40,9 @@ import {
 } from "react";
 import { isLinkObject } from "@/components/viewer/pdf/layers/citation-links";
 import type { PdfViewerProps } from "@/components/viewer/pdf/types";
+import i18n from "@/i18n";
+import { errorText } from "@/lib/core/error";
+import { notifyError } from "@/lib/core/notify";
 import {
 	ANNOTATIONS_FILE,
 	type HighlightCustom,
@@ -50,6 +53,7 @@ import {
 	loadAnnotationItems,
 	saveAnnotationItems,
 } from "@/lib/pdf/highlight/annotation-store";
+import { createAnnotationDeleteQueue } from "@/lib/pdf/highlight/delete-queue";
 import { migrateHighlightMarks } from "@/lib/pdf/highlight/migrate-marks";
 import {
 	HIGHLIGHT_HEX,
@@ -69,9 +73,6 @@ const HIGHLIGHT_SAVE_DEBOUNCE_MS = 600;
 
 /** One CLI invocation can append several highlights; coalesce the watcher burst. */
 const ANNOTATIONS_REIMPORT_BURST_MS = 200;
-
-/** Delays (ms) between purge checks after a delete; total window is ~5 s. */
-const DELETE_RETRY_DELAYS_MS = [120, 200, 400, 800, 1500, 2000];
 
 type AnnotationCapabilityProvides = ReturnType<
 	typeof useAnnotationCapability
@@ -459,48 +460,30 @@ export function usePdfHighlights({
 		[annotationCap, docId],
 	);
 
-	/** Delays between purge checks; see {@link DELETE_RETRY_DELAYS_MS}. */
-	const deleteTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
-
-	useEffect(
-		() => () => {
-			for (const timer of deleteTimersRef.current) clearTimeout(timer);
-			deleteTimersRef.current.clear();
-		},
-		[],
-	);
+	const deleteQueueRef = useRef<ReturnType<
+		typeof createAnnotationDeleteQueue
+	> | null>(null);
+	useEffect(() => {
+		if (!annotationCap) return;
+		const queue = createAnnotationDeleteQueue(
+			annotationCap.forDocument(docId),
+			(error) =>
+				notifyError(i18n.t("viewer:pdf.annotationDeleteFailed"), {
+					description: error === undefined ? undefined : errorText(error),
+				}),
+		);
+		deleteQueueRef.current = queue;
+		return () => {
+			queue.dispose();
+			if (deleteQueueRef.current === queue) deleteQueueRef.current = null;
+		};
+	}, [annotationCap, docId]);
 
 	const deleteHighlightAnnotation = useCallback(
 		(pageIndex: number, id: string) => {
-			const scope = annotationCap?.forDocument(docId);
-			if (!scope) return;
-			// EmbedPDF's auto-commit gives up silently when another commit holds
-			// the document lock. The in-flight commit then clears the pending-changes
-			// flag, so the deletion is never purged and the annotation stays
-			// selectable as a ghost. Re-issue the delete until it is really gone.
-			let attempt = 0;
-			const scheduleCheck = () => {
-				const delay = DELETE_RETRY_DELAYS_MS[attempt];
-				if (delay === undefined) return;
-				const timer = setTimeout(() => {
-					deleteTimersRef.current.delete(timer);
-					let tracked = false;
-					try {
-						tracked = scope.getAnnotationById(id) != null;
-					} catch {
-						return;
-					}
-					if (!tracked) return;
-					attempt += 1;
-					scope.deleteAnnotation(pageIndex, id);
-					scheduleCheck();
-				}, delay);
-				deleteTimersRef.current.add(timer);
-			};
-			scope.deleteAnnotation(pageIndex, id);
-			scheduleCheck();
+			deleteQueueRef.current?.delete(pageIndex, id);
 		},
-		[annotationCap, docId],
+		[],
 	);
 
 	return {

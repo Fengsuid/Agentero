@@ -16,8 +16,8 @@ import {
 import { RenderPluginPackage } from "@embedpdf/plugin-render";
 import { errorText } from "@/lib/core/error";
 
-import { logger } from "@/lib/core/logger";
 import { findCanonicalPaperPdfPath, localFileToArrayBuffer } from "@/lib/paper";
+import { createPdfEngine } from "@/lib/pdf/engine";
 import { getPdfAiRuntime } from "@/lib/pdf/layout/ai-runtime";
 import {
 	layoutSidecarBlocksAnalysis,
@@ -27,15 +27,6 @@ import {
 import type { LayoutTaskLike } from "@/lib/pdf/layout/run-analysis";
 import { runDocumentLayoutAnalysis } from "@/lib/pdf/layout/run-analysis";
 import { clearLayoutDocumentResult } from "@/lib/pdf/layout/store";
-import { loadSystemCjkFontFallback } from "@/lib/pdf/system-font-fallback";
-
-function taskToPromise<T>(task: {
-	wait: (ok: (v: T) => void, err: (e: unknown) => void) => void;
-}): Promise<T> {
-	return new Promise((resolve, reject) => {
-		task.wait(resolve, reject);
-	});
-}
 
 let analysisEngine: PdfEngine | null = null;
 let analysisEnginePromise: Promise<PdfEngine> | null = null;
@@ -43,57 +34,10 @@ let analysisEnginePromise: Promise<PdfEngine> | null = null;
 export async function getHeadlessPdfEngine(): Promise<PdfEngine> {
 	if (analysisEngine) return analysisEngine;
 	if (analysisEnginePromise) return analysisEnginePromise;
-	const pending = (async () => {
-		const fontFallback = await loadSystemCjkFontFallback();
-		// Prefer worker engine (same as the app viewer).
-		try {
-			const pdfiumWasmUrl = (await import("@embedpdf/pdfium/pdfium.wasm?url"))
-				.default;
-			const abs =
-				typeof document !== "undefined"
-					? new URL(pdfiumWasmUrl, document.baseURI).href
-					: pdfiumWasmUrl;
-			const { createPdfiumEngine } = await import(
-				"@embedpdf/engines/pdfium-worker-engine"
-			);
-			const created = createPdfiumEngine(abs, {
-				fontFallback,
-			});
-			const engine = (
-				created instanceof Promise ? await created : created
-			) as PdfEngine & {
-				whenReady?: () => { toPromise(): Promise<unknown> };
-			};
-			const ready = engine.whenReady?.();
-			if (ready) {
-				await Promise.race([
-					ready.toPromise(),
-					new Promise<never>((_, reject) => {
-						setTimeout(() => reject(new Error("worker ready timeout")), 8000);
-					}),
-				]);
-			}
-			analysisEngine = engine;
-			return engine;
-		} catch (e) {
-			logger.warn("headless layout: worker engine failed, using direct", {
-				error: errorText(e),
-			});
-			const pdfiumWasmUrl = (await import("@embedpdf/pdfium/pdfium.wasm?url"))
-				.default;
-			const { createPdfiumEngine } = await import(
-				"@embedpdf/engines/pdfium-direct-engine"
-			);
-			const created = createPdfiumEngine(pdfiumWasmUrl, {
-				fontFallback,
-			});
-			const engine = (
-				created instanceof Promise ? await created : created
-			) as PdfEngine;
-			analysisEngine = engine;
-			return engine;
-		}
-	})();
+	const pending = createPdfEngine().then((engine) => {
+		analysisEngine = engine;
+		return engine;
+	});
 	analysisEnginePromise = pending;
 	try {
 		return await pending;
@@ -202,15 +146,15 @@ export async function analyzePaperLayoutHeadless(opts: {
 			layoutPlugin as unknown as { provides: () => LayoutAnalysisCapability }
 		).provides();
 
-		const openRes = await taskToPromise(
-			docCap.openDocumentBuffer({
+		const openRes = await docCap
+			.openDocumentBuffer({
 				buffer,
 				documentId,
 				name: "layout-analysis",
 				autoActivate: true,
-			}),
-		);
-		const doc = await taskToPromise(openRes.task);
+			})
+			.toPromise();
+		const doc = await openRes.task.toPromise();
 		const pageCount = doc.pageCount ?? 0;
 		if (opts.signal?.aborted) throw new Error("cancelled");
 
@@ -277,9 +221,10 @@ export async function analyzePaperLayoutHeadless(opts: {
 						provides: () => DocumentManagerCapability;
 					}
 				).provides();
-				await taskToPromise(docCap.closeDocument(documentId)).catch(
-					() => undefined,
-				);
+				await docCap
+					.closeDocument(documentId)
+					.toPromise()
+					.catch(() => undefined);
 			}
 		} catch {
 			// ignore close errors
