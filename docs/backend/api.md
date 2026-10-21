@@ -997,7 +997,7 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
 
 #### `paper_stage_import_file`
 
-将「无绝对路径」的 OS 拖放 PDF（macOS WKWebView 常无 `File.path`）以 base64 写入 `~/.agentero/import-tmp/`，返回绝对路径供 `paper_import_local_pdf` 使用。
+将「无绝对路径」的 OS 拖放 PDF（macOS WKWebView 常无 `File.path`）以 base64 写入 `~/.agentero/import-tmp/`，返回绝对路径供 `paper_import_local_pdf` 使用。落盘名带 `<毫秒时间戳>-<uuid8>-` 前缀；`paper_import_local_pdf` 只在源路径位于该暂存目录内时剥离前缀再派生标题/id，暂存前缀不会进入用户可见元数据（#801）。
 
 - **参数**（`args`）：`{ fileName: string; contentBase64: string }`
 - **返回**：`{ ok: true; data: { path: string } }`
