@@ -433,3 +433,53 @@ async fn run(command: Commands, globals: &GlobalOpts) -> Result<serde_json::Valu
         Commands::Open { path } => commands::open::run(&path, globals),
     }
 }
+
+#[cfg(test)]
+mod ops_contract {
+    use super::Cli;
+    use agentero_core::ops::{self, OpStability, OpSurface};
+    use clap::CommandFactory;
+
+    /// Walks the clap tree from `Cli` in this file (`Commands`) and the
+    /// subcommand enums in `cli/src/commands/`.
+    fn clap_has_path(cmd: &clap::Command, segments: &[&str]) -> bool {
+        let Some((head, rest)) = segments.split_first() else {
+            return true;
+        };
+        match cmd.get_subcommands().find(|sub| sub.get_name() == *head) {
+            Some(sub) => clap_has_path(sub, rest),
+            None => false,
+        }
+    }
+
+    #[test]
+    fn stable_ops_cli_paths_match_registered_commands() {
+        let root = Cli::command();
+        assert_eq!(root.get_name(), "agentero");
+        for op in ops::all() {
+            if op.stability != OpStability::Stable {
+                continue;
+            }
+            let Some(cli) = op.cli.as_deref() else {
+                assert!(
+                    !op.surfaces.contains(&OpSurface::Cli),
+                    "{} is marked CLI but has no command string",
+                    op.id
+                );
+                continue;
+            };
+            let segments: Vec<&str> = cli.split_whitespace().collect();
+            assert_eq!(
+                segments.first().copied(),
+                Some("agentero"),
+                "{} cli {cli}",
+                op.id
+            );
+            assert!(
+                clap_has_path(&root, &segments[1..]),
+                "{} cli path `{cli}` is not registered in cli/src/main.rs Commands",
+                op.id
+            );
+        }
+    }
+}

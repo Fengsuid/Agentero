@@ -1,6 +1,6 @@
 //! Static curated op list.
 
-use super::{OpSideEffect, OpSpec, OpSurface};
+use super::{OpPermission, OpSideEffect, OpSpec, OpStability, OpSurface};
 use serde_json::json;
 
 #[allow(clippy::too_many_arguments)]
@@ -23,6 +23,9 @@ fn op(
         mcp_tool: mcp_tool.map(str::to_string),
         summary: summary.into(),
         side_effects,
+        stability: OpStability::Internal,
+        permission: OpPermission::Unspecified,
+        since: "0".into(),
         surfaces: surfaces.to_vec(),
         supports_dry_run: false,
         requires_confirmation,
@@ -37,7 +40,7 @@ pub fn build() -> Vec<OpSpec> {
     let cli = &[OpSurface::Cli];
     let both = &[OpSurface::Cli, OpSurface::Mcp];
 
-    vec![
+    let mut ops = vec![
         op(
             "vault.search",
             None,
@@ -729,5 +732,7 @@ pub fn build() -> Vec<OpSpec> {
             &["usage"],
             &["agentero describe --json", "agentero describe paper.list --json"],
         ),
-    ]
+    ];
+    super::classify::apply(&mut ops);
+    ops
 }
