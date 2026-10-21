@@ -87,6 +87,7 @@ schemars = { version = "1", optional = true }
 uuid = { version = "1", features = ["v4", "serde"] }
 dirs = { workspace = true }
 which = "7"
+semver = "1"
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "socks", "multipart", "cookies"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
