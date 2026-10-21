@@ -25,7 +25,7 @@
 | [mark-locate-eager.md](mark-locate-eager.md) | 文字定位：标注时算（即时 B1 viewer / 可选 B2 headless） |
 | [crate-split-roadmap.md](crate-split-roadmap.md) | agentero-core crate 拆分路线：Phase 1/2 已落地（基座 + CLI 数据域迁入、`HostHooks` 事件抽象、CLI 脱离 `agentero_lib`）；留守域耦合清单与 Phase 3 建议 |
 | [agent-dx.md](agent-dx.md) | Agent DX：ops 自省 / MCP 对齐 / Skill 削薄。Phase 2 + 精简 3 + 4 已落地；dry-run 与更多 MCP tools 仍为后续 |
-| [plugin-api.md](plugin-api.md) | 插件数据面契约（Phase 0）：ops 稳定性 / 权限 / `since`，五个公开生命周期事件，进程内命令面板注册表，以及三个菜单贡献位（外部列表为空，没有插件宿主） |
+| [plugin-api.md](plugin-api.md) | 插件数据面契约：ops 稳定性 / 权限 / `since`，五个公开生命周期事件（webview 内 `onPublic`），`plugins.json`（启动不加载、无设置页），进程内命令面板注册表，以及三个菜单贡献位（外部列表为空，没有插件宿主） |
 | [decision-layer.md](decision-layer.md) | 通用决策层：规则 / System One（jEV/Clef）/ LLM 统一为可插拔 provider + routing。**已落地**（见 [../backend/decision.md](../backend/decision.md)），保留为设计记录 |
 | [rust-arch-refactor.md](rust-arch-refactor.md) | Rust 架构重构计划（2026-09-25 更新）：共享业务用例、提交与恢复、Vault 派生状态、论文准备/共享提取、任务生命周期、Agent 上下文六条主线；含前置正确性修复、依赖与验收、旧任务归并及历史裁决。R1 WAL 一致快照、R2 字段原子更新、R3 sync 占用 RAII、A1 共享移动用例已完成，其余按计划推进 |
 | [zhihu.md](zhihu.md) | 知乎开放平台集成：统一 CLI 后端（探测/一键安装/Keychain 凭证）+ 知乎虚拟 Agent（builtin ACP 适配 + 直答大脑）+ 广场知乎面板 + 论文找讨论 / 划词插引用。设计稿，实施未开始 |

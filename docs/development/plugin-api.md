@@ -1,8 +1,8 @@
-# 插件 API 契约（Phase 0）
+# 插件 API 契约（Phase 0–1）
 
-状态：只冻结契约。没有插件进程、没有宿主、没有 Tauri command、没有设置页。命令面板和三个菜单贡献位是进程内空列表，生产代码不登记条目。
+状态：契约已冻结。Phase 1 增加了 webview 内的 `onPublic`，以及与 `settings.json` 同目录的 `plugins.json`。没有插件进程、没有宿主、没有 Tauri command、没有设置页、没有启用开关。命令面板和三个菜单贡献位是进程内空列表，生产代码不登记条目，也不调用 `onPublic`。
 
-机器可调用的操作目录本来就在 `agentero-core::ops`，给 CLI `describe` 和 MCP 共用。这一步给每条操作补上稳定性、权限和代际（`since`），并单独列出允许对外的生命周期事件。前端事件名仍以 `src/lib/lifecycle/events.ts` 为准，本步不改那个文件。
+机器可调用的操作目录本来就在 `agentero-core::ops`，给 CLI `describe` 和 MCP 共用。操作上的稳定性、权限和代际（`since`）仍是 Phase 0 的契约。前端事件的闭集仍是 `src/lib/lifecycle/events.ts` 的 `LifecycleEventMap`；对外名字是 `PUBLIC_LIFECYCLE_EVENTS`。
 
 ## 代码位置
 
@@ -12,7 +12,10 @@
 | 静态操作列表 | `crates/agentero-core/src/ops/catalog.rs` |
 | 每条 id 的稳定性 / 权限 / `since` | `crates/agentero-core/src/ops/classify.rs` |
 | 公开事件 `public_events()` | `crates/agentero-core/src/ops/events.rs` |
-| 前端事件类型（未改） | `src/lib/lifecycle/events.ts` |
+| 前端事件闭集 `LifecycleEventMap` / `on()` | `src/lib/lifecycle/events.ts`、`src/lib/lifecycle/bus.ts` |
+| 对外订阅 `PUBLIC_LIFECYCLE_EVENTS`、`onPublic` | `src/lib/lifecycle/public.ts`（`src/lib/lifecycle/index.ts` 再导出） |
+| `plugins.json` 路径 | `crates/agentero-core/src/paths.rs` 的 `plugins_path` |
+| `plugins.json` 读写 | `crates/agentero-core/src/plugins.rs` 的 `load_plugins` / `store_plugins` |
 
 `op()` 的默认值是 `stability: internal`、`permission: unspecified`、`since: "0"`。`classify.rs` 的表必须覆盖目录里的每一个 id，且每个 id 只出现一次。漏写或写两次，`cargo test -p agentero-core ops::` 失败。新操作不能靠默认值悄悄留在未分类状态。
 
@@ -87,7 +90,28 @@
 
 宿主实际 payload 还带 `timestamp`；`paper:renamed` 还带 `updatedSources`。这两项不在 v0 契约字段里。字段名与 `src/lib/lifecycle/events.ts` 一致。`paper:imported` / `paper:assets-ready` / `paper:renamed` 的发射在 `crates/agentero-core/src/features/lifecycle.rs`；`vault:opened` 和 `paper:opened` 由前端发出。
 
-没有订阅 API。这张表只规定名字和字段。
+`onPublic(event, handler)` 只接受这五个名字，在 webview 里订阅。payload 用 `LifecycleEventMap` 里已有的类型，不另做一份。它转给现有的 `on()`，返回同一个取消订阅函数，不出进程。`register.ts` 仍是应用自己登记 handler 的唯一地方。生产代码不调用 `onPublic`。
+
+`PUBLIC_LIFECYCLE_EVENTS` 与 `public_events()` 是这五个字符串。两边各自断言，没有代码生成。
+
+## plugins.json
+
+与 `settings.json` 同目录：`$XDG_CONFIG_HOME/agentero/plugins.json`（`plugins_path()`）。不写入 `AppSettings`。设置页没有这一项，应用启动时不读取，也没有启用开关。
+
+```json
+{
+  "schemaVersion": 1,
+  "plugins": []
+}
+```
+
+- `schemaVersion` 是数字 `1`
+- `plugins` 是数组。条目的形状先不解释，按 JSON 值保存，所以 `{ "id": "demo", "enabled": false, "extra": true }` 里的 `extra` 会原样写回
+- 未知的顶层键会保留。文件不存在时 `load_plugins` 返回空文档（`schemaVersion` 1、`plugins` []），并且不创建文件
+- 根不是对象、`plugins` 不是数组，或 `schemaVersion` 不是 `1` 时返回结构化错误，不 panic
+- 写入沿用现有的 pretty JSON（`json_store`）
+
+之后的宿主调用 `plugins_path`、`load_plugins`、`store_plugins`。没有插件宿主。
 
 ## 进程内命令注册表
 
@@ -113,4 +137,4 @@
 
 贡献的 `title` 是普通字符串，不是 i18n key，文案不进 locale。`order` 小的在前，相同则按注册顺序。`when` 返回 false 或抛错，或 `commandId` 当前不在命令注册表里，该项隐藏，渲染时不抛错。点击调用该命令的 `run()`。同步抛错和失败的 Promise 用已有的 `notifyError(errorText)` 提示，菜单处理函数本身不抛。
 
-`registerMenuContribution` 遇到重复 id 会抛错，并保留第一次。生产代码目前不注册任何贡献，列表为空。没有 `plugins.json`，也没有对外宿主。
+`registerMenuContribution` 遇到重复 id 会抛错，并保留第一次。生产代码目前不注册任何贡献，列表为空。没有插件宿主。

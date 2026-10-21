@@ -1,8 +1,10 @@
 //! Public lifecycle events for the plugin data API.
 //!
-//! Names and domain fields match `src/lib/lifecycle/events.ts`. Host-only
-//! events (`window:closed`, `job:*`, `agent:registry-changed`, `app:ready`)
-//! are not part of this catalog. There is no subscription API yet.
+//! Names match `PUBLIC_LIFECYCLE_EVENTS` in `src/lib/lifecycle/public.ts`.
+//! Domain fields match `src/lib/lifecycle/events.ts`. Host-only events
+//! (`window:closed`, `job:*`, `agent:registry-changed`, `app:ready`) are not
+//! part of this catalog. In-webview subscription is `onPublic`; this module
+//! does not emit or subscribe.
 
 use serde::Serialize;
 
