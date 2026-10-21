@@ -1,4 +1,5 @@
 import { KEYS, RangeApi, type SlateEditor } from "platejs";
+import { isLiteralTextContext } from "@/lib/markdown/input-context";
 
 /** True when the `$` at `index` is preceded by an odd number of backslashes. */
 function isEscaped(text: string, index: number): boolean {
@@ -39,6 +40,7 @@ function enclosingDollarPair(
 export function convertInlineMathAtCaret(editor: SlateEditor): boolean {
 	const selection = editor.selection;
 	if (!selection || !RangeApi.isCollapsed(selection)) return false;
+	if (isLiteralTextContext(editor)) return false;
 	const entry = editor.api.node(selection.anchor.path);
 	if (!entry) return false;
 	const [node, path] = entry as [{ text?: unknown }, number[]];

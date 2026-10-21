@@ -1,43 +1,23 @@
-import { createSlatePlugin, KEYS, type SlateEditor } from "platejs";
+import {
+	createSlatePlugin,
+	ElementApi,
+	KEYS,
+	type SlateEditor,
+	TextApi,
+} from "platejs";
 import { deserializeMarkdownBody } from "@/lib/markdown/deserialize-md";
+import { isLiteralTextContext } from "@/lib/markdown/input-context";
 import { isUnfinishedMarkdownLinkContext } from "@/lib/markdown/link-input-rule";
-
-function isMarkdownPasteBlocked(editor: SlateEditor) {
-	return editor.api.some({
-		match: {
-			type: [
-				editor.getType(KEYS.codeBlock),
-				editor.getType(KEYS.equation),
-				editor.getType(KEYS.inlineEquation),
-			],
-		},
-	});
-}
 
 type InsertFragmentNodes = Parameters<SlateEditor["tf"]["insertFragment"]>[0];
 
-function decodeSlateFragment(
-	dataTransfer: DataTransfer,
-): InsertFragmentNodes | null {
-	const raw =
-		dataTransfer.getData("application/x-slate-fragment") ||
-		dataTransfer
-			.getData("text/html")
-			.match(/data-slate-fragment="(.+?)"/m)?.[1];
-	if (!raw) return null;
-	try {
-		const decoded = decodeURIComponent(
-			typeof atob === "function"
-				? atob(raw)
-				: Buffer.from(raw, "base64").toString("binary"),
-		);
-		const parsed = JSON.parse(decoded);
-		return Array.isArray(parsed) && parsed.length > 0
-			? (parsed as InsertFragmentNodes)
-			: null;
-	} catch {
-		return null;
-	}
+// Slate decodes clipboard JSON but does not validate its descendants. Validate
+// before inserting so a malformed nested node cannot leave a partial edit.
+function isFragmentNode(node: unknown): boolean {
+	return (
+		TextApi.isText(node) ||
+		(ElementApi.isElement(node) && node.children.every(isFragmentNode))
+	);
 }
 
 function insertFragmentPreservingBlock(
@@ -46,41 +26,26 @@ function insertFragmentPreservingBlock(
 ) {
 	if (!fragment.length) return;
 
-	const currentBlockEntry = editor.api.above({
-		match: (n) => editor.api.isBlock(n),
-	});
-	const currentBlock = currentBlockEntry?.[0];
-	const isCurrentBlockEmpty =
-		Boolean(currentBlock) && editor.api.isEmpty(currentBlock);
-
 	const first = fragment[0];
-	// Single paragraph without block syntax: insert inline children to preserve
-	// the current container block type (headings, lists, blockquotes) instead of
-	// letting Slate replace an empty block with a paragraph.
-	if (
-		fragment.length === 1 &&
-		typeof first === "object" &&
-		first !== null &&
-		"type" in first &&
-		first.type === editor.getType(KEYS.p) &&
-		"children" in first &&
-		Array.isArray(first.children)
-	) {
-		editor.tf.insertFragment(first.children as InsertFragmentNodes);
-		return;
-	}
+	if (ElementApi.isElement(first) && first.type === editor.getType(KEYS.p)) {
+		// Insert inline children so Slate preserves the current heading, list or
+		// blockquote instead of replacing an empty block with a paragraph.
+		if (fragment.length === 1) {
+			editor.tf.insertFragment(first.children);
+			return;
+		}
 
-	if (
-		isCurrentBlockEmpty &&
-		typeof currentBlock?.type === "string" &&
-		currentBlock.type !== editor.getType(KEYS.p) &&
-		fragment.length > 1 &&
-		typeof first === "object" &&
-		first !== null &&
-		"type" in first &&
-		first.type === editor.getType(KEYS.p)
-	) {
-		first.type = currentBlock.type;
+		const currentBlock = editor.api.above({
+			match: (node) => editor.api.isBlock(node),
+		})?.[0];
+		if (
+			currentBlock &&
+			typeof currentBlock.type === "string" &&
+			editor.api.isEmpty(currentBlock) &&
+			currentBlock.type !== editor.getType(KEYS.p)
+		) {
+			first.type = currentBlock.type;
+		}
 	}
 
 	editor.tf.insertFragment(fragment);
@@ -96,49 +61,88 @@ function insertFragmentPreservingBlock(
  */
 export const MarkdownPastePlugin = createSlatePlugin({
 	key: "markdownPaste",
-}).overrideEditor(({ editor, tf: { insertData } }) => ({
-	transforms: {
-		insertData(dataTransfer) {
-			const markdown = dataTransfer.getData("text/plain");
-			if (
-				!markdown ||
-				dataTransfer.files.length > 0 ||
-				isMarkdownPasteBlocked(editor)
-			) {
-				return insertData(dataTransfer);
-			}
+}).overrideEditor(({ editor, tf: { insertData, insertFragment } }) => {
+	// Let Slate own both clipboard encodings. Capture its decoded fragment before
+	// inserting, so malformed payloads cannot partially edit the document and our
+	// heading-preservation policy applies equally to native and Markdown paste.
+	let captured: InsertFragmentNodes | null | undefined;
+	const readClipboardFragment = (dataTransfer: DataTransfer) => {
+		if (
+			!dataTransfer.getData("application/x-slate-fragment") &&
+			!dataTransfer.getData("text/html")
+		)
+			return null;
+		captured = null;
+		try {
+			editor.tf.insertFragmentData(dataTransfer);
+			return captured;
+		} catch {
+			return null;
+		} finally {
+			captured = undefined;
+		}
+	};
+	return {
+		transforms: {
+			insertFragment(fragment, options) {
+				if (captured !== undefined) {
+					if (
+						Array.isArray(fragment) &&
+						fragment.length > 0 &&
+						fragment.every(isFragmentNode)
+					)
+						captured = fragment;
+					return;
+				}
+				insertFragment(fragment, options);
+			},
+			insertData(dataTransfer) {
+				const markdown = dataTransfer.getData("text/plain");
+				if (!markdown || dataTransfer.files.length > 0) {
+					return insertData(dataTransfer);
+				}
+				if (isLiteralTextContext(editor)) {
+					// Bypass Markdown/HTML parsers while retaining Slate's multiline
+					// text insertion (including code-line breaks and current marks).
+					editor.tf.insertTextData(dataTransfer);
+					return;
+				}
 
-			// Unfinished `[label](` — keep paste as literal characters so typing
-			// `)` can convert the whole thing into one link node.
-			// Only for single-line payloads (multi-line stays Markdown).
-			if (!markdown.includes("\n") && isUnfinishedMarkdownLinkContext(editor)) {
-				editor.tf.insertText(markdown);
-				return;
-			}
+				// Unfinished `[label](` — keep paste as literal characters so typing
+				// `)` can convert the whole thing into one link node.
+				// Only for single-line payloads (multi-line stays Markdown).
+				if (
+					!markdown.includes("\n") &&
+					isUnfinishedMarkdownLinkContext(editor)
+				) {
+					editor.tf.insertText(markdown);
+					return;
+				}
 
-			// Intra-editor paste: when the clipboard carries a rich Slate fragment
-			// (via application/x-slate-fragment or data-slate-fragment in HTML),
-			// insert the exact AST nodes directly. This preserves block types (e.g.
-			// headings, lists), prevents wikilink text duplication, and avoids
-			// spurious empty paragraphs from DOM text extraction.
-			const slateFragment = decodeSlateFragment(dataTransfer);
-			if (slateFragment) {
-				insertFragmentPreservingBlock(editor, slateFragment);
-				return;
-			}
+				// Intra-editor paste: when the clipboard carries a rich Slate fragment
+				// (via application/x-slate-fragment or data-slate-fragment in HTML),
+				// insert the exact AST nodes directly. This preserves block types (e.g.
+				// headings, lists), prevents wikilink text duplication, and avoids
+				// spurious empty paragraphs from DOM text extraction.
+				const slateFragment = readClipboardFragment(dataTransfer);
+				if (slateFragment) {
+					insertFragmentPreservingBlock(editor, slateFragment);
+					return;
+				}
 
-			const fragment = deserializeMarkdownBody(editor, markdown);
-			if (fragment.length === 0) return insertData(dataTransfer);
+				const fragment = deserializeMarkdownBody(editor, markdown);
+				if (fragment.length === 0) return insertData(dataTransfer);
 
-			insertFragmentPreservingBlock(editor, fragment);
+				insertFragmentPreservingBlock(editor, fragment);
 
-			const inlineEquationEntry = editor.api.above({
-				match: { type: editor.getType(KEYS.inlineEquation) },
-			});
-			const afterEquation = inlineEquationEntry
-				? editor.api.after(inlineEquationEntry[1])
-				: undefined;
-			if (afterEquation) editor.tf.select(afterEquation);
+				const inlineEquationEntry = editor.api.above({
+					match: { type: editor.getType(KEYS.inlineEquation) },
+				});
+				const afterEquation = inlineEquationEntry
+					? editor.api.after(inlineEquationEntry[1])
+					: undefined;
+				if (afterEquation) editor.tf.select(afterEquation);
+			},
 		},
-	},
-}));
+	};
+});

@@ -1,6 +1,16 @@
+// @vitest-environment happy-dom
+
+import { BaseCodePlugin } from "@platejs/basic-nodes";
+import { BaseCodeBlockPlugin } from "@platejs/code-block";
 import { BaseListPlugin } from "@platejs/list";
 import { MarkdownPlugin } from "@platejs/markdown";
-import { createSlateEditor, createSlatePlugin, KEYS } from "platejs";
+import {
+	createSlateEditor,
+	createSlatePlugin,
+	KEYS,
+	type Value,
+} from "platejs";
+import { createPlateEditor } from "platejs/react";
 import { describe, expect, it } from "vitest";
 import { MarkdownKit } from "@/components/editor/plugins/markdown-kit";
 import { convertInlineMathAtCaret } from "@/lib/markdown/inline-math-auto-close";
@@ -44,7 +54,7 @@ function typeInlineMath(text: string) {
 }
 
 function createMarkdownPasteEditor() {
-	const editor = createSlateEditor({
+	const editor = createPlateEditor({
 		plugins: [
 			TestParagraphPlugin,
 			TestInlineEquationPlugin,
@@ -360,6 +370,73 @@ describe("Markdown inline math input", () => {
 });
 
 describe("convertInlineMathAtCaret", () => {
+	it.each([
+		{
+			name: "code block",
+			value: [
+				{
+					type: KEYS.codeBlock,
+					children: [{ type: KEYS.codeLine, children: [{ text: "$HOME" }] }],
+				},
+			],
+			path: [0, 0, 0],
+		},
+		{
+			name: "code mark",
+			value: [{ type: KEYS.p, children: [{ text: "$HOME", code: true }] }],
+			path: [0, 0],
+		},
+	])("keeps dollar-delimited source literal in $name during typing, paste and Enter/blur", ({
+		value,
+		path,
+	}) => {
+		const editor = createPlateEditor({
+			plugins: [
+				TestParagraphPlugin,
+				BaseCodePlugin,
+				BaseCodeBlockPlugin,
+				TestInlineEquationPlugin.configure({
+					inputRules: [inlineMathInputRule],
+				}),
+				...MarkdownKit,
+			],
+			value: value as Value,
+		});
+		editor.tf.select({ path, offset: 5 });
+		editor.tf.insertText("$");
+		expect(editor.api.string([0])).toBe("$HOME$");
+		editor.tf.select({ path, offset: 3 });
+		expect(convertInlineMathAtCaret(editor)).toBe(false);
+		expect(
+			editor.api.some({ at: [], match: { type: KEYS.inlineEquation } }),
+		).toBe(false);
+		expect(editor.api.string([0])).toBe("$HOME$");
+		editor.tf.select({ path, offset: 6 });
+		editor.tf.insertData(markdownClipboard("$PATH$"));
+		expect(editor.api.string([0])).toBe("$HOME$$PATH$");
+		editor.tf.insertData(markdownClipboard("\nnext"));
+		expect(editor.api.string([])).toBe("$HOME$$PATH$next");
+		if (path.length === 3) {
+			expect(editor.children[0]).toMatchObject({
+				type: KEYS.codeBlock,
+				children: [
+					{ type: KEYS.codeLine, children: [{ text: "$HOME$$PATH$" }] },
+					{ type: KEYS.codeLine, children: [{ text: "next" }] },
+				],
+			});
+		}
+	});
+
+	it("ignores a transient container selection during Enter/blur", () => {
+		const editor = createInlineMathEditor("$HOME$");
+		editor.selection = {
+			anchor: { path: [0], offset: 0 },
+			focus: { path: [0], offset: 0 },
+		};
+		expect(convertInlineMathAtCaret(editor)).toBe(false);
+		expect(editor.api.string([0])).toBe("$HOME$");
+	});
+
 	function editorWithText(text: string) {
 		const editor = createMarkdownPasteEditor();
 		editor.children = [{ type: "p", children: [{ text }] }];

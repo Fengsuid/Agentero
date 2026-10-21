@@ -5,20 +5,9 @@ import {
 	type Point,
 	type SlateEditor,
 } from "platejs";
+import { isLiteralTextContext } from "@/lib/markdown/input-context";
 
 const INLINE_FOLLOW_RE = /[^$]/;
-
-function isEquationInputBlocked(editor: SlateEditor) {
-	return editor.api.some({
-		match: {
-			type: [
-				editor.getType(KEYS.codeBlock),
-				editor.getType(KEYS.equation),
-				editor.getType(KEYS.inlineEquation),
-			],
-		},
-	});
-}
 
 function isEscapedDelimiter(editor: SlateEditor, point: Point) {
 	let backslashCount = 0;
@@ -50,7 +39,7 @@ function isEscapedDelimiter(editor: SlateEditor, point: Point) {
  */
 export const inlineMathInputRule = defineInputRule({
 	target: "insertText",
-	enabled: ({ editor }) => !isEquationInputBlocked(editor),
+	enabled: ({ editor }) => !isLiteralTextContext(editor),
 	priority: 100,
 	trigger: "$",
 	resolve: (context) => {
