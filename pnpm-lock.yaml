@@ -30,7 +30,7 @@ patchedDependencies:
   '@embedpdf/ai@0.0.1': a6b2b0295114a7b189d832890228c861b9fda9da2174f2b5b55e6c06891dfee8
   '@embedpdf/engines@2.14.4': 32c0ae5c278953b7eb8e64854fe0726e95a6f415b624a4eb1c1ecd25042e057a
   '@embedpdf/plugin-scroll@2.14.4': f32482b4d5884508497cae96468cb4cf37c0288408c18640baa0cb7dc724aac7
-  '@embedpdf/plugin-tiling@2.14.4': 63f0fea7c7d9923fa4281a876567f499d7941dfe8c7b7aa42e72990ec0e005a0
+  '@embedpdf/plugin-tiling@2.14.4': c3ef64464b3685d9ada63e641e8704ae79af3797bd431f5634734aaafc7e379e
   '@platejs/toc@53.0.0': 59d8aa74c06566a1b758035ef7d31e02ddb2140d68c0cd04ac1afb0c3992c09c
 
 importers:
@@ -114,7 +114,7 @@ importers:
         version: 2.14.4(@embedpdf/core@2.14.4(preact@10.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.6)(vue@3.5.43(typescript@5.8.3)))(preact@10.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.6)(vue@3.5.43(typescript@5.8.3))
       '@embedpdf/plugin-tiling':
         specifier: 2.14.4
-        version: 2.14.4(patch_hash=63f0fea7c7d9923fa4281a876567f499d7941dfe8c7b7aa42e72990ec0e005a0)(4f84753731a02c33fda5457aeadd56c8)
+        version: 2.14.4(patch_hash=c3ef64464b3685d9ada63e641e8704ae79af3797bd431f5634734aaafc7e379e)(4f84753731a02c33fda5457aeadd56c8)
       '@embedpdf/plugin-viewport':
         specifier: 2.14.4
         version: 2.14.4(@embedpdf/core@2.14.4(preact@10.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.6)(vue@3.5.43(typescript@5.8.3)))(preact@10.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.6)(vue@3.5.43(typescript@5.8.3))
@@ -6849,7 +6849,7 @@ snapshots:
       svelte: 5.56.6
       vue: 3.5.43(typescript@5.8.3)
 
-  '@embedpdf/plugin-tiling@2.14.4(patch_hash=63f0fea7c7d9923fa4281a876567f499d7941dfe8c7b7aa42e72990ec0e005a0)(4f84753731a02c33fda5457aeadd56c8)':
+  '@embedpdf/plugin-tiling@2.14.4(patch_hash=c3ef64464b3685d9ada63e641e8704ae79af3797bd431f5634734aaafc7e379e)(4f84753731a02c33fda5457aeadd56c8)':
     dependencies:
       '@embedpdf/core': 2.14.4(preact@10.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.6)(vue@3.5.43(typescript@5.8.3))
       '@embedpdf/models': 2.14.4

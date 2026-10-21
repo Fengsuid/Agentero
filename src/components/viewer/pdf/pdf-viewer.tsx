@@ -147,7 +147,7 @@ import {
 	wikiTargetForPaper,
 } from "@/lib/pdf/annotation-ref";
 import { embedPdfDocumentId } from "@/lib/pdf/document-id";
-import { noteTileBitmapDocument } from "@/lib/pdf/dual-pane-scroll";
+import "@/lib/pdf/dual-pane-scroll";
 import {
 	HIGHLIGHT_HEX_LIST,
 	normalizeHighlightColor,
@@ -230,7 +230,6 @@ export const PdfViewer = memo(function PdfViewer(props: PdfViewerProps) {
 		}
 	}, [sourceBytes]);
 	const effectiveSourceBytes = pdfBuffer ?? sourceBytes;
-	noteTileBitmapDocument(docId, effectiveSourceBytes);
 
 	const translationOnly = Boolean(props.translationOnly);
 	const plugins = useMemo(() => {
@@ -271,17 +270,12 @@ export const PdfViewer = memo(function PdfViewer(props: PdfViewerProps) {
 						? ScrollStrategy.Horizontal
 						: ScrollStrategy.Vertical,
 			}),
-			createPluginRegistration(RenderPluginPackage),
-			createPluginRegistration(TilingPluginPackage, {
-				// Pre-render one ring of tiles around the viewport so fast
-				// scrolling does not pop tiles in at the edges (rendering is
-				// off-main-thread in the worker engine, so the extra tiles are
-				// cheap). Translation pane stays lean: no ring prefetch.
-				extraRings: translationOnly ? 0 : 1,
-				// Larger tiles → fewer render round-trips through the single
-				// worker, which matters on long documents.
-				tileSize: 1024,
+			createPluginRegistration(RenderPluginPackage, {
+				// Skip PNG encoding for opaque page rasters; crops explicitly use PNG.
+				defaultImageType: "image/bmp",
 			}),
+			// Keep the upstream 768px tiles and viewport-only rendering defaults.
+			createPluginRegistration(TilingPluginPackage),
 			createPluginRegistration(ZoomPluginPackage, {
 				defaultZoomLevel: ZoomMode.FitWidth,
 				minZoom: PDF_ZOOM_MIN,

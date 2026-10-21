@@ -52,9 +52,7 @@ import {
 	EMPTY_COMMENTS,
 	EMPTY_PINS,
 	PAGE_LAYER_STYLE,
-	PDF_BASE_LAYER_SCALE_CAP,
 	PDF_WORKER_SETTLE_MS,
-	pdfRasterDpr,
 	pdfTileDpr,
 } from "@/components/viewer/pdf/constants";
 import { EMBED_PAGE_ATTR } from "@/components/viewer/pdf/coords";
@@ -1123,8 +1121,8 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 				<AgenteroRenderLayer
 					documentId={docId}
 					pageIndex={pageIndex}
-					scale={Math.min(zoomRef.current, PDF_BASE_LAYER_SCALE_CAP)}
-					dpr={pdfRasterDpr()}
+					scale={1}
+					dpr={1}
 					className={pdfDark ? PDF_PAGE_RASTER_DARK_CLASS : undefined}
 					style={PAGE_LAYER_STYLE}
 				/>

@@ -9,19 +9,19 @@
 
 任意 Vault 路径 `.pdf` 可 `blob:` 预览；论文单元：本地优先 → 自动下载（JobCenter `downloadAssets` job，Host 续接 PAPER.md / 版面分析）→ 远程 `pdf_url` 回退。打开论文时 Host 的 PAPER.md / 参考文献 reconcile（ParseBody / ParseRefs）任务改到 idle 触发，不占 PDF 首屏。HTML 用远程 `html_url` iframe（不注入主 DOM）。普通网页条目打开 HTML 并创建 `NOTES.md` 分屏；旧条目缺少 `html_url` 时从 `source_url` 兜底。
 
-PDFium engine 由窗口共享。默认优先 **worker 引擎**（PDFium WASM 跑在 Web Worker，缩放/滚动不阻塞主线程）；启动时经 `whenReady()` 就绪握手 + 8s 超时探针验证（`@embedpdf/engines` patch 同时把 worker 侧 `wasmError` / `onerror` 暴露为就绪失败，不再静默挂起），失败则自动回退主线程 direct engine 并记住结论（旧版库的 worker 变体在 Tauri WebView 下就绪消息丢失，表现为文档永远“正在加载”）。wasm URL 传给 worker 前先解析为绝对地址（blob worker 不能按页面基址解析相对路径）。对未嵌入字体的 PDF，Host 按 macOS / Windows / Linux 的系统字体路径读取一个本机 CJK 字体，通过本地 `blob:` URL 提供给 PDFium；移动端和找不到可读字体时安全跳过，不产生外部字体请求。Engine 宿主位于 React StrictMode 外，异步初始化即使在完成前被卸载也会主动销毁结果，避免 dev reload 遗留孤儿 WASM engine。工作区只挂载当前可见与最近使用的至多两个 PDF viewer；恢复的隐藏 PDF 标签按需 hydrate，退出保留集合的本地 PDF 字节会释放并在再次激活时重新读取。
+PDFium engine 由窗口共享。默认优先 **worker 引擎**（PDFium WASM 跑在 Web Worker，降低主线程光栅开销；出图仍需位图转换与 WebView 合成）；启动时经 `whenReady()` 就绪握手 + 8s 超时探针验证（`@embedpdf/engines` patch 同时把 worker 侧 `wasmError` / `onerror` 暴露为就绪失败，不再静默挂起），失败则自动回退主线程 direct engine 并记住结论（旧版库的 worker 变体在 Tauri WebView 下就绪消息丢失，表现为文档永远“正在加载”）。wasm URL 传给 worker 前先解析为绝对地址（blob worker 不能按页面基址解析相对路径）。对未嵌入字体的 PDF，Host 按 macOS / Windows / Linux 的系统字体路径读取一个本机 CJK 字体，通过本地 `blob:` URL 提供给 PDFium；移动端和找不到可读字体时安全跳过，不产生外部字体请求。Engine 宿主位于 React StrictMode 外，异步初始化即使在完成前被卸载也会主动销毁结果，避免 dev reload 遗留孤儿 WASM engine。工作区只挂载当前可见与最近使用的至多两个 PDF viewer；恢复的隐藏 PDF 标签按需 hydrate，退出保留集合的本地 PDF 字节会释放并在再次激活时重新读取。
 
-光栅化分辨率分两层封顶：整页底图 `RenderLayer` 按 `min(devicePixelRatio, 1.5)`（`pdfRasterDpr`）出图——高 DPI 屏全 dpr 光栅会让每次缩放重渲染过重；高清瓦片 `TilingLayer` 是用户实际阅读的层，按 `min(devicePixelRatio, 2)`（`pdfTileDpr`）出图，HiDPI 屏小字号保持清晰，瓦片只覆盖视口 + 一圈故成本有界（`TilingLayer` 的 `dpr` 属性由 `@embedpdf/plugin-tiling` patch 提供）。Agent 区域裁剪走 `renderPageRect`，不受封顶影响。
+阅读光栅采用 [EmbedPDF 官方推荐的低清底图 + 高清瓦片](https://www.embedpdf.com/docs/react/headless/plugins/plugin-tiling)。整页底图固定 `scale: 1`、`dpr: 1`，不随缩放重渲染；保留最近 24 页的 pinned 底图缓存，遮住缩放与回滚时的瓦片空档。高清 `TilingLayer` 按 `min(devicePixelRatio, 2)`（`pdfTileDpr`）出图，使用上游默认 `tileSize: 768`、`extraRings: 0`，只请求当前视口的瓦片，减少单 PDFium worker 上的预渲染竞争。
 
-`RenderLayer` 只是瓦片下的底图层，其 scale 另按 `PDF_BASE_LAYER_SCALE_CAP`（1.5）封顶：zoom 超过该值后整页光栅不再重渲染（单 worker 串行渲染下，长文档高倍缩放的整页光栅 + blob 传输是主要开销），清晰层由 `TilingLayer` 承担。底图在下一张光栅提交之前一直留在页面上（含滚出缓冲后再次挂载），不再在 blob 返回前把页面撤成空白。瓦片 `tileSize: 1024` + `extraRings: 1`，减少长文档快速滚动时的渲染往返与边缘弹出。
+`RenderPluginPackage` 配置 `defaultImageType: "image/bmp"`，让不透明的整页底图与阅读瓦片复用 2.14.4 已有的 BMP 快速路径（[上游 #557](https://github.com/embedpdf/embed-pdf-viewer/pull/557)），跳过 PNG 的 Canvas 编码。BMP 未压缩，单张 Blob 更大；瓦片由上游负责加载、取消和 URL 释放，不再在应用里额外缓存 32 张瓦片或协调双栏共享任务。Agent 区域裁剪显式指定 PNG，保持原格式。版本不变，也不修改引擎队列。
 
-带 `/Rotate` 的页面：Document Manager 以 `normalizeRotation: true` 打开时，PDFium 返回的 `page.size` 是**未旋转内容空间**（MediaBox）的尺寸，`page.rotation` 保留 `/Rotate` 元数据——滚动布局、瓦片与底图光栅都按上游公式 `((page.rotation ?? 0) + coreDoc.rotation) % 4` 计算有效旋转，光栅只有叠加该旋转后才是正立显示。`renderPage` 内层 `PdfPageLayers` 使用 `PageLayout.rotatedWidth` / `rotatedHeight`（含 `/Rotate` 与手动旋转后的显示尺寸），第 90°/270° 页按横版页框呈现正立内容。该引擎语义由 `test/pdf-page-rotation.test.ts` 固化，改动旋转接线前先读它。`TilingLayer` 的 `dpr` 属性、瓦片占位与瓦片旋转接线由 `@embedpdf/plugin-tiling` patch 提供：`renderTile` 把有效旋转传给引擎（否则 `/Rotate` 页瓦片内容侧躺），`TileImg` 用 `transformRect` 把未旋转空间的 `screenRect` 变换到旋转后容器再摆放（否则竖版瓦片几何溢出横版页框，视觉上两页重叠）。补丁包在 `vite.config.ts` 里排除了依赖预构建，避免 dev 一直吃到发布包的旧副本；patch 更新后长驻 vite 仍会按旧 patch hash 路径缓存已加载模块，需重启 dev 进程才能生效。
+带 `/Rotate` 的页面：Document Manager 以 `normalizeRotation: true` 打开时，PDFium 返回的 `page.size` 是**未旋转内容空间**（MediaBox）的尺寸，`page.rotation` 保留 `/Rotate` 元数据——滚动布局、瓦片与底图光栅都按上游公式 `((page.rotation ?? 0) + coreDoc.rotation) % 4` 计算有效旋转，光栅只有叠加该旋转后才是正立显示。`renderPage` 内层 `PdfPageLayers` 使用 `PageLayout.rotatedWidth` / `rotatedHeight`（含 `/Rotate` 与手动旋转后的显示尺寸），第 90°/270° 页按横版页框呈现正立内容。该引擎语义由 `test/pdf-page-rotation.test.ts` 固化，改动旋转接线前先读它。`TilingLayer` 的 `dpr` 属性与瓦片旋转接线由 `@embedpdf/plugin-tiling` patch 提供：`renderTile` 把有效旋转传给引擎（否则 `/Rotate` 页瓦片内容侧躺），`TileImg` 用 `transformRect` 把未旋转空间的 `screenRect` 变换到旋转后容器再摆放（否则竖版瓦片几何溢出横版页框，视觉上两页重叠）。补丁包在 `vite.config.ts` 里排除了依赖预构建，避免 dev 一直吃到发布包的旧副本；patch 更新后长驻 vite 仍会按旧 patch hash 路径缓存已加载模块，需重启 dev 进程才能生效。
 
-抗抽动（twitch）措施：瓦片 `extraRings: 1` 预渲染视口外圈，减少快速滚动时边缘瓦片延迟弹出；`TilingLayer` patch 在新瓦片集异步光栅到达前保留旧瓦片作拉伸占位（`scale/srcScale` 重映射，1.5s 超时兜底），消除缩放瞬间的空白闪烁；marks 不再定时轮询，改由 Vault 文件监听（`vault:file-changed`，命中 `{paper}/marks/` 前缀，200ms 合并突发）触发刷新，配合激活时与窗口 focus 兜底；应用自身对 `marks/` 的写入会登记路径（3s TTL），其 watcher 回声直接跳过（写入方已更新内存态），mark 文件并发读取，读取结果仍做 JSON 指纹比对，内容未变不提交 state，避免整 viewer 重渲染。高亮派生态（视图模型 / 页边针锚点 / 链接分页图）的 annotation 事件按微任务合并后重建一次，批量导入 n 条不再逐事件 O(n²) 重建。
+缩放占位复用上游 tiling reducer：只把已完成的旧尺度瓦片保留为 fallback，新瓦片完成后移除；不再额外保留任意上一套瓦片 1.5s，普通滚动移出的未完成瓦片可正常卸载并取消。marks 不再定时轮询，改由 Vault 文件监听（`vault:file-changed`，命中 `{paper}/marks/` 前缀，200ms 合并突发）触发刷新，配合激活时与窗口 focus 兜底；应用自身对 `marks/` 的写入会登记路径（3s TTL），其 watcher 回声直接跳过（写入方已更新内存态），mark 文件并发读取，读取结果仍做 JSON 指纹比对，内容未变不提交 state，避免整 viewer 重渲染。高亮派生态（视图模型 / 页边针锚点 / 链接分页图）的 annotation 事件按微任务合并后重建一次，批量导入 n 条不再逐事件 O(n²) 重建。
 
 滚动路径开销（触控板一帧内可触发多次 scroll）另有两处收敛：viewport 滚动指标按动画帧合并后再 `setViewportScrollMetrics`（每次提交仍推出 scroller layout；挂载窗口未变时不再 `setState`，见下段）；layout hover 命中框与 Eye 调试框按 `hoverableLayoutRegionsByPage` / `rawLayoutRegionsByPage` 预先分页缓存，页渲染只做 `Map.get`，不再每页重跑一遍全文档 NMS。PDF viewport 的延迟跳转请求同样按帧合并，并在用户滚轮先发生时取消；虚拟页重排、缩放布局和双栏同步产生的程序化滚动不会触发取消；虚拟页节点换入换出时关闭浏览器 scroll anchoring，避免 Windows/WebView2 将阅读位置校正到首尾页（见 [bug_fix/pdf-windows-scroll-endpoint-jump.md](../bug_fix/pdf-windows-scroll-endpoint-jump.md)）。
 
-双栏对照左右各挂一套 EmbedPDF，滚动时会把同一页光栅画两遍，并把 scroller layout 推进两个 React 树。瓦片按论文 id、打开时的字节指纹、瓦片 id 和 `pdfTileDpr()` 共用一份位图（`src/lib/pdf/tile-bitmap-cache.ts`，接线在 `@embedpdf/plugin-tiling` patch）：滚回已看过的区域，或另一栏请求同一块瓦片，直接复用，不再向共享的 PDFium worker 要第二遍。重新编译后字节指纹变化，旧瓦片作废。`@embedpdf/plugin-scroll` patch 在挂载窗口（间距、总尺寸、页序与页尺寸）没变时跳过 scroller 的 `setState`，纯滚动不再让已挂载页整页重渲染。译文栏跳过整页底图 `AgenteroRenderLayer`，只留 `TilingLayer`，空档由页面壳垫色。译文段落的浏览器度量按框和文本缓存，一帧大约只量 5ms，页面滚出就取消还没做的度量。这两个 patch 都在 `vite.config.ts` 的 `optimizeDeps.exclude` 里；patch 更新后需重启 dev，长驻 vite 才会吃到新副本。
+双栏对照左右各挂一套 EmbedPDF，各自使用上游瓦片任务生命周期；两栏同一区域会各自出图，滚回已卸载的页面也会重新生成高清瓦片。`@embedpdf/plugin-scroll` patch 在挂载窗口（间距、总尺寸、页序与页尺寸）没变时跳过 scroller 的 `setState`，纯滚动不再让已挂载页整页重渲染。译文栏跳过整页底图 `AgenteroRenderLayer`，只留 `TilingLayer`，空档由页面壳垫色。译文段落的浏览器度量按框和文本缓存，一帧大约只量 5ms，页面滚出就取消还没做的度量。scroll 与 tiling patch 都在 `vite.config.ts` 的 `optimizeDeps.exclude` 里；patch 更新后需重启 dev，长驻 vite 才会吃到新副本。
 
 ## 阅读能力
 
@@ -79,7 +79,7 @@ guard 也会取消首帧默认放大。未按实体 Ctrl 的细粒度像素事�
 - 页边针：用 PDFium `getPageTextRects` 判断是否压字。优先贴选区右侧，有字则试左侧；压字半透明，空白处实心。文字层未加载时保持实心。划词工具栏随视口滚动 / 缩放重定位，始终贴合选区；选区滚出视口时夹在屏幕边缘并半透明。
 - 页缘控件使用固定 CSS px 尺寸：逐页翻译页签仅在 hover 该页时出现在纸张内侧左上角，批注评论列在页右缘外侧；两者只随 PDF 缩放更新锚点位置，不随页面放大/缩小改变自身宽高。
 - 对话 / 翻译 / 视觉卡片与**同一侧页边针**对齐（左针开左、右针开右），贴合锚点，避免卡片落到选区另一侧。
-- 普通划词只启用文本选区；选区显示使用浅透明蓝色，并按 PDFium 的紧致字形边界逐行合并，行间保留空隙，首尾严格停在实际选中文字处，不再使用 EmbedPDF 宽松字框产生的整行溢出。EmbedPDF 默认 marquee 矩形框选关闭，视觉区域批注只通过工具栏 / **⌘.** 显式进入。选择层不在页面挂载时就向选择插件注册——那会让打开文档时对 scroller 缓冲区的每一页都跑一遍 PDFium 字形几何提取（`getPageGeometry`，逐字形跨 WASM 边界），与首屏光栅/瓦片抢同一个 worker，既推迟出图也推迟可选中。指针进入页面（`pointerenter` / `pointermove`）会立刻注册。只是滚过视口时要先停满 `PDF_WORKER_SETTLE_MS`（180ms）才预取几何，快速甩页不会把沿途每一页都排进字形队列。`usePdfPageText` 的 `getPageTextRects` 窗口同样等当前页停稳后再取；已经带批注的页仍马上取。窗口保持在当前页附近（约 ±1），避免和光栅抢同一个 worker。
+- 普通划词只启用文本选区；选区显示使用浅透明蓝色，并按 PDFium 的紧致字形边界逐行合并，行间保留空隙，首尾严格停在实际选中文字处，不再使用 EmbedPDF 宽松字框产生的整行溢出。EmbedPDF 默认 marquee 矩形框选关闭，视觉区域批注只通过工具栏 / **⌘.** 显式进入。选择层不在页面挂载时就向选择插件注册——那会让打开文档时对 scroller 缓冲区的每一页都跑一遍 PDFium 字形几何提取（`getPageGeometry`，逐字形跨 WASM 边界），与首屏光栅/瓦片抢同一个 worker，既推迟出图也推迟可选中。指针进入页面（`pointerenter` / `pointermove`）会立刻注册。页面持续可见 `PDF_WORKER_SETTLE_MS`（180ms）后才预取几何，减少快速甩页的沿途提取；这是可见性延迟，并不保证滚动已停止，指针进入 / 移动仍立即注册。`usePdfPageText` 的 `getPageTextRects` 窗口在当前页码 180ms 未变化后读取；已经带批注的页仍马上取。窗口保持在当前页附近（约 ±1），避免和光栅抢同一个 worker。
 - 普通划词后可通过浮动菜单的复制按钮或系统复制快捷键（macOS **⌘C** / Windows/Linux **Ctrl+C**）复制选中文本。按钮复制成功后原地换成对勾，不弹 toast，工具栏不收起；输入框和 Markdown 编辑器复制保持原生行为。
 - 旧版 visual Ask（`kind: ask` + `visualKind`）仍可读、可打开。
 - 一次提交可包含多条视觉批注：和文字批注按正文出现顺序共用编号，所在位置写成 `[Annotation N]`，文末是同一编号的 `## Annotation N`；裁剪图按这些视觉批注的编号顺序附上。
@@ -201,3 +201,8 @@ PDF 左侧 **Figures** 按钮 → 页内浮层（原「解析」：分析 / 叠�
 Host 下载/解析：[../backend/paper-import.md](../backend/paper-import.md)。
 
 引用元数据解析与 References 面板：[../backend/citation-parsing.md](../backend/citation-parsing.md)。
+
+## 限制与后续
+
+- #798：低清底图、BMP 编码及移除重复瓦片缓存 / 占位能减少已确认的出图与生命周期开销；Linux / WebKitGTK 的实际帧率与合成耗时仍需在报告者环境复测，不能仅凭 worker 排队判定滚动线程阻塞。
+- 选区几何目前按可见时间 / 指针意图加载，附近文字矩形按页码延迟；如性能记录显示仍与滚动争用 worker，再单独评估真实 scroll-idle 调度，不追加引擎补丁。
