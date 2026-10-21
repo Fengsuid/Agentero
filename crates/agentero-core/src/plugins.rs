@@ -144,30 +144,42 @@ mod tests {
 
     #[test]
     fn invalid_documents_return_structured_errors() {
-        let cases: &[(&str, fn(&PluginsError) -> bool)] = &[
-            ("[]", |e| matches!(e, PluginsError::NotObject)),
-            ("null", |e| matches!(e, PluginsError::NotObject)),
-            (r#"{ "plugins": [] }"#, |e| {
-                matches!(e, PluginsError::BadSchemaVersion)
-            }),
-            (r#"{ "schemaVersion": 2, "plugins": [] }"#, |e| {
-                matches!(e, PluginsError::BadSchemaVersion)
-            }),
-            (r#"{ "schemaVersion": "1", "plugins": [] }"#, |e| {
-                matches!(e, PluginsError::BadSchemaVersion)
-            }),
-            (r#"{ "schemaVersion": 1, "plugins": {} }"#, |e| {
-                matches!(e, PluginsError::PluginsNotArray)
-            }),
-            (r#"{ "schemaVersion": 1 }"#, |e| {
-                matches!(e, PluginsError::PluginsNotArray)
-            }),
-            ("{", |e| matches!(e, PluginsError::InvalidJson(_))),
+        #[derive(Clone, Copy)]
+        enum Expect {
+            NotObject,
+            BadSchemaVersion,
+            PluginsNotArray,
+            InvalidJson,
+        }
+        let cases = [
+            ("[]", Expect::NotObject),
+            ("null", Expect::NotObject),
+            (r#"{ "plugins": [] }"#, Expect::BadSchemaVersion),
+            (
+                r#"{ "schemaVersion": 2, "plugins": [] }"#,
+                Expect::BadSchemaVersion,
+            ),
+            (
+                r#"{ "schemaVersion": "1", "plugins": [] }"#,
+                Expect::BadSchemaVersion,
+            ),
+            (
+                r#"{ "schemaVersion": 1, "plugins": {} }"#,
+                Expect::PluginsNotArray,
+            ),
+            (r#"{ "schemaVersion": 1 }"#, Expect::PluginsNotArray),
+            ("{", Expect::InvalidJson),
         ];
-        for (raw, pred) in cases {
+        for (raw, expect) in cases {
             let (_dir, path) = write_raw(raw);
             let err = load_plugins(&path).expect_err(raw);
-            assert!(pred(&err), "{raw} -> {err}");
+            let ok = match expect {
+                Expect::NotObject => matches!(err, PluginsError::NotObject),
+                Expect::BadSchemaVersion => matches!(err, PluginsError::BadSchemaVersion),
+                Expect::PluginsNotArray => matches!(err, PluginsError::PluginsNotArray),
+                Expect::InvalidJson => matches!(err, PluginsError::InvalidJson(_)),
+            };
+            assert!(ok, "{raw} => {err:?}");
         }
     }
 
