@@ -34,6 +34,8 @@
 | 发现引用 | `papers/` 论文库节点右键「发现引用我的新论文」→ 后台扫描全库反向引用 → 候选清单勾选入库；见 [../backend/citation-parsing.md](../backend/citation-parsing.md) §7 |
 | 拖入 PDF | Finder / 其它 App 把一个或多个 PDF 拖到 Library 表：虚线 overlay（仅 PDF），松手后直接后台导入。文件夹作用域导入到当前 `papers/…`；全库则落到树选中的 Papers 夹（否则 `papers/`）。Host lifecycle 事件会触发表格刷新；前端导入 job 成功后也会主动 `refreshLibrary()` 兜底，避免事件延迟时新论文短时间不可见。识别、重命名和版面分析在后台继续；非 PDF 不显示 overlay、不入库 |
 
+页数懒探测复用 headless PDF engine，但每次使用独立 registry 和唯一文档 ID；成功、失败或读到空页数都会在 `finally` 中尝试关闭本次文档并销毁 registry，等待清理后返回。显式关闭失败后仍尝试 registry teardown；不销毁共享 engine，也不关闭其他探测或后台版面分析的文档，避免热力图逐篇补页数时累积 PDF 文档和字节缓冲。
+
 ## Tags（前端）
 
 - Paper Info 增删 + Apple 8 色色盘 → `paper_set_tags`。Library 与 Paper Info 点击已有标签可修改颜色或恢复无色；色盘支持键盘焦点、Enter/Space 选择与 Escape 关闭。颜色按当前论文保存，不改变其他论文的同名标签。
@@ -69,4 +71,5 @@ DOI 旁有 **刷新** 按钮：按当前 DOI（或 arXiv ID）拉取权威元数
 
 - UI：`src/components/library/`（拖入：`library-pdf-drop-surface.tsx`）
 - 状态：`src/lib/paper/library-store.ts`、`library-actions.ts`、`import-actions.ts`（`dropLocalPdfs`）
-- 单测：`test/library-scope.test.ts`、`test/prompt-image.test.ts`（`dataTransferLooksLikePdfs`）
+- 单测：`test/library-scope.test.ts`、`test/prompt-image.test.ts`（`dataTransferLooksLikePdfs`）、`test/pdf-page-count.test.ts`（真实 EmbedPDF registry / 插件 + 跟踪文档和缓冲所有权的 engine 替身：重复探测、并发隔离、初始化与打开失败、页数读取异常和关闭重试；不以 WASM heap 缩小作为释放判据）
+- 原生资源回归：`test/pdf-page-count-native.test.ts` 使用安装的 PDFium WASM 和内存生成的三页 PDF，验证 32 次串行、8 次并发探测及损坏 PDF 后的文档缓存、受跟踪分配数量与字节数回到基线；WASM 从本地依赖经 data URL 加载，无网络或真实 Vault 依赖。

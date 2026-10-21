@@ -7,6 +7,7 @@ import { PluginRegistry } from "@embedpdf/core";
 import type { DocumentManagerCapability } from "@embedpdf/plugin-document-manager";
 import { DocumentManagerPluginPackage } from "@embedpdf/plugin-document-manager";
 import { RenderPluginPackage } from "@embedpdf/plugin-render";
+import { nanoid } from "nanoid";
 
 import { findLocalPdfPath, localFileToArrayBuffer } from "@/lib/paper";
 import { getHeadlessPdfEngine } from "@/lib/pdf/layout/headless-analyze";
@@ -34,33 +35,48 @@ export async function getPdfPageCount(
 		if (!buffer) return null;
 
 		const engine = await getHeadlessPdfEngine();
-		const documentId = `page-count-${Date.now().toString(36)}`;
+		const documentId = `page-count-${nanoid()}`;
 		const registry = new PluginRegistry(engine);
-		registry.registerPlugin(DocumentManagerPluginPackage, {});
-		registry.registerPlugin(RenderPluginPackage);
+		let docCap: DocumentManagerCapability | null = null;
+		try {
+			registry.registerPlugin(DocumentManagerPluginPackage, {});
+			registry.registerPlugin(RenderPluginPackage);
 
-		await registry.initialize();
-		await registry.pluginsReady();
+			await registry.initialize();
+			await registry.pluginsReady();
 
-		const docPlugin = registry.getPlugin("document-manager");
-		if (!docPlugin) return null;
+			const docPlugin = registry.getPlugin("document-manager");
+			if (!docPlugin) return null;
 
-		const docCap = (
-			docPlugin as unknown as { provides: () => DocumentManagerCapability }
-		).provides();
+			docCap = (
+				docPlugin as unknown as { provides: () => DocumentManagerCapability }
+			).provides();
 
-		const openRes = await taskToPromise(
-			docCap.openDocumentBuffer({
-				buffer,
-				documentId,
-				name: "page-count",
-				autoActivate: true,
-			}),
-		);
-		const doc = await taskToPromise(openRes.task);
-		const pageCount = doc.pageCount ?? 0;
+			const openRes = await taskToPromise(
+				docCap.openDocumentBuffer({
+					buffer,
+					documentId,
+					name: "page-count",
+					autoActivate: true,
+				}),
+			);
+			const doc = await taskToPromise(openRes.task);
+			const pageCount = doc.pageCount ?? 0;
 
-		return pageCount > 0 ? pageCount : null;
+			return pageCount > 0 ? pageCount : null;
+		} finally {
+			// Release this probe's document, never the shared headless engine.
+			try {
+				if (docCap) await taskToPromise(docCap.closeDocument(documentId));
+			} catch {
+				// Registry teardown retries closing documents still in its store.
+			}
+			try {
+				await registry.destroy();
+			} catch {
+				// Cleanup must not replace a page count or the null failure result.
+			}
+		}
 	} catch {
 		return null;
 	}
