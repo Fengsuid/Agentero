@@ -99,6 +99,7 @@ nav:
       - A2A 本机与远端协作: development/A2A.md
       - 面板 resize 性能调研（同类项目做法）: development/resize-performance-research.md
       - Agent DX（CLI / MCP / Skill）: development/agent-dx.md
+      - 插件 API 契约（Phase 0–1）: development/plugin-api.md
       - Crate 拆分路线图: development/crate-split-roadmap.md
       - Import 学术 API 抽象层: development/import-api-abstraction.md
       - Rust 端架构重构计划: development/rust-arch-refactor.md

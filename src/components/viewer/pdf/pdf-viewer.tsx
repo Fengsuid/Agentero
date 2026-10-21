@@ -174,7 +174,8 @@ import {
 } from "@/lib/pdf/translate/highlights";
 import { PDF_ZOOM_MAX, PDF_ZOOM_MIN } from "@/lib/pdf/zoom";
 import { loadSettings } from "@/lib/settings";
-import { basenameOf } from "@/lib/vault/path";
+import type { MenuContext } from "@/lib/shell/commands/menu-contributions";
+import { basenameOf, vaultRelativePath } from "@/lib/vault/path";
 import { openLatexTranslationTab } from "@/lib/workspace/actions-latex-translation";
 
 export type {
@@ -423,6 +424,32 @@ function selectionCommentKey(menu: SelectionMenuState | null): string {
 			)
 			.join(";") ?? "";
 	return `${menu.anchor.quote}\u0000${menu.anchor.page}\u0000${glyph}\u0000${visible}`;
+}
+
+/** Context for `pdf.selection`. Paper id only when this viewer already has one. */
+function pdfSelectionMenuContext(input: {
+	vaultPath: string | null;
+	paperRelPath: string | null;
+	paperAbsPath: string | null;
+	paperId: string | undefined;
+	selectionMenu: SelectionMenuState | null;
+}): MenuContext {
+	const direct = input.paperRelPath?.trim();
+	let relPath = direct || undefined;
+	if (!relPath && input.vaultPath && input.paperAbsPath) {
+		relPath =
+			vaultRelativePath(input.vaultPath, input.paperAbsPath) || undefined;
+	}
+	const selectionText =
+		(
+			input.selectionMenu?.copyText ?? input.selectionMenu?.anchor.quote
+		)?.trim() || undefined;
+	return {
+		vaultPath: input.vaultPath,
+		...(relPath ? { relPath } : {}),
+		...(input.paperId ? { paperId: input.paperId } : {}),
+		...(selectionText ? { selectionText } : {}),
+	};
 }
 
 function PdfViewerInner({
@@ -2077,6 +2104,7 @@ function PdfViewerInner({
 				: undefined,
 		[citationImport, handleCitationImportOpenChange, isRemotePaper],
 	);
+	const contributionPaperId = paperMeta?.id?.trim() || undefined;
 	const cardSelectionMenu = useMemo(
 		() => ({
 			state: plainViewer ? null : selectionMenu,
@@ -2088,6 +2116,13 @@ function PdfViewerInner({
 			showHighlight: !isRemotePaper && !plainViewer,
 			showTranslate:
 				!selectionMenu?.fromTranslation && !isRemotePaper && !plainViewer,
+			contributionContext: pdfSelectionMenuContext({
+				vaultPath,
+				paperRelPath,
+				paperAbsPath,
+				paperId: contributionPaperId,
+				selectionMenu,
+			}),
 		}),
 		[
 			plainViewer,
@@ -2098,6 +2133,10 @@ function PdfViewerInner({
 			handleMenuTranslate,
 			handleMenuCopy,
 			isRemotePaper,
+			vaultPath,
+			paperRelPath,
+			paperAbsPath,
+			contributionPaperId,
 		],
 	);
 	const cardCitationPreview = useMemo(

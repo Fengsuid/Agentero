@@ -330,6 +330,7 @@ export const FileTree = memo(
 			useTreeContextMenu({
 				nodes,
 				vaultPath,
+				paperMetaByRelPath,
 				byPath,
 				cutPaths,
 				cutPathKeys,

@@ -1259,6 +1259,37 @@ mod schema_tests {
     use crate::integration::mcp::McpController;
     use rmcp::ServerHandler;
 
+    /// Stable ops that advertise MCP must use a name from `AgenteroMcp::tool_router`
+    /// in this file (`#[tool_router]` / `#[tool]`).
+    #[test]
+    fn stable_ops_mcp_tools_match_registered_names() {
+        use agentero_core::ops::{self, OpStability, OpSurface};
+
+        let tools = AgenteroMcp::tool_router().list_all();
+        for op in ops::all() {
+            if op.stability != OpStability::Stable {
+                continue;
+            }
+            if !op.surfaces.contains(&OpSurface::Mcp) {
+                assert!(
+                    op.mcp_tool.is_none(),
+                    "{} has an MCP tool name but no MCP surface",
+                    op.id
+                );
+                continue;
+            }
+            let tool = op
+                .mcp_tool
+                .as_deref()
+                .unwrap_or_else(|| panic!("{} is MCP but has no tool name", op.id));
+            assert!(
+                tools.iter().any(|t| t.name == tool),
+                "{} mcp tool `{tool}` is not registered in src-tauri/src/integration/mcp/tools.rs",
+                op.id
+            );
+        }
+    }
+
     #[test]
     fn vault_search_advertises_read_only_hint() {
         let tool = AgenteroMcp::vault_search_tool_attr();
