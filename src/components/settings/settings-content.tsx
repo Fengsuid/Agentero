@@ -515,7 +515,11 @@ export function SettingsContent({
 										hostContext={hostContext}
 									/>
 								) : (
-									<AgentPane settings={settings} patch={patch} />
+									<AgentPane
+										settings={settings}
+										patch={patch}
+										onOpenDiagnostics={() => onSectionChange("doctor")}
+									/>
 								)}
 							</Suspense>
 						</div>

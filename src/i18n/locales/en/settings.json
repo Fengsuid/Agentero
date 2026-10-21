@@ -322,6 +322,13 @@
 		"desktopHint": "Run `pnpm tauri dev` to scan agents on this machine.",
 		"commonAgents": "Common agents",
 		"commonAgentsHint": "If ACP fails, try configuring a proxy under General.",
+		"nodeNotice": {
+			"title": "Node.js is required",
+			"npmTitle": "npm is required",
+			"description": "ACP adapters and npm-based Agent installs need Node.js (npm ships with it). Install it, then retry.",
+			"diagnostics": "Diagnostics"
+		},
+		"nodeRequired": "This Agent action needs Node.js. Install Node.js, then retry.",
 		"desktopApps": {
 			"section": "Local desktop apps",
 			"hint": "These popular desktop apps do not support ACP yet, so they cannot be connected as Agents here.",

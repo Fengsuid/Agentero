@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useHostNodeStatus } from "@/hooks/use-host-node-status";
 import i18n from "@/i18n";
 import {
 	type CatalogEntry,
@@ -17,7 +18,7 @@ import { errorText } from "@/lib/core/error";
 import { notifyError, notifySuccess } from "@/lib/core/notify";
 import { isTauri } from "@/lib/core/tauri";
 import { listenEventSafe } from "@/lib/core/tauri-events";
-import { installNodeInBackground } from "@/lib/doctor/install-node";
+import { isLifecycleNodeBlocked } from "@/lib/doctor/node-guidance";
 import { ensureVault } from "@/lib/vault";
 import { getVaultPath } from "@/lib/vault/store";
 
@@ -82,21 +83,20 @@ export function useAgentToolLifecycle(opts: {
 		[t],
 	);
 
-	/** Recovery for the "npm not found" install failure: install Node in the background. */
-	const installNodeFix = useCallback(() => {
-		void installNodeInBackground()
-			.then((result) => {
-				if (!result) return;
-				if (result.outcome === "no-package-manager") {
-					notifyError(t("doctor.host.install.noPackageManager"));
-				} else if (result.error) {
-					notifyError(result.error);
-				} else {
-					notifySuccess(t("doctor.host.install.success"));
-				}
-			})
-			.catch((error) => notifyError(errorText(error)));
-	}, [t]);
+	/** After a successful Node install, refresh catalog badges (bundled adapter / npm CLIs). */
+	const rescanAfterNodeInstall = useCallback(async () => {
+		const scan = await scanOnce();
+		if (scan && probeInstalled) await probeInstalled(scan, false);
+		if (refreshVersions) await refreshVersions();
+	}, [scanOnce, probeInstalled, refreshVersions]);
+
+	/**
+	 * Local Node.js/npm readiness: drives the Agent pane notice, and lets the
+	 * npm/bundled-adapter lifecycle actions guide the user to install Node
+	 * instead of starting a doomed background install (Fix #786).
+	 */
+	const hostNode = useHostNodeStatus({ onInstalled: rescanAfterNodeInstall });
+	const { nodeMissing, npmMissing, installNode } = hostNode;
 
 	const runToolLifecycle = useCallback(
 		async (
@@ -104,6 +104,20 @@ export function useAgentToolLifecycle(opts: {
 			action: ToolLifecycleAction,
 		): Promise<boolean> => {
 			if (!isTauri()) return false;
+			// npm / bundled-JS adapter actions cannot run without Node.js/npm:
+			// guide the user to install it instead of failing silently in the
+			// background task. Uninstall and native binary installs stay as-is.
+			if (isLifecycleNodeBlocked(entry, action, { nodeMissing, npmMissing })) {
+				const message = t("agent.nodeRequired");
+				onError?.(message);
+				notifyError(message, {
+					action: {
+						label: t("doctor.host.install.button"),
+						onClick: installNode,
+					},
+				});
+				return false;
+			}
 			setLifecycleBusyIds((prev) => {
 				const next = new Map(prev);
 				next.set(entry.templateId, action);
@@ -177,7 +191,7 @@ export function useAgentToolLifecycle(opts: {
 						notifyError(message, {
 							action: {
 								label: t("doctor.host.install.button"),
-								onClick: installNodeFix,
+								onClick: installNode,
 							},
 						});
 					} else {
@@ -198,8 +212,10 @@ export function useAgentToolLifecycle(opts: {
 		},
 		[
 			clearLifecycleProgress,
-			installNodeFix,
+			installNode,
 			lifecyclePhaseLabel,
+			nodeMissing,
+			npmMissing,
 			onError,
 			patchLifecycleProgress,
 			probeInstalled,
@@ -224,5 +240,7 @@ export function useAgentToolLifecycle(opts: {
 		lifecycleProgress,
 		runToolLifecycle,
 		cancelToolLifecycle,
+		/** Local Node.js/npm readiness — the Agent pane renders the install notice from it. */
+		hostNode,
 	};
 }
