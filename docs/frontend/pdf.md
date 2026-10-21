@@ -23,6 +23,8 @@ PDFium engine 由窗口共享。默认优先 **worker 引擎**（PDFium WASM 跑
 
 双栏对照左右各挂一套 EmbedPDF，各自使用上游瓦片任务生命周期；两栏同一区域会各自出图，滚回已卸载的页面也会重新生成高清瓦片。`@embedpdf/plugin-scroll` patch 在挂载窗口（间距、总尺寸、页序与页尺寸）没变时跳过 scroller 的 `setState`，纯滚动不再让已挂载页整页重渲染。译文栏跳过整页底图 `AgenteroRenderLayer`，只留 `TilingLayer`，空档由页面壳垫色。译文段落的浏览器度量按框和文本缓存，一帧大约只量 5ms，页面滚出就取消还没做的度量。scroll 与 tiling patch 都在 `vite.config.ts` 的 `optimizeDeps.exclude` 里；patch 更新后需重启 dev，长驻 vite 才会吃到新副本。
 
+页面纸张壳（正文与双栏译文）保留 `ring-1` 细边框，不使用整页 `shadow-sm` 模糊阴影。Linux / WebKitGTK 的 0.12.0 实测中，单独去掉该阴影可显著减少滚动长帧；无需调整位图分辨率或滚动调度。复现、测量边界和版本回归检查见 [PDF 页面阴影与 WebKitGTK 滚动停顿](../bug_fix/pdf-webkit-page-shadow.md)。
+
 ## 阅读能力
 
 | 能力 | 说明 |

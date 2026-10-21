@@ -1272,11 +1272,13 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 	// Dual-pane companion: raster + translated text only. Skipping the full
 	// interaction stack halves per-page React work while the second EmbedPDF
 	// instance is still warming up.
+	// Keep both shells free of blurred shadows: they can cause long scroll
+	// frames in WebKitGTK. The ring still provides a crisp paper edge.
 	if (mode.translationOnly) {
 		return (
 			<div
 				className={cn(
-					"relative overflow-visible rounded-sm shadow-sm ring-1",
+					"relative overflow-visible rounded-sm ring-1",
 					PDF_PAPER_SHELL_CLASS[tone],
 				)}
 				style={{ width, height }}
@@ -1297,7 +1299,7 @@ export const PdfPageLayers = memo(function PdfPageLayers({
 			data-annotation-source={annotationSource}
 			data-annotation-page={pageIndex + 1}
 			className={cn(
-				"relative overflow-visible rounded-sm shadow-sm ring-1",
+				"relative overflow-visible rounded-sm ring-1",
 				PDF_PAPER_SHELL_CLASS[tone],
 			)}
 			style={{ width, height }}
