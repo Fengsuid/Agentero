@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { LinkPlugin } from "@/components/editor/plugins/link-plugin";
 import { MarkdownKit } from "@/components/editor/plugins/markdown-kit";
 import { insertExternalLinkNode } from "@/lib/markdown/external-link-insert";
-import { convertMarkdownLinkBeforeClosingParen } from "@/lib/markdown/link-input-rule";
 import {
 	executeSlashCommand,
 	findSlashCommandTrigger,
@@ -89,7 +88,7 @@ describe("external link insert cursor", () => {
 			focus: { path: [0, 0], offset: len },
 		});
 
-		// Typing ) goes through LinkPlugin.insertText → convert before insert.
+		// Typing ) goes through the upstream input rule.
 		editor.tf.insertText(")");
 
 		expect(editor.selection?.anchor.path[0]).toBe(0);
@@ -103,7 +102,7 @@ describe("external link insert cursor", () => {
 		expect(children.some((c) => c.type === KEYS.a)).toBe(true);
 	});
 
-	it("convertMarkdownLinkBeforeClosingParen with trailing block stays in-block", () => {
+	it("Markdown input rule with trailing block stays in-block", () => {
 		const editor = createSlateEditor({
 			plugins: [ParagraphPlugin, LinkPlugin],
 			value: [
@@ -119,7 +118,7 @@ describe("external link insert cursor", () => {
 			anchor: { path: [0, 0], offset: len },
 			focus: { path: [0, 0], offset: len },
 		});
-		expect(convertMarkdownLinkBeforeClosingParen(editor)).toBe(true);
+		editor.tf.insertText(")");
 		expect(editor.selection?.anchor.path[0]).toBe(0);
 		expect(isInsideLink(editor)).toBe(false);
 	});

@@ -1,39 +1,12 @@
 /**
- * Scroller identity and the translation paragraph measure budget.
+ * Translation paragraph sizing and the per-frame DOM measurement budget.
  */
-import "@/lib/pdf/dual-pane-scroll";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	fitLayoutTranslateParagraph,
 	type MeasurableParagraph,
 	scheduleLayoutTranslateDomFit,
 } from "@/lib/pdf/layout/layout-translate-dom-fit";
-import { sameScrollerLayout } from "@/lib/pdf/scroller-layout";
-
-function layout(pageIndex: number, startSpacing = 0) {
-	return {
-		startSpacing,
-		endSpacing: 40,
-		totalWidth: 600,
-		totalHeight: 2000,
-		pageGap: 8,
-		strategy: "vertical" as const,
-		items: [
-			{
-				pageLayouts: [
-					{
-						pageIndex,
-						rotatedWidth: 600,
-						rotatedHeight: 800,
-						width: 600,
-						height: 800,
-						elevated: false,
-					},
-				],
-			},
-		],
-	};
-}
 
 function paragraph(
 	text: string,
@@ -70,25 +43,6 @@ afterEach(() => {
 	}
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
-});
-
-describe("sameScrollerLayout", () => {
-	it("installs the comparator the EmbedPDF scroll patch calls", () => {
-		const hooks = (
-			globalThis as { __agenteroPdfScroll?: { sameScrollerLayout?: unknown } }
-		).__agenteroPdfScroll;
-		expect(hooks?.sameScrollerLayout).toBe(sameScrollerLayout);
-	});
-
-	it("treats a fresh object with the same mounted window as equal", () => {
-		expect(sameScrollerLayout(layout(0), layout(0))).toBe(true);
-		expect(sameScrollerLayout(layout(0), null)).toBe(false);
-	});
-
-	it("changes when the page window or spacing changes", () => {
-		expect(sameScrollerLayout(layout(0), layout(1))).toBe(false);
-		expect(sameScrollerLayout(layout(0, 0), layout(0, 800))).toBe(false);
-	});
 });
 
 describe("layout translate DOM fit", () => {

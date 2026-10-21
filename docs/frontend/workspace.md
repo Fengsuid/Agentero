@@ -27,6 +27,8 @@
 
 标签组 chip 的颜色菜单会将展开/收起 icon 染为对应颜色，并同步用于组内 tab 的强调线；清除颜色后恢复默认颜色。
 
+Dockview 保持 7.0.4，以保留当前免费模块提供的 `Ctrl+M` 键盘停靠；v8 将该能力移入商业模块，不能直接升级替代现有行为。外部拖拽退出工作区时，由 `dockview-core` 的小型生命周期补丁清理 overlay 及内部引用，不再按 `.dv-*` 类名从应用侧删除 DOM。回归测试使用真实 Dockview，覆盖退出后再次拖入、子元素间移动及外部拖拽结束不会误接受 drop。pointer 拖拽取消保护、首次隐藏面板定位和 resize 节流仍服务当前版本。
+
 Library 始终位于所在标签条的第一位：禁止拖动 Library 及包含它的整组，其他标签不能拖到它前面。恢复旧布局、打开文档及布局变化时也会校正顺序，校正不会切换当前活动文档。
 
 布局只存 dockview `toJSON()`；path/mode/title 在 panel params。同一路径可存在多个 split pane，panel id 保留 pane 实例后缀用于恢复布局。Tab 条上的论文标题经 `MathText` 渲染内联公式（`$\\pi$` 等）；`panel.api.setTitle` 仍存原始字符串。

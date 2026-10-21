@@ -26,6 +26,7 @@
 		"findNext": "Next match",
 		"findClose": "Close find",
 		"findNoResults": "No results",
+		"annotationDeleteFailed": "Failed to commit annotation deletion",
 		"exportAnnotatedPdf": "Export annotated PDF",
 		"exportingAnnotatedPdf": "Exporting annotated PDF…",
 		"exportAnnotatedPdfFailed": "Failed to export annotated PDF",

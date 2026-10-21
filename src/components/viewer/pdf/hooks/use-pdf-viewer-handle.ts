@@ -40,11 +40,7 @@ import {
 	isLiveAnnotation,
 } from "@/lib/pdf/highlight/annotation-store";
 import type { PdfHighlight } from "@/lib/pdf/highlight/types";
-import {
-	expandFocusBboxForOverlay,
-	layoutKindFromRegionId,
-	setFocusedLayoutRegion,
-} from "@/lib/pdf/layout";
+import { setFocusedLayoutRegion } from "@/lib/pdf/layout";
 import { planVisualTraceJump } from "@/lib/pdf/visual-trace-jump";
 import { writeVaultBytes } from "@/lib/vault/fs";
 
@@ -62,6 +58,7 @@ type DocumentManagerCapability = ReturnType<
 type ScrollCapability = ReturnType<typeof useScroll>["provides"];
 
 export type UsePdfViewerHandleOptions = {
+	goToRegion: PdfViewerHandle["scrollToLayoutRegion"];
 	docId: string;
 	/** Sidecar root; deleting an ask also removes its `marks/<id>.json`. */
 	paperAbsPath: string | null;
@@ -88,7 +85,7 @@ export type UsePdfViewerHandleOptions = {
 	openEditorForAnnotation: (id: string) => void;
 	openThread: (thread: PdfAskThread) => void;
 	deleteVisualTraceById: (id: string) => void;
-	/** Verified highlight deletion (purges even when a commit was dropped). */
+	/** Highlight deletion coordinated with any in-flight commit for the same uid. */
 	deleteHighlightAnnotation: (pageIndex: number, id: string) => void;
 	toggleRegionSelect: () => void;
 	/** Dual-pane-aware full-text translate toggle; parent callback — kept in a ref. */
@@ -96,6 +93,7 @@ export type UsePdfViewerHandleOptions = {
 };
 
 export function usePdfViewerHandle({
+	goToRegion,
 	docId,
 	paperAbsPath,
 	defaultExportName,
@@ -118,6 +116,8 @@ export function usePdfViewerHandle({
 	toggleLayoutTranslate,
 }: UsePdfViewerHandleOptions): void {
 	const { t } = useTranslation("viewer");
+	const goToRegionRef = useRef(goToRegion);
+	goToRegionRef.current = goToRegion;
 	const onHandleRef = useRef(onHandle);
 	onHandleRef.current = onHandle;
 	// Dual-pane deps (translation-tab callback) churn per render; mirror the
@@ -215,36 +215,7 @@ export function usePdfViewerHandle({
 					notifyOnError: true,
 				});
 			},
-			scrollToLayoutRegion: (region) => {
-				const kind = region.kind ?? layoutKindFromRegionId(region.id);
-				const bbox = expandFocusBboxForOverlay(region.bbox, kind);
-				const page =
-					docCapRef.current?.getDocument(docId)?.pages[region.pageIndex];
-				const pageSize = page?.size;
-				const pageCoordinates = pageSize
-					? {
-							x: bbox.x * pageSize.width,
-							y: bbox.y * pageSize.height,
-						}
-					: undefined;
-				scrollRef.current?.scrollToPage({
-					pageNumber: region.pageIndex + 1,
-					behavior: "instant",
-					...(pageCoordinates
-						? { pageCoordinates, alignX: 0, alignY: 18 }
-						: {}),
-				});
-				setFocusedLayoutRegion(
-					docId,
-					region.id,
-					{
-						pageIndex: region.pageIndex,
-						bbox,
-						kind,
-					},
-					{ flash: true },
-				);
-			},
+			scrollToLayoutRegion: (region) => goToRegionRef.current(region),
 			renderRegion: async ({ pageIndex, bbox, maxEdgePx }) => {
 				const eng = engineRef.current;
 				const docs = docCapRef.current;

@@ -1,68 +1,129 @@
-/**
- * One-shot "open this PDF on page N" intent for citation / wiki jumps.
- *
- * Reading-position restore and the citation jumper race on first open: the
- * jumper may scroll to `#page=N` before the document finishes laying out, then
- * restore (or EmbedPDF init) snaps back to page 1 / the saved page. Stashing
- * the target here lets restore prefer the citation page, and lets the jumper
- * re-apply briefly until the viewport settles.
- */
+/** Navigation is scoped to a viewer/tab; requests wait for layout, never timer-replay. */
+import type { PdfAskNormalizedRect } from "@/lib/pdf/ask/types";
+import type { PdfLayoutKind } from "@/lib/pdf/layout/types";
 
-type PendingIntent = {
+export type PdfNavigationRegion = {
+	id: string;
+	pageIndex: number;
+	bbox: PdfAskNormalizedRect;
+	kind?: PdfLayoutKind;
+};
+export type PdfNavigationTarget = {
 	page: number;
-	keys: Set<string>;
+	region?: PdfNavigationRegion;
+};
+export type PdfNavigationIntent = {
+	readonly token: symbol;
+	readonly key: string;
+	target: PdfNavigationTarget | null;
 };
 
-const byKey = new Map<string, PendingIntent>();
+const pending = new Map<string, PdfNavigationIntent>();
+const owners = new Map<string, () => void>();
+const normalizeKey = (key: string) =>
+	key.replace(/\\/g, "/").replace(/\/+$/, "");
 
-function normalizeKey(key: string): string {
-	return key.replace(/\\/g, "/").replace(/\/+$/, "");
+function clearIntent(intent: PdfNavigationIntent): void {
+	if (pending.get(intent.key)?.token === intent.token)
+		pending.delete(intent.key);
 }
 
-/** Register a 1-based pending page under one or more paper-key aliases. */
-export function setPendingPdfPage(
-	keys: string | Iterable<string>,
-	page: number,
+/** Reserve the latest request before asynchronous citation resolution starts. */
+export function beginPdfNavigation(key: string): PdfNavigationIntent {
+	const intent: PdfNavigationIntent = {
+		token: Symbol(),
+		key: normalizeKey(key),
+		target: null,
+	};
+	pending.set(intent.key, intent);
+	return intent;
+}
+
+export function completePdfNavigation(
+	intent: PdfNavigationIntent,
+	target: PdfNavigationTarget,
 ): void {
-	const pageNumber = Math.floor(page);
-	if (pageNumber < 1) return;
-
-	const list = typeof keys === "string" ? [keys] : Array.from(keys);
-	const intent: PendingIntent = { page: pageNumber, keys: new Set() };
-	for (const key of list) {
-		if (!key) continue;
-		const normalized = normalizeKey(key);
-		clearPendingPdfPage(normalized);
-		intent.keys.add(normalized);
-		byKey.set(normalized, intent);
-	}
+	if (pending.get(intent.key)?.token !== intent.token) return;
+	intent.target = target;
+	owners.get(intent.key)?.();
 }
 
-/** Peek without consuming. */
-export function peekPendingPdfPage(key: string): number | null {
-	const intent = byKey.get(normalizeKey(key));
-	return intent && intent.page >= 1 ? intent.page : null;
+export function cancelPdfNavigation(intent: PdfNavigationIntent): void {
+	clearIntent(intent);
+	owners.get(intent.key)?.();
 }
 
-/**
- * Take the pending page for this key (and all aliases registered with it).
- * Returns null when none.
- */
-export function consumePendingPdfPage(key: string): number | null {
+/** Closing a tab must also cancel requests made before its viewer mounted. */
+export function cancelPdfNavigationForTab(key: string): void {
+	const intent = pending.get(normalizeKey(key));
+	if (intent) clearIntent(intent);
+}
+
+/** Layout-ready is the sole gate for both requested jumps and reading restore. */
+export function registerPdfNavigationOwner(
+	key: string,
+	options: {
+		navigate(target: PdfNavigationTarget): boolean;
+		restore(totalPages: number): boolean;
+	},
+) {
 	const normalized = normalizeKey(key);
-	const intent = byKey.get(normalized);
-	if (!intent || intent.page < 1) return null;
-	for (const alias of intent.keys) byKey.delete(alias);
-	return intent.page;
-}
-
-/** Drop pending intent for these keys (and shared aliases). */
-export function clearPendingPdfPage(keys: string | Iterable<string>): void {
-	const list = typeof keys === "string" ? [keys] : Array.from(keys);
-	for (const key of list) {
-		if (!key) continue;
-		const intent = byKey.get(normalizeKey(key));
-		if (!intent) continue;
-		for (const alias of intent.keys) byKey.delete(alias);
-	}
+	let totalPages = 0;
+	let restored = false;
+	let disposed = false;
+	let localTarget: PdfNavigationTarget | null = null;
+	const flush = () => {
+		if (disposed || totalPages <= 0) return;
+		// Local toolbar/outline/handle requests always belong to this instance.
+		// External citations are routed by the canonical workspace tab id.
+		const intent =
+			owners.get(normalized) === flush ? pending.get(normalized) : undefined;
+		if (!localTarget && intent && !intent.target) return;
+		const target = localTarget ?? intent?.target;
+		if (target) {
+			if (
+				Number.isInteger(target.page) &&
+				target.page >= 1 &&
+				target.page <= totalPages
+			) {
+				if (!options.navigate(target)) return;
+				restored = true;
+				localTarget = null;
+				if (intent) clearIntent(intent);
+				return;
+			}
+			localTarget = null;
+			if (intent) clearIntent(intent);
+		}
+		if (!restored) restored = options.restore(totalPages);
+	};
+	owners.set(normalized, flush);
+	return {
+		layoutReady(pages: number) {
+			totalPages = pages;
+			flush();
+		},
+		request(target: PdfNavigationTarget) {
+			if (disposed) return;
+			if (owners.get(normalized) === flush) {
+				const intent = pending.get(normalized);
+				if (intent) clearIntent(intent);
+			}
+			localTarget = target;
+			flush();
+		},
+		dispose() {
+			disposed = true;
+			if (owners.get(normalized) !== flush) return;
+			owners.delete(normalized);
+			const intent = pending.get(normalized);
+			if (intent) {
+				// StrictMode may immediately mount a replacement owner. A real
+				// unmount cancels only this request, never a newer one.
+				queueMicrotask(() => {
+					if (!owners.has(normalized)) clearIntent(intent);
+				});
+			}
+		},
+	};
 }

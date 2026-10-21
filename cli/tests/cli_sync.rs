@@ -18,6 +18,7 @@ fn create_vault(dir: &Path) {
     fs::create_dir_all(&home).unwrap();
     agentero()
         .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
         .args(["vault", "create", dir.to_str().unwrap(), "--json"])
         .assert()
         .success()
@@ -32,6 +33,7 @@ fn sync_status_reports_unconfigured_vault() {
 
     agentero()
         .env("HOME", tmp.path().join(".test-home"))
+        .env("XDG_CONFIG_HOME", tmp.path().join(".test-home/.config"))
         .args([
             "sync",
             "status",
@@ -53,6 +55,7 @@ fn sync_now_without_binding_fails_with_stable_code() {
 
     agentero()
         .env("HOME", tmp.path().join(".test-home"))
+        .env("XDG_CONFIG_HOME", tmp.path().join(".test-home/.config"))
         .args(["sync", "now", "--vault", vault.to_str().unwrap(), "--json"])
         .assert()
         .code(1)
@@ -69,6 +72,7 @@ fn sync_configure_never_prompts_or_leaks_secret_guidance_in_json_mode() {
     // at the secret channels instead of argv.
     agentero()
         .env("HOME", tmp.path().join(".test-home"))
+        .env("XDG_CONFIG_HOME", tmp.path().join(".test-home/.config"))
         .args([
             "sync",
             "configure",
@@ -103,6 +107,7 @@ fn sync_configure_rejects_plain_http_endpoint_via_stdin() {
     }"#;
     let mut cmd = agentero();
     cmd.env("HOME", tmp.path().join(".test-home"))
+        .env("XDG_CONFIG_HOME", tmp.path().join(".test-home/.config"))
         .args([
             "sync",
             "configure",
@@ -146,6 +151,7 @@ fn sync_configure_git_pushes_to_a_local_bare_remote() {
 
     agentero()
         .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
         .args([
             "sync",
             "configure",
@@ -166,6 +172,7 @@ fn sync_configure_git_pushes_to_a_local_bare_remote() {
 
     agentero()
         .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
         .args(["sync", "now", "--vault", vault.to_str().unwrap(), "--json"])
         .assert()
         .success()
@@ -197,6 +204,7 @@ fn sync_test_and_disconnect_without_binding_fail_fast() {
     for sub in ["test", "disconnect"] {
         agentero()
             .env("HOME", tmp.path().join(".test-home"))
+            .env("XDG_CONFIG_HOME", tmp.path().join(".test-home/.config"))
             .args(["sync", sub, "--vault", vault.to_str().unwrap(), "--json"])
             .assert()
             .code(1)

@@ -82,16 +82,8 @@ impl CatalogMirror {
             RemoteFileStamp::from(meta)
         };
 
-        // Ensure schema is current on work copy
-        {
-            let conn = ensure_catalog(work_root)?;
-            let ver = schema_version(&conn).unwrap_or(0);
-            if ver > SCHEMA_VERSION {
-                return Err(AppError::message(format!(
-                    "catalog schema version {ver} is newer than this app supports ({SCHEMA_VERSION})"
-                )));
-            }
-        }
+        // Migrate the work copy; ensure_catalog also rejects future schemas.
+        ensure_catalog(work_root)?;
 
         let local_digest = Sha256::digest(snapshot_catalog(&work_db)?).to_vec();
         Ok(Self {

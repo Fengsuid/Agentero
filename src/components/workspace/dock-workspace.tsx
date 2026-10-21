@@ -58,7 +58,6 @@ import { formatShortcutById } from "@/lib/shell/shortcuts";
 import { TAG_COLOR_IDS, tagSwatchStyle } from "@/lib/ui/tag-colors";
 import { openTexPdf } from "@/lib/workspace/actions";
 import { installDockviewDragSelectionGuard } from "@/lib/workspace/dockview-drag-selection";
-import { installDockviewDropOverlayCleanup } from "@/lib/workspace/dockview-drop-overlay-cleanup";
 import { installDockviewSashFrameLoop } from "@/lib/workspace/dockview-sash";
 import { agenteroDockTheme } from "@/lib/workspace/dockview-theme";
 import {
@@ -866,9 +865,6 @@ export const DockWorkspace = memo(
 					installDockviewDragSelectionGuard(
 						workspaceRootRef.current as HTMLDivElement,
 						api,
-					),
-					installDockviewDropOverlayCleanup(
-						workspaceRootRef.current as HTMLDivElement,
 					),
 					api.onUnhandledDragOver((e: DockviewDndOverlayEvent) => {
 						if (!isExternalPathDrag(e.nativeEvent)) return;

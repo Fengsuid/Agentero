@@ -111,6 +111,7 @@ nav:
       - 发布前 Checklist: test/release-checklist.md
 
   - Bug 修复记录:
+      - 兼容补丁清理与验证: bug_fix/compatibility-patch-cleanup.md
       - DeepSeek 正文落入 Thinking: bug_fix/deepseek-thinking-body.md
       - ACP 会话恢复 ID 错误: bug_fix/acp-session-resume-id.md
       - 输入法组字 Enter 误发送: bug_fix/ime-composition-enter-submit.md

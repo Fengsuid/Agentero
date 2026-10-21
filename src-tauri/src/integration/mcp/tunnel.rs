@@ -384,11 +384,7 @@ impl McpTunnelController {
         if let Some(url) = proxy.as_deref() {
             cmd.env("AGENTERO_TUNNEL_PROXY", url);
         }
-        #[cfg(windows)]
-        {
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        crate::core::process::hide_console_window_tokio(&mut cmd);
 
         let child = match cmd.spawn() {
             Ok(child) => child,
@@ -666,11 +662,7 @@ async fn probe_ready(binary: &Path, url_file: &Path, pid: u32) -> (bool, Option<
     cmd.args(health_args(url_file, pid)).stdin(Stdio::null());
     // `tunnel-client` is a console binary on Windows; without this flag every
     // keepalive probe flashes a console window on the GUI host.
-    #[cfg(windows)]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    crate::core::process::hide_console_window_tokio(&mut cmd);
     let out = match tokio::time::timeout(PROBE_TIMEOUT, cmd.output()).await {
         Ok(Ok(out)) => out,
         Ok(Err(e)) => return (false, Some(format!("health probe failed: {e}"))),
@@ -712,12 +704,11 @@ fn poll_error(value: &Value) -> Option<String> {
 async fn list_tunnel_processes() -> Option<String> {
     const LIST_SCRIPT: &str = "Get-CimInstance Win32_Process -Filter \"Name='tunnel-client.exe'\" \
          | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let mut cmd = Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-Command", LIST_SCRIPT])
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW);
+        .stderr(Stdio::null());
+    crate::core::process::hide_console_window_tokio(&mut cmd);
     let out = tokio::time::timeout(Duration::from_secs(15), cmd.output())
         .await
         .ok()?
@@ -744,12 +735,7 @@ fn kill_by_pid(pid: u32) {
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    crate::core::process::hide_console_window(&mut cmd);
     let _ = cmd.output();
 }
 

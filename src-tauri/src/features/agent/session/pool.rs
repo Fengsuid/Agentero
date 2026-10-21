@@ -17,8 +17,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use tokio::sync::watch;
+use std::time::Duration;
+use tokio::sync::{watch, Notify};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -27,10 +27,9 @@ use uuid::Uuid;
 /// drift, so the pool trades a little warmth for bounded resource use.
 pub(crate) const POOL_IDLE_TTL: Duration = Duration::from_secs(600);
 
-/// How long `take` polls for an in-flight warm setup before falling back to
+/// How long `take` waits for an in-flight warm setup before falling back to
 /// the cold path (session/new alone measured 1–10s, so the wait is capped).
 const POOL_TAKE_WAIT: Duration = Duration::from_secs(5);
-const POOL_TAKE_POLL: Duration = Duration::from_millis(50);
 
 /// Cached chat-UI payload a healthy slot can answer `agent_warm` with.
 pub(crate) type WarmSnapshot = (Option<AgentModelsEvent>, Option<(u64, u64)>);
@@ -155,6 +154,13 @@ pub struct AgentWarmPool {
     slots: Mutex<SlotMap<PooledSlot>>,
     tasks: Mutex<HashMap<Uuid, WarmState>>,
     closed: AtomicBool,
+    changed: Notify,
+}
+
+enum TakeState {
+    Ready(Box<PooledSlot>),
+    Pending(CancellationToken),
+    Unavailable,
 }
 
 struct WarmState {
@@ -176,6 +182,7 @@ impl Drop for WarmTask {
         tasks.remove(&self.id);
         let mut slots = self.pool.slots.lock().unwrap_or_else(|e| e.into_inner());
         slots.entries.retain(|_, (_, slot)| slot.task_id != self.id);
+        self.pool.changed.notify_waiters();
     }
 }
 
@@ -185,6 +192,7 @@ impl AgentWarmPool {
             slots: Mutex::new(SlotMap::default()),
             tasks: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
+            changed: Notify::new(),
         }
     }
 
@@ -218,6 +226,7 @@ impl AgentWarmPool {
                 published: false,
             },
         );
+        self.changed.notify_waiters();
         WarmTask {
             id,
             cancellation,
@@ -240,6 +249,7 @@ impl AgentWarmPool {
             slot.stop();
             false
         });
+        self.changed.notify_waiters();
     }
 
     pub fn shutdown(&self) {
@@ -252,6 +262,7 @@ impl AgentWarmPool {
         for (_, (_, slot)) in slots.entries.drain() {
             slot.stop();
         }
+        self.changed.notify_waiters();
     }
 
     /// Insert a freshly set-up slot, tearing down any previous slot for the
@@ -268,6 +279,7 @@ impl AgentWarmPool {
             }
             slots.insert(slot.key.clone(), slot)
         });
+        self.changed.notify_waiters();
         if let Some((key, old)) = displaced {
             log::debug!(
                 target: "agentero::agent",
@@ -280,37 +292,52 @@ impl AgentWarmPool {
         }
     }
 
-    /// Take the healthy slot matching `key`, polling briefly for an in-flight
-    /// warm setup to publish before giving up (cold-path fallback).
+    /// Take a matching slot, waiting only while a matching setup can publish.
+    /// Subscribe before inspecting state so publication cannot lose a wakeup.
     pub(crate) async fn take(&self, key: &PoolKey) -> Option<PooledSlot> {
-        let deadline = Instant::now() + POOL_TAKE_WAIT;
+        let deadline = tokio::time::Instant::now() + POOL_TAKE_WAIT;
         loop {
-            if let Some(slot) = self.take_ready(key) {
-                return Some(slot);
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            match self.take_state(key) {
+                TakeState::Ready(slot) => return Some(*slot),
+                TakeState::Unavailable => return None,
+                TakeState::Pending(cancellation) => {
+                    tokio::select! {
+                        _ = &mut changed => {},
+                        _ = cancellation.cancelled() => {},
+                        _ = tokio::time::sleep_until(deadline) => return None,
+                    }
+                }
             }
-            if Instant::now() >= deadline {
-                return None;
-            }
-            tokio::time::sleep(POOL_TAKE_POLL).await;
         }
     }
 
-    fn take_ready(&self, key: &PoolKey) -> Option<PooledSlot> {
-        let (slot_key, slot) = self
-            .slots
-            .lock()
-            .ok()
-            .and_then(|mut slots| slots.remove_matching(key))?;
-        if !slot.is_alive() {
+    fn take_state(&self, key: &PoolKey) -> TakeState {
+        // Match publish's lock order. Checking the ready slot and pending task
+        // together prevents a publication between those checks looking absent.
+        let tasks = self.tasks.lock().unwrap_or_else(|e| e.into_inner());
+        if self.closed.load(Ordering::SeqCst) {
+            return TakeState::Unavailable;
+        }
+        let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((slot_key, slot)) = slots.remove_matching(key) {
+            if slot.is_alive() && !slot.cancellation.is_cancelled() {
+                return TakeState::Ready(Box::new(slot));
+            }
             log::debug!(
                 target: "agentero::agent",
                 "agent={} warm slot dead (EOF); cold fallback",
                 slot_key.agent_id
             );
             slot.stop();
-            return None;
         }
-        Some(slot)
+        tasks
+            .values()
+            .find(|task| task.key == *key && !task.published && !task.cancellation.is_cancelled())
+            .map(|task| TakeState::Pending(task.cancellation.clone()))
+            .unwrap_or(TakeState::Unavailable)
     }
 
     /// Return a slot after a finished turn; a dead or displaced connection is
@@ -444,5 +471,104 @@ mod slot_map_tests {
         assert!(pending.cancellation.is_cancelled());
         let late = pool.start_warm(&key("codex", "/vault-b"));
         assert!(late.cancellation.is_cancelled());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn absent_mismatched_and_taken_setups_do_not_delay_cold_start() {
+        let pool = std::sync::Arc::new(super::AgentWarmPool::new());
+        let wanted = key("codex", "/vault-a");
+        let start = tokio::time::Instant::now();
+        assert!(pool.take(&wanted).await.is_none());
+        let other = pool.start_warm(&key("codex", "/vault-b"));
+        assert!(pool.take(&wanted).await.is_none());
+        drop(other);
+        let taken = pool.start_warm(&wanted);
+        pool.tasks
+            .lock()
+            .unwrap()
+            .get_mut(&taken.id)
+            .unwrap()
+            .published = true;
+        assert!(pool.take(&wanted).await.is_none());
+        assert_eq!(tokio::time::Instant::now(), start);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn failed_cancelled_and_closed_setups_wake_waiters_immediately() {
+        for outcome in ["drop", "cancel", "close"] {
+            let pool = std::sync::Arc::new(super::AgentWarmPool::new());
+            let wanted = key("codex", "/vault-a");
+            let warm = pool.start_warm(&wanted);
+            let start = tokio::time::Instant::now();
+            let waiter_pool = pool.clone();
+            let waiter = tokio::spawn(async move { waiter_pool.take(&wanted).await });
+            tokio::task::yield_now().await;
+            assert!(!waiter.is_finished());
+            match outcome {
+                "drop" => drop(warm),
+                "cancel" => warm.cancellation.cancel(),
+                _ => pool.shutdown(),
+            }
+            assert!(waiter.await.unwrap().is_none());
+            assert_eq!(tokio::time::Instant::now(), start, "{outcome}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn only_live_matching_setups_use_the_wait_budget() {
+        let pool = std::sync::Arc::new(super::AgentWarmPool::new());
+        let wanted = key("codex", "/vault-a");
+        let _warm = pool.start_warm(&wanted);
+        let start = tokio::time::Instant::now();
+        assert!(pool.take(&wanted).await.is_none());
+        assert_eq!(start.elapsed(), super::POOL_TAKE_WAIT);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn publication_wakes_all_waiters_but_only_one_can_claim_the_slot() {
+        agent_client_protocol::Client
+            .connect_with(agent_client_protocol::Agent.builder(), async |connection| {
+                let pool = std::sync::Arc::new(super::AgentWarmPool::new());
+                let wanted = key("codex", "/vault-a");
+                let warm = pool.start_warm(&wanted);
+                let start = tokio::time::Instant::now();
+                let mut waiters = Vec::new();
+                for _ in 0..8 {
+                    let pool = pool.clone();
+                    let wanted = wanted.clone();
+                    waiters.push(tokio::spawn(async move { pool.take(&wanted).await }));
+                }
+                tokio::task::yield_now().await;
+                let (end, _end_rx) = tokio::sync::watch::channel(false);
+                let (activity, _activity_rx) = tokio::sync::watch::channel(0);
+                pool.publish(super::PooledSlot {
+                    task_id: warm.id,
+                    cancellation: warm.cancellation.clone(),
+                    key: wanted,
+                    connection,
+                    acp_session_id: "warm-session".into(),
+                    config_options: Vec::new(),
+                    can_resume: false,
+                    can_load: false,
+                    terminals: std::sync::Arc::new(tokio::sync::Mutex::new(
+                        super::AcpTerminalManager::new(),
+                    )),
+                    registry: crate::features::agent::session::handlers::new_registry(),
+                    end,
+                    activity,
+                    used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    models: None,
+                    usage: None,
+                });
+                let mut claims = 0;
+                for waiter in waiters {
+                    claims += usize::from(waiter.await.unwrap().is_some());
+                }
+                assert_eq!(claims, 1);
+                assert_eq!(tokio::time::Instant::now(), start);
+                Ok(())
+            })
+            .await
+            .unwrap();
     }
 }

@@ -32,8 +32,8 @@ import {
 import { KEYS } from "platejs";
 import {
 	useEditorRef,
+	useEditorSelector,
 	useMarkToolbarButton,
-	useMarkToolbarButtonState,
 	useSelectionFragmentProp,
 } from "platejs/react";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
@@ -50,6 +50,7 @@ import {
 import { useLibraryStore } from "@/hooks/use-app-stores";
 import { errorMessage, notifyError } from "@/lib/core/notify";
 import { copyFileToMarkdownAssets, pickImageFiles } from "@/lib/markdown/image";
+import { hasTextSelection } from "@/lib/markdown/input-context";
 import { fetchCoolPapersNotes } from "@/lib/paper/coolpapers";
 import { formatModShortcut } from "@/lib/shell/shortcuts";
 import { paperRelFromNotes } from "@/lib/vault";
@@ -83,14 +84,23 @@ function useMarkAction(
 	icon: LucideIcon,
 	label: string,
 ): ToolbarAction {
-	const state = useMarkToolbarButtonState({ nodeType });
-	const { props } = useMarkToolbarButton(state);
+	const pressed = useEditorSelector(
+		(editor) =>
+			hasTextSelection(editor) ? editor.api.hasMark(nodeType) : undefined,
+		[nodeType],
+	);
+	const { props } = useMarkToolbarButton({
+		nodeType,
+		pressed: pressed ?? false,
+		clear: undefined,
+	});
 	const Icon = icon;
 	return {
 		id: nodeType,
 		icon: <Icon />,
 		label,
 		pressed: props.pressed,
+		disabled: pressed === undefined,
 		onClick: props.onClick,
 		group: 1,
 	};

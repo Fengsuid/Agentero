@@ -4,14 +4,14 @@ Agentero 作为 **ACP Client**，stdio JSON-RPC 连接用户本机或远端 Agen
 
 ## 协议与运行时
 
-- Crate：`agent-client-protocol`（及 Codex 的 npm ACP 适配器进程）。
+- Crate：`agent-client-protocol` ≥ 1.3（及 Codex 的 npm ACP 适配器进程）。
 - Quick Chat 和侧边栏的论文上下文走同一解析器。本地会话在 `session/new`、`session/resume`、`session/load` 上传入 `agentero-context` stdio MCP；授权指纹变化时不恢复旧会话。见 [context.md](context.md)。
 - ACP `initialize` 在 run / warm / 历史 list / load 四处统一最多等待 30 秒（设置页
   探针同样保留 30 秒总预算），覆盖 BYOA 冷启动。warm 的 `session/new` 为 30 秒；
   `session/load` 独立为 60 秒，覆盖历史浏览与续聊（冷连接及池连接），容纳适配器
   启动运行时、读取和回放历史的开销；其余 session RPC 保持 15 秒预算。
   续聊在等待 load 时仍响应现有取消信号，60 秒不是强制等待时长；历史浏览仍为一次性
-  IPC 请求，没有新增取消接口。初始化与历史回放 settle 窗口不计入 load 的 60 秒。
+  IPC 请求，没有新增取消接口。初始化不计入 load 的 60 秒；load 响应标记回放完成，不再另等静默窗口。
   Host 日志以 `acp session/load` 记录 agent/session、开始与预算、结束状态
   （success/failed/cancelled）和总请求耗时 `elapsed_ms`；失败另记错误，超时含 60 秒预算。
   cancelled 表示宿主请求 future 被丢弃，不保证适配器已终止内部恢复工作。
@@ -51,6 +51,8 @@ Agentero 作为 **ACP Client**，stdio JSON-RPC 连接用户本机或远端 Agen
   环境变量（`SHELL -lic 'env -0'`）以及 `AgentDescriptor.env`。这样 macOS/Linux 上从
   GUI 启动 Agentero 也能读到 `.zshrc` / `.bashrc` 里 `export` 的 `OPENAI_API_KEY`、
   `OPENAI_BASE_URL` 等变量；`AgentDescriptor.env` 优先级最高，可覆盖 shell 值（#478）。
+  ACP、命令探测和安装器共用 core 的 shell 环境快照；安装前刷新，安装结束（含失败/取消）后失效，
+  下次启动重新读取安装器可能修改的 PATH。快照不写入日志。
 - 统一接口：OpenCode、Hermes、Claude ACP、Codex ACP、Antigravity ACP、Qoder、Grok、Pi、Dsh（DeepSeek Harness）、Kimi Code、ZCode、MiniMax Code、MiMo Code、自定义 `command`/`args`/`env`。自定义项不探测安装器，保存后按同一 stdio 路径拉起；前端把参数字符串按空白拆开。设置表单用 `agent.form.hint` 说明这一约定。
 - Dsh：umbrella CLI `@deepseek-ai/dsh`（npm，需 0.1.2+）内置 ACP profile——
   `dsh --profile acp` 以 ACP stdio 服务，首次启动从内置模板自动初始化 profile
@@ -254,6 +256,8 @@ handler）；各入口自行挂 notification / permission 回调。
 prompt，结束后仍受 TTL 与退出清理约束。setup 总预算为 60 秒，超时或请求 future 被取消会
 取消后台任务，禁止迟到发布；错误/超时返回前等待任务完成回收。
 slot 替换、evict 和 shutdown 均有独立取消 token，不依赖 slot 是否还在池中。
+取用时只有匹配的 setup 正在执行才等待（最多 5 秒），由发布/取消/退出通知唤醒；无匹配任务、
+连接已被其他请求取走或池已关闭时立即走冷启动。并发取用只允许一个请求领取同一连接。
 若 Agent 声明 `sessionCapabilities.delete`，未使用的空会话在 teardown 时尝试删除；
 取消清理最多允许 1 秒，之后无论 RPC 是否响应均丢弃连接，由 SDK 执行进程清理：
 Unix 终止进程组，Windows 仅结束直接子进程。已有残留不会按进程名自动清扫，需确认路径与
@@ -284,9 +288,10 @@ Kimi Code ACP 会把 `Bash`/`Glob`/`Grep` 等工具实现为 `terminal/create`�
 不写入本轮 content buffer），避免第二轮气泡开头重复上一轮回答；usage /
 commands / config 仍可在 load 期间转发。
 
-`agent_load_session` 在 `session/load` 返回后等待回放通知**静默**（200ms 无新
-通知即返回，最长仍封顶 800ms），替代此前的固定 800ms sleep；回放通常在
-response 前/后很快推完，空会话与短会话因此显著更快（#271）。
+`agent_load_session` 以 `session/load` 的响应为回放完成边界。
+[ACP 协议](https://agentclientprotocol.com/protocol/v1/session-setup)要求先发送全部历史通知再返回响应，
+SDK 1.3 按序等待通知 handler 完成后再处理下一条消息，因此不需要额外 200–800ms 静默等待。
+没有 `session/load` 能力的 Dsh 仍沿用其本地历史读取兼容路径。
 
 回放聚合（`ReplayBuilder`）会丢弃 Agent 侧的合成占位文本：Claude Code 在
 turn 未产生回复（如被中断）时会往 transcript 里拼接合成 assistant 消息

@@ -12,14 +12,6 @@ import { nanoid } from "nanoid";
 import { findLocalPdfPath, localFileToArrayBuffer } from "@/lib/paper";
 import { getHeadlessPdfEngine } from "@/lib/pdf/layout/headless-analyze";
 
-function taskToPromise<T>(task: {
-	wait: (ok: (v: T) => void, err: (e: unknown) => void) => void;
-}): Promise<T> {
-	return new Promise((resolve, reject) => {
-		task.wait(resolve, reject);
-	});
-}
-
 /**
  * Get PDF page count for a paper folder.
  * Returns null if no PDF found or failed to read.
@@ -52,22 +44,22 @@ export async function getPdfPageCount(
 				docPlugin as unknown as { provides: () => DocumentManagerCapability }
 			).provides();
 
-			const openRes = await taskToPromise(
-				docCap.openDocumentBuffer({
+			const openRes = await docCap
+				.openDocumentBuffer({
 					buffer,
 					documentId,
 					name: "page-count",
 					autoActivate: true,
-				}),
-			);
-			const doc = await taskToPromise(openRes.task);
+				})
+				.toPromise();
+			const doc = await openRes.task.toPromise();
 			const pageCount = doc.pageCount ?? 0;
 
 			return pageCount > 0 ? pageCount : null;
 		} finally {
 			// Release this probe's document, never the shared headless engine.
 			try {
-				if (docCap) await taskToPromise(docCap.closeDocument(documentId));
+				if (docCap) await docCap.closeDocument(documentId).toPromise();
 			} catch {
 				// Registry teardown retries closing documents still in its store.
 			}

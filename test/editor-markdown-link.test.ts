@@ -1,70 +1,12 @@
-import { createSlateEditor, createSlatePlugin, KEYS, NodeApi } from "platejs";
+import { createSlateEditor, createSlatePlugin, KEYS } from "platejs";
 import { describe, expect, it } from "vitest";
 
 import { LinkPlugin } from "@/components/editor/plugins/link-plugin";
-import {
-	convertCompleteMarkdownLinkAtCaret,
-	convertMarkdownLinkBeforeClosingParen,
-	markdownLinkInputRule,
-} from "@/lib/markdown/link-input-rule";
 
 const TestParagraphPlugin = createSlatePlugin({
 	key: KEYS.p,
 	node: { isElement: true },
 });
-
-const TestLinkPlugin = createSlatePlugin({
-	key: KEYS.a,
-	node: {
-		isElement: true,
-		isInline: true,
-	},
-})
-	.configure({
-		inputRules: [markdownLinkInputRule],
-	})
-	.overrideEditor(
-		({ editor, tf: { normalizeNode, deleteBackward, insertText } }) => ({
-			transforms: {
-				insertText(text, options) {
-					if (
-						(text === ")" || text === "）") &&
-						!options?.at &&
-						convertMarkdownLinkBeforeClosingParen(editor)
-					) {
-						return;
-					}
-					insertText(text, options);
-					if (!options?.at) {
-						convertCompleteMarkdownLinkAtCaret(editor);
-					}
-				},
-				normalizeNode(entry) {
-					const [node, path] = entry;
-					if (
-						node &&
-						typeof node === "object" &&
-						"type" in node &&
-						node.type === editor.getType(KEYS.a) &&
-						NodeApi.string(node) === ""
-					) {
-						editor.tf.removeNodes({ at: path });
-						return;
-					}
-					normalizeNode(entry);
-				},
-				deleteBackward(unit) {
-					deleteBackward(unit);
-					const link = editor.api.above({
-						match: { type: editor.getType(KEYS.a) },
-					});
-					if (link && NodeApi.string(link[0]) === "") {
-						editor.tf.removeNodes({ at: link[1] });
-					}
-				},
-			},
-		}),
-	);
 
 const TestCodeBlockPlugin = createSlatePlugin({
 	key: KEYS.codeBlock,
@@ -88,7 +30,7 @@ function findLink(editor: { children: unknown }) {
 
 function createLinkEditor(text: string) {
 	const editor = createSlateEditor({
-		plugins: [TestParagraphPlugin, TestLinkPlugin],
+		plugins: [TestParagraphPlugin, LinkPlugin],
 		value: [{ type: "p", children: [{ text }] }],
 	});
 	editor.tf.select({
@@ -143,22 +85,50 @@ describe("Markdown link input rule", () => {
 		});
 	});
 
-	it("converts when ) was already inserted as plain text", () => {
-		// Simulates a path that inserted `)` without running the input rule.
-		const editor = createLinkEditor(
-			"[issue](https://github.com/poco-ai/Agentero/issues)",
+	it.each([
+		")",
+		"）",
+	])("converts a complete link delivered in one insertText ending %s", (close) => {
+		const editor = createLinkEditor("");
+		editor.tf.insertText(
+			`[issue](https://github.com/poco-ai/Agentero/issues${close}`,
 		);
-		// Caret already after complete link — force complete-at-caret path.
-		const ok = convertCompleteMarkdownLinkAtCaret(editor);
-		expect(ok).toBe(true);
 		expect(findLink(editor)).toMatchObject({
 			url: "https://github.com/poco-ai/Agentero/issues",
 		});
 	});
 
+	it.each([
+		"../note.md#Heading",
+		"./paper%20name.pdf#page=3",
+		"#section",
+		"agentero-wiki:note",
+		"file:///tmp/note.md",
+	])("preserves local link target %s", (url) => {
+		const editor = typeLink(`[target](${url})`);
+		expect(findLink(editor)).toMatchObject({
+			url,
+			children: [{ text: "target" }],
+		});
+	});
+
+	it("leaves unsafe URL schemes as literal source", () => {
+		const editor = typeLink("[target](javascript:alert)");
+		expect(findLink(editor)).toBeUndefined();
+		expect(editor.api.string([])).toBe("[target](javascript:alert)");
+	});
+
+	it("leaves Markdown source literal in a code mark", () => {
+		const editor = createLinkEditor("[docs](https://example.com");
+		editor.tf.addMark(KEYS.code, true);
+		editor.tf.insertText(")");
+		expect(findLink(editor)).toBeUndefined();
+		expect(editor.api.string([])).toBe("[docs](https://example.com)");
+	});
+
 	it("converts a link after existing text and another link", () => {
 		const editor = createSlateEditor({
-			plugins: [TestParagraphPlugin, TestLinkPlugin],
+			plugins: [TestParagraphPlugin, LinkPlugin],
 			value: [
 				{
 					type: "p",
@@ -236,7 +206,7 @@ describe("Markdown link input rule", () => {
 		const editor = createSlateEditor({
 			plugins: [
 				TestParagraphPlugin,
-				TestLinkPlugin,
+				LinkPlugin,
 				TestCodeBlockPlugin,
 				TestCodeLinePlugin,
 			],
@@ -272,22 +242,15 @@ describe("Markdown link input rule", () => {
 		]);
 	});
 
-	it("ships LinkPlugin with insertText override converting long URLs", () => {
-		const editor = createSlateEditor({
-			plugins: [TestParagraphPlugin, LinkPlugin],
-			value: [{ type: "p", children: [{ text: "" }] }],
+	it("removes a link emptied by Backspace and restores it with undo", () => {
+		const editor = typeLink("[a](https://ex.com)");
+		editor.tf.select({ path: [0, 1, 0], offset: 1 });
+		editor.tf.withNewBatch(() => editor.tf.deleteBackward("character"));
+		expect(findLink(editor)).toBeUndefined();
+		editor.tf.undo();
+		expect(findLink(editor)).toMatchObject({
+			url: "https://ex.com",
+			children: [{ text: "a" }],
 		});
-		editor.tf.select({
-			anchor: { path: [0, 0], offset: 0 },
-			focus: { path: [0, 0], offset: 0 },
-		});
-		expect(editor.getType(KEYS.a)).toBe(KEYS.a);
-
-		for (const c of "[issue](https://github.com/poco-ai/Agentero/issues)") {
-			editor.tf.insertText(c);
-		}
-		const flat = JSON.stringify(editor.children);
-		expect(flat).toContain("github.com/poco-ai/Agentero/issues");
-		expect(flat).toContain(`"type":"${KEYS.a}"`);
 	});
 });

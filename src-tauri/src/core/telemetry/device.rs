@@ -5,12 +5,6 @@
 
 use crate::core::paths;
 
-/// `CREATE_NO_WINDOW`: Agentero ships as a GUI-subsystem binary, so a console
-/// child started without this flag makes Windows allocate a visible console
-/// window — a black window flashing over the app on every launch.
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 #[derive(Debug, Clone)]
 pub(super) struct DeviceInfo {
     pub(super) os_name: String,
@@ -89,17 +83,14 @@ fn raw_device_model() -> Option<String> {
 /// a visible console would flash over the window while it is still painting.
 #[cfg(target_os = "windows")]
 fn device_model_command() -> std::process::Command {
-    use std::os::windows::process::CommandExt;
-
     let mut command = std::process::Command::new("reg");
-    command
-        .args([
-            "query",
-            r"HKLM\HARDWARE\DESCRIPTION\System\BIOS",
-            "/v",
-            "SystemProductName",
-        ])
-        .creation_flags(CREATE_NO_WINDOW);
+    command.args([
+        "query",
+        r"HKLM\HARDWARE\DESCRIPTION\System\BIOS",
+        "/v",
+        "SystemProductName",
+    ]);
+    crate::core::process::hide_console_window(&mut command);
     command
 }
 
