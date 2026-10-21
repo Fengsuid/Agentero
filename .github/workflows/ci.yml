@@ -50,7 +50,7 @@ jobs:
           set -euo pipefail
           case "${{ matrix.task }}" in
             quality)
-              node --test scripts/sync-atomgit-release.test.mjs
+              node --test scripts/sync-atomgit-release.test.mjs scripts/rewrite-updater-latest.test.mjs
               # Stage the bundled ACP adapter trees so a broken staging script
               # (or a hostile upstream release) fails the PR, not the release build.
               pnpm adapters:stage
