@@ -1,0 +1,127 @@
+name: RFC 提案
+description: 提出需要评审的架构设计或较大范围改动
+title: "[RFC] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        RFC 用于需要评审的设计决策：架构调整、数据模型、接口契约、跨端方案等。
+        小范围功能建议请用「功能建议」模板；不确定是否值得做，可以先到讨论区聊。
+
+        - 一个 Issue 只讨论一个方案，结论收敛后再动手实现
+        - 定稿后把设计落到 `docs/development/`，实现完成后并入 `docs/frontend/` 或 `docs/backend/`
+
+  - type: input
+    id: summary
+    attributes:
+      label: 摘要
+      description: 一句话说明要做什么
+      placeholder: 例如：把论文元数据写入从全量刷新改为字段级增量更新
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 背景与动机
+      description: 现状是什么、痛点在哪、为什么现在要做
+      placeholder: |
+        现状：
+        问题：
+        不做的代价：
+    validations:
+      required: true
+
+  - type: textarea
+    id: goals
+    attributes:
+      label: 目标与非目标
+      description: 明确边界，非目标同样重要
+      placeholder: |
+        目标：
+        - ...
+        非目标：
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: 方案设计
+      description: 核心思路、关键数据结构与接口、数据流与调用链。较大改动建议附时序图或目录结构
+      placeholder: |
+        核心思路：
+        关键类型 / 接口：
+        数据流：
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案与取舍
+      description: 考虑过哪些做法，为什么没选
+      placeholder: |
+        方案 A：...
+          - 优点：
+          - 缺点：
+        方案 B：...
+          - 优点：
+          - 缺点：
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响范围
+      description: 涉及的层与模块，以及兼容、迁移与平台差异
+      placeholder: |
+        - 前端：
+        - Host / CLI：
+        - 数据结构 / Catalog 迁移：
+        - 兼容性（旧版本、旧 Vault）：
+        - 平台差异（macOS / Windows）：
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: 实施与验收
+      description: 阶段拆分、每个阶段的验收标准，以及不引入新依赖的替代做法
+      placeholder: |
+        Phase 1：
+          - 内容：
+          - 验收：
+        Phase 2：
+          - 内容：
+          - 验收：
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: 风险与回滚
+      description: 可能失败的点、灰度与回滚方式
+      placeholder: |
+        风险：
+        回滚：
+
+  - type: textarea
+    id: open_questions
+    attributes:
+      label: 开放问题
+      description: 需要评审时重点讨论、尚未决定的问题
+      placeholder: |
+        - [ ] ...
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 参考资料
+      description: 相关 Issue / PR、设计文档、外部实现或论文
+      placeholder: |
+        - 相关 Issue：
+        - 参考实现：
