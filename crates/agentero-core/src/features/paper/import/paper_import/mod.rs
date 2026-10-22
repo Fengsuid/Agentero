@@ -8,6 +8,9 @@
 use crate::app_handle::AppHandle;
 use crate::error::AppError;
 use crate::features::catalog::{papers, probe_paper_caps, CapsCache};
+use crate::features::import::preparation::{
+    plan_after_assets, plan_after_merged_pdf, PreparationPlan,
+};
 use crate::features::import::{
     allocate_paper_path, ensure_paper_assets_with_progress, normalize_parent_dir,
     write_paper_shell_opts, AssetDownloadResult, AssetProgressContext, NoteShellMode,
@@ -76,9 +79,9 @@ pub struct PaperCommitOptions<'a> {
     pub cache: Option<&'a CapsCache>,
     /// Lifecycle event sink (`paper:imported` / `paper:assets-ready`).
     pub app: Option<&'a AppHandle>,
-    /// Skip the commit-time ParseBody/ParseRefs spawns; the caller
-    /// orchestrates follow-ups (deferred-recognition imports run them after
-    /// the paper's final path is known, i.e. after rename/merge).
+    /// Omit ParseBody/ParseRefs from the returned [`PreparationPlan`].
+    /// Deferred-recognition imports add `RecognizeMetadata` and run parse
+    /// after the final path is known (rename/merge).
     pub defer_parse_jobs: bool,
 }
 
@@ -99,6 +102,10 @@ pub struct PaperCommitResult {
     pub asset_messages: Vec<String>,
     /// True when assets are still downloading in the background (`Deferred`).
     pub assets_pending: bool,
+    /// Follow-up steps for this commit. Not part of the IPC payload.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub preparation: PreparationPlan,
 }
 
 /// Commit one paper draft to the vault. Fixed step order:
@@ -162,7 +169,7 @@ pub async fn paper_commit(
                     .unwrap_or_else(|| probe_paper_caps(&dir));
                 return Ok(PaperCommitResult {
                     status: CommitStatus::Skipped,
-                    path: candidate,
+                    path: candidate.clone(),
                     id: meta.id,
                     title: meta.title,
                     paper_dir: dir.to_string_lossy().to_string(),
@@ -171,6 +178,7 @@ pub async fn paper_commit(
                     paper_md: caps.has_paper_md,
                     asset_messages: Vec::new(),
                     assets_pending: false,
+                    preparation: PreparationPlan::empty(candidate),
                 });
             }
         }
@@ -223,13 +231,6 @@ pub async fn paper_commit(
 
     crate::features::lifecycle::emit_paper_imported(opts.app, vault, &meta.id);
 
-    let parse_app = match &opts.assets {
-        AssetsPolicy::SyncDownload { progress, .. } | AssetsPolicy::CopyPdf { progress, .. } => {
-            progress.app
-        }
-        AssetsPolicy::Deferred => None,
-    };
-
     let (assets, assets_pending) = match opts.assets {
         AssetsPolicy::SyncDownload { cookies, progress } => {
             let assets = match ensure_paper_assets_with_progress(
@@ -269,17 +270,13 @@ pub async fn paper_commit(
         AssetsPolicy::Deferred => (AssetDownloadResult::default(), true),
     };
 
-    if !opts.defer_parse_jobs {
-        if assets.pdf && !assets.tex && !assets.paper_md {
-            if let Some(app) = parse_app {
-                app.spawn_parse_body_after_assets(vault, &path_rel, false);
-            }
-        }
-
-        // Background reference parse so the References panel has a sidecar soon
-        // after import (fingerprint-cached; safe if callers also spawn).
-        crate::features::refs::spawn_parse_after_import(parse_app, vault, &path_rel);
-    }
+    let preparation = plan_after_assets(
+        &path_rel,
+        assets.pdf,
+        assets.tex,
+        assets.paper_md,
+        opts.defer_parse_jobs,
+    );
 
     if let Some(c) = opts.cache {
         c.invalidate(vault, &path_rel);
@@ -296,6 +293,7 @@ pub async fn paper_commit(
         paper_md: assets.paper_md,
         asset_messages: assets.messages,
         assets_pending,
+        preparation,
     })
 }
 
@@ -309,17 +307,19 @@ fn existing_result(
     let caps = cache
         .map(|c| c.caps_for(vault, &existing.path))
         .unwrap_or_else(|| probe_paper_caps(dir));
+    let path = existing.path.clone();
     PaperCommitResult {
         status,
         pdf: caps.has_pdf(),
         tex: caps.has_tex,
         paper_md: caps.has_paper_md,
         paper_dir: dir.to_string_lossy().to_string(),
-        path: existing.path,
+        path,
         id: existing.id,
         title: existing.title,
         asset_messages: Vec::new(),
         assets_pending: false,
+        preparation: PreparationPlan::empty(existing.path),
     }
 }
 
@@ -536,12 +536,13 @@ async fn merge_pdf_into_existing(
     };
     log::info!(target: "agentero::import", "{}: {}", message, existing.path);
 
-    if became_main && caps.has_pdf() && !caps.has_tex && !caps.has_paper_md {
-        if let Some(app) = app {
-            app.spawn_parse_body_after_assets(vault, &existing.path, false);
-        }
-        crate::features::refs::spawn_parse_after_import(app, vault, &existing.path);
-    }
+    let preparation = plan_after_merged_pdf(
+        &existing.path,
+        became_main,
+        caps.has_pdf(),
+        caps.has_tex,
+        caps.has_paper_md,
+    );
 
     Ok(PaperCommitResult {
         status: CommitStatus::Deduped,
@@ -554,6 +555,7 @@ async fn merge_pdf_into_existing(
         title: existing.title,
         asset_messages: vec![message],
         assets_pending: false,
+        preparation,
     })
 }
 
@@ -655,6 +657,10 @@ mod tests {
         assert_eq!(res.status, CommitStatus::Deduped);
         assert_eq!(res.path, "papers/pmid-12345");
         assert!(vault.join("papers/pmid-12345/pmid-12345.pdf").is_file());
+        assert!(res.preparation.steps.iter().any(|step| matches!(
+            step,
+            crate::features::import::PreparationStep::ParseBody { force: false }
+        )));
         assert!(!vault.join("papers/fulltext-slug").exists());
         let row = papers::get_by_path(&vault, "papers/pmid-12345")
             .unwrap()
@@ -670,6 +676,7 @@ mod tests {
         assert!(vault
             .join("papers/pmid-12345/attachments/supplement.pdf")
             .is_file());
+        assert!(!res2.preparation.has_parse_body());
         // Same filename again → suffixed, never overwritten.
         let res3 = commit_pdf(&vault, &src2, "10.1000/journal.123").await;
         assert_eq!(res3.status, CommitStatus::Deduped);
@@ -715,6 +722,14 @@ mod tests {
         assert_eq!(res.status, CommitStatus::Created);
         assert_eq!(res.path, "papers/unrelated");
         assert!(vault.join("papers/unrelated/unrelated.pdf").is_file());
+        // No host hooks: the plan is still produced from the copied PDF.
+        assert_eq!(
+            res.preparation.steps,
+            vec![
+                crate::features::import::PreparationStep::ParseBody { force: false },
+                crate::features::import::PreparationStep::ParseRefs,
+            ]
+        );
 
         let _ = fs::remove_dir_all(&vault);
     }

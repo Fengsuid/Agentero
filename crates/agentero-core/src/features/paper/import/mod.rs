@@ -5,6 +5,7 @@
 
 pub mod auto_ingest;
 pub mod paper_import;
+pub mod preparation;
 pub mod sources;
 // `parse` (liteparse worker) is excluded on mobile targets, gate the alias too.
 pub use crate::features::paper::analyze::parse as pdf_parse;
@@ -29,6 +30,10 @@ pub use download::{
 // `paper_import` internals.
 pub use paper_import::{
     paper_commit, AssetsPolicy, CommitStatus, DedupePolicy, PaperCommitOptions,
+};
+pub use preparation::{
+    plan_after_assets, plan_after_merged_pdf, skipped_preparation_line, PreparationPlan,
+    PreparationStep,
 };
 pub use skill::{
     discard_skill_discovery, discover_skill_source, install_discovered_skills, SkillCandidate,
@@ -257,6 +262,11 @@ pub struct LookupImportResult {
     /// layout analysis — the runner owns the follow-ups.
     #[serde(default)]
     pub recognize_pending: bool,
+    /// Host-side follow-up plan. Not part of the IPC payload: desktop
+    /// commands enqueue from it and return the previous JSON shape.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub preparation: PreparationPlan,
 }
 
 #[derive(Debug, Deserialize, specta::Type)]
@@ -372,6 +382,7 @@ pub async fn import_by_identifier_with_progress(
         asset_messages: commit.asset_messages,
         status: Some(commit.status),
         recognize_pending: false,
+        preparation: commit.preparation,
     })
 }
 
@@ -877,10 +888,11 @@ async fn import_one_local_pdf(
     .await?;
 
     let recognize_pending = recognize_deferred && commit.status == CommitStatus::Created;
+    let mut preparation = commit.preparation;
     if recognize_pending {
-        if let Some(app) = ctx.app {
-            app.spawn_recognize_metadata(vault, &commit.path);
-        }
+        preparation
+            .steps
+            .push(preparation::PreparationStep::RecognizeMetadata);
     }
 
     let used_translator = sync_probe
@@ -902,6 +914,7 @@ async fn import_one_local_pdf(
         asset_messages: commit.asset_messages,
         status: Some(commit.status),
         recognize_pending,
+        preparation,
     })
 }
 

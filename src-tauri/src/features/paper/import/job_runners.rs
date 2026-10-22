@@ -98,7 +98,15 @@ fn download_assets_runner(
         cache.invalidate(&vault, &path);
 
         match result {
-            Ok(_) => {
+            Ok(downloaded) => {
+                // Commit/download no longer spawns through HostHooks. Enqueue
+                // the returned plan (ParseBody when the asset flags ask for it,
+                // plus ParseRefs) with the same jobs as before.
+                crate::features::host_hooks::enqueue_preparation_plan(
+                    &app,
+                    &vault,
+                    &downloaded.preparation,
+                );
                 // arXiv e-print template → `#submitted:` catalog tag. Best-effort:
                 // never fail the download.
                 if let Err(e) = crate::features::paper::venue::sync_venue_tag(&vault, &path) {
@@ -108,8 +116,9 @@ fn download_assets_runner(
                 // Follow-ups only when a local PDF actually exists. TeX-only
                 // downloads (or a failed PDF attempt) must not enqueue layout /
                 // ParseBody — those jobs fail with "No local PDF".
+                // ParseBody from the plan is already queued; don't enqueue it twice.
                 let caps = cache.caps_for(&vault, &path);
-                if caps.needs_paper_md() {
+                if caps.needs_paper_md() && !downloaded.preparation.has_parse_body() {
                     let snap = center
                         .enqueue_parse_body(&vault, &path, JobLane::Normal, false, None)
                         .await;

@@ -647,9 +647,10 @@ impl AgenteroMcp {
             task_id: None,
         };
         let note_mode = NoteShellMode::parse(&self.ctrl.paper_note_mode());
-        let result = if let Some(app) = self.ctrl.app_handle() {
+        let desktop = self.ctrl.app_handle();
+        let result = if let Some(app) = desktop.as_ref() {
             let cache = app.try_state::<catalog::CapsCache>();
-            let host_app = crate::features::host_hooks::wrap(&app);
+            let host_app = crate::features::host_hooks::wrap(app);
             import::import_by_identifier_with_progress(
                 import_args,
                 Some(&host_app),
@@ -661,7 +662,18 @@ impl AgenteroMcp {
             import::import_by_identifier_with_progress(import_args, None, None, note_mode).await
         };
         match result {
-            Ok(r) => Ok(Json(ImportIdOut::from(r))),
+            Ok(r) => {
+                if let Some(app) = desktop.as_ref() {
+                    crate::features::host_hooks::enqueue_preparation_plan(
+                        app,
+                        &vault,
+                        &r.preparation,
+                    );
+                } else if let Some(line) = import::skipped_preparation_line(&r.preparation) {
+                    log::info!(target: "agentero::import", "{line}");
+                }
+                Ok(Json(ImportIdOut::from(r)))
+            }
             Err(e) => Err(tool_err(e)),
         }
     }

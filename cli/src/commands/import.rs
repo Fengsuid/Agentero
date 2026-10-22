@@ -5,7 +5,7 @@ use crate::output::to_value;
 use crate::resolve::{resolve_vault, GlobalOpts};
 use agentero_core::features::import as paper_import;
 use agentero_core::features::import::{
-    ImportLocalPdfArgs, LookupImportArgs, NoteShellMode, PaperImportArgs,
+    skipped_preparation_line, ImportLocalPdfArgs, LookupImportArgs, NoteShellMode, PaperImportArgs,
 };
 use agentero_core::features::zotero;
 use clap::{Subcommand, ValueHint};
@@ -85,7 +85,11 @@ async fn import_id(globals: &GlobalOpts, text: &str, parent: &str) -> Result<Val
         c
     };
 
-    let body = json!({
+    let mut lines = vec![format!(
+        "imported {} → {} ({})",
+        result.id, result.path, result.title
+    )];
+    let mut body = json!({
         "path": result.path,
         "id": result.id,
         "title": result.title,
@@ -98,11 +102,15 @@ async fn import_id(globals: &GlobalOpts, text: &str, parent: &str) -> Result<Val
         "assetMessages": result.asset_messages,
         "created": created,
         "skipped": [],
-        "lines": [format!(
-            "imported {} → {} ({})",
-            result.id, result.path, result.title
-        )],
     });
+    if let Some(obj) = body.as_object_mut() {
+        if let Some(line) = skipped_preparation_line(&result.preparation) {
+            log::info!(target: "agentero::import", "{line}");
+            obj.insert("preparationSkipped".into(), json!([line]));
+            lines.push(line);
+        }
+        obj.insert("lines".into(), json!(lines));
+    }
     Ok(body)
 }
 
@@ -183,17 +191,26 @@ async fn import_pdf(
     let mut v = to_value(&result)?;
     if let Some(obj) = v.as_object_mut() {
         let mut lines = Vec::new();
+        let mut preparation_skipped = Vec::new();
         for paper in &result.papers {
             lines.push(format!(
                 "imported {} → {} ({})",
                 paper.id, paper.path, paper.title
             ));
+            if let Some(line) = skipped_preparation_line(&paper.preparation) {
+                log::info!(target: "agentero::import", "{line}");
+                preparation_skipped.push(line.clone());
+                lines.push(line);
+            }
         }
         for err in &result.errors {
             lines.push(format!("error: {err}"));
         }
         if lines.is_empty() {
             lines.push("no files imported".to_string());
+        }
+        if !preparation_skipped.is_empty() {
+            obj.insert("preparationSkipped".into(), json!(preparation_skipped));
         }
         obj.insert("lines".into(), json!(lines));
     }

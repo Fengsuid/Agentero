@@ -1,6 +1,6 @@
 # Rust 端架构重构计划（2026-09）
 
-状态：**实施中：R1 WAL 一致快照、R2 字段原子更新、R3 sync 占用 RAII、R5 附件不作为主资产、A1 共享移动用例、A2 共享 trash 计划切片、A3 论文身份分类已完成；D2 已完成 MinerU 在途共享切片，其余按下文状态推进**。最后更新：2026-10-22。
+状态：**实施中：R1 WAL 一致快照、R2 字段原子更新、R3 sync 占用 RAII、R5 附件不作为主资产、A1 共享移动用例、A2 共享 trash 计划切片、A3 论文身份分类已完成；A4/D1 已落地窄切片（commit/download 返回 `PreparationPlan`，不再用 HostHooks spawn 安排后续工作）；D2 已完成 MinerU 在途共享切片，其余按下文状态推进**。最后更新：2026-10-22。
 
 来源：2026-09-06 三轮架构审计；2026-09-08 由 3 个 sub-agent 分别复核应用边界、存储一致性、运行时与集成，主评审补充核实论文入库及解析链路。本次为静态代码评审，未运行行为测试。历史 V 编号保留，旧 P0–P6 执行顺序由本文新计划替代。
 
@@ -57,6 +57,8 @@
   - 本地导入、remote commit、Connector 两条远端路径、Zotero migrate 共用去重、ID 分配、提交结果及失败语义；来源 metadata/linkage、Connector 时限留在入口策略。
   - Catalog 与目录共同参与路径碰撞检查；远端发布及附件延迟明确表达。
   - 验收：不同入口去重、ID 冲突和部分失败的结果一致；保留 Connector 协议时限。能力覆盖后再退役 RemoteImportOps/RemoteTrashOps 和合并孪生命令，不先删除倒置接缝。
+  - 实施（2026-10-22，窄切片）：core `features/paper/import/preparation.rs` 的 `PreparationPlan` 按 commit/download 原先决定 spawn 的资产条件生成（有 PDF 且无 TeX、无 `PAPER.md` → `ParseBody { force: false }`；未 `defer_parse_jobs` → `ParseRefs`；本地 PDF 占位导入另加 `RecognizeMetadata`）。`paper_commit` 与 `download_paper_assets_with_progress` 把计划放在结果上（`serde` / `specta` skip，IPC 字段名不变），不再调用 `HostHooks::spawn_*`。`paper:imported` 与下载进度仍走 `HostHooks::emit`。桌面 import 命令、coolpapers、MCP `import_id` 与 DownloadAssets runner 读计划，用原先的 JobCenter helper 入队（force 仍为 false）。CLI 不执行计划、不启动 JobCenter，文本与 JSON 都写出跳过的步骤。
+  - 未做：Connector、Zotero migrate、RemoteImportOps 仍是各自的入口。它们若调用同一个 `paper_commit` 会拿到计划，但适配器没有改为统一入队；Connector 独立附件的识别仍由该入口自己的 `HostHooks::spawn_recognize_metadata` 调度。去重、ID 冲突、Connector 时限与远端发布没有合并，孪生命令未并。
 
 ## B · 数据提交、投影与恢复契约
 
@@ -99,6 +101,8 @@
   - Desktop 策略入 JobCenter；CLI 明确等待或跳过可选派生任务，不依赖 `None` 同时表达无 UI 与无调度。
   - 收窄 HostHooks，事件通知与业务 spawn 分离；配置在用例/任务边界注入，保留 settings 装配与订阅模式。
   - 验收：识别后的稳定路径、Connector 附件就绪、下载后的解析顺序有同一计划来源；无进度监听也不改变必需业务步骤。
+  - 实施（2026-10-22，窄切片，与 A4 同批）：计划类型已存在。commit/download 返回该计划，HostHooks spawn 不再是 commit 安排这三项工作的方式。桌面按计划入队与原先相同的 JobCenter 任务；CLI 计划可以非空、执行为空，并明确打印跳过的步骤。没有改 JobCenter（E1）。layout analyze 不在计划里（RecognizeMetadata runner 仍在识别完成后自己排 layout）。计划只看资产标志，不读 HostHooks，因此没有进度监听也不会改变步骤。
+  - 未做：Connector / Zotero / remote commit 没有收到同一执行策略；auto-ingest 仍直接 `spawn_recognize_metadata`。识别后的稳定路径、Connector 附件就绪与下载后的解析顺序还没有同一个计划来源。完整入口统一未做。
 - [ ] **D2 DocumentExtraction 共享执行与产物**
   - 2026-10-21 已完成 MinerU 在途共享：同内容/文件名/服务/凭据/语言/OCR/协议选项共享 `Shared` future 与 ZIP；弱引用表不保留已完成产物。进度独立订阅，单消费者取消不影响其他消费者，最后订阅退出释放上游 future。并发复用、重试、取消与请求键隔离已有单元测试。长期可重建缓存、跨 provider 的计划层仍按收益推进。
   - 先为相同 MinerU 请求共享在途执行，正文与版面分别转换结果；再按收益添加可重建缓存。
@@ -172,12 +176,12 @@
 |---|---|---|---|
 | 前置修复 | R1–R6 | 各项独立；按影响优先处理 R1/R2/R3 | R1/R2/R3/R5 已完成，R4/R6 未开始 |
 | 第一批 | A1 移动用例，随后 A2/A3 | 复用已有 rename；A2 与 B3 明确恢复契约 | A1 与 A3 已完成；A2 已落地共享 trash 计划，restore 顺序与远端发布未做 |
-| 第二批 | B1–B3、A4、C1/C2 | B 以前置数据修复为基础；A4/C 接入提交结果 | 未开始 |
-| 第三批 | D1/D2、E1 | D1 与 E1 先对齐计划接口；D2 可独立试点 | 未开始 |
+| 第二批 | B1–B3、A4、C1/C2 | B 以前置数据修复为基础；A4/C 接入提交结果 | A4 窄切片已落地（commit 返回 PreparationPlan）；入口统一、B、C 未做 |
+| 第三批 | D1/D2、E1 | D1 与 E1 先对齐计划接口；D2 可独立试点 | D1 窄切片已落地（计划不再经 HostHooks spawn）；E1 未开始；D2 MinerU 在途共享已完成 |
 | 可独立推进 | E2/E3、F1–F3 | E2 从 R3 起步；F 内部按事件→执行→装配 | E2 的 sync lease 已完成，其余未开始 |
 | 后置 | S1–S6 | 主线边界稳定、或具体需求证明收益 | 未开始 |
 
-架构切片 **A1** 与 **A3** 已完成：A1 复用现有 rename，用 CLI/桌面对比证明本地移动语义收敛；A3 把论文身份收成 `identity.rs`，远端 rescan 与本地使用同一 marker，caps 不再把 `attachments/` 当主资产。**A2** 已把 trash 的资格、manifest 与失败点收成 core `plan_trash`，restore 顺序和远端发布仍未统一。R 中的数据与安全问题先行或穿插处理，不要求所有 R 完成后才能开始独立主线。
+架构切片 **A1** 与 **A3** 已完成：A1 复用现有 rename，用 CLI/桌面对比证明本地移动语义收敛；A3 把论文身份收成 `identity.rs`，远端 rescan 与本地使用同一 marker，caps 不再把 `attachments/` 当主资产。**A2** 已把 trash 的资格、manifest 与失败点收成 core `plan_trash`，restore 顺序和远端发布仍未统一。**A4/D1** 的窄切片已让 commit/download 返回 `PreparationPlan`，桌面按计划入队，CLI 明示跳过；HostHooks spawn 不再安排这次提交的后续工作。Connector、Zotero 与 remote commit 的入口统一还没做。R 中的数据与安全问题先行或穿插处理，不要求所有 R 完成后才能开始独立主线。
 
 ## 旧任务归并索引
 

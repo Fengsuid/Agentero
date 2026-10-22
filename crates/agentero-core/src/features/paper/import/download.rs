@@ -340,6 +340,10 @@ pub struct AssetDownloadResult {
     #[serde(default)]
     pub paper_md: bool,
     pub messages: Vec<String>,
+    /// Follow-up steps for this download. Not part of the IPC payload.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub preparation: super::preparation::PreparationPlan,
 }
 
 /// Byte/count progress wire event for projected JobCenter rows. `task_id`
@@ -1454,7 +1458,7 @@ pub async fn download_paper_assets_with_progress(
         crate::features::lifecycle::emit_paper_imported(app, &vault, &row_id);
     }
 
-    let result = ensure_paper_assets_with_progress(
+    let mut result = ensure_paper_assets_with_progress(
         &paper_dir,
         &vault,
         &path_rel,
@@ -1493,13 +1497,13 @@ pub async fn download_paper_assets_with_progress(
         .await;
     }
 
-    if result.pdf && !result.tex && !result.paper_md {
-        if let Some(app) = app {
-            app.spawn_parse_body_after_assets(&vault, &path_rel, false);
-        }
-    }
-
-    crate::features::refs::spawn_parse_after_import(app, &vault, &path_rel);
+    result.preparation = super::preparation::plan_after_assets(
+        &path_rel,
+        result.pdf,
+        result.tex,
+        result.paper_md,
+        false,
+    );
     Ok(result)
 }
 

@@ -7,7 +7,7 @@ use crate::style::{format_table, truncate_chars};
 use agentero_core::features::catalog;
 use agentero_core::features::catalog::papers::{self, PaperRecord, PaperTag};
 use agentero_core::features::import::pdf_parse::{self, PaperParseBodyArgs};
-use agentero_core::features::import::{self, PaperDownloadAssetsArgs};
+use agentero_core::features::import::{self, skipped_preparation_line, PaperDownloadAssetsArgs};
 use clap::{Subcommand, ValueHint};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -775,19 +775,25 @@ async fn download(globals: &GlobalOpts, ref_: &str) -> Result<Value, CliError> {
     })
     .await?;
     let style = globals.style;
+    let mut lines = vec![format!(
+        "{} {}  pdf={} tex={} paperMd={}",
+        style.ok("download"),
+        style.path(&paper.path),
+        result.pdf,
+        result.tex,
+        result.paper_md
+    )];
+    let skipped = skipped_preparation_line(&result.preparation);
+    if let Some(line) = &skipped {
+        log::info!(target: "agentero::import", "{line}");
+        lines.push(line.clone());
+    }
     let mut v = to_value(&result)?;
     if let Some(obj) = v.as_object_mut() {
-        obj.insert(
-            "lines".into(),
-            json!([format!(
-                "{} {}  pdf={} tex={} paperMd={}",
-                style.ok("download"),
-                style.path(&paper.path),
-                result.pdf,
-                result.tex,
-                result.paper_md
-            )]),
-        );
+        if let Some(line) = skipped {
+            obj.insert("preparationSkipped".into(), json!([line]));
+        }
+        obj.insert("lines".into(), json!(lines));
         obj.insert("path".into(), json!(paper.path));
     }
     Ok(v)

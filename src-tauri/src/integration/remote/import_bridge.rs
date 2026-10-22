@@ -11,7 +11,7 @@ use crate::features::paper::import::{
     resolve_metadata, slug_from_stem, title_from_stem, translator_import_items, ImportLocalPdfArgs,
     ImportLocalPdfResult, LocalPdfImportEntry, LookupImportArgs, LookupImportBatchArgs,
     LookupImportBatchResult, LookupImportResult, NoteShellMode, PaperImportArgs, PaperImportResult,
-    SkillBatchMode, DEFAULT_TRANSLATOR_BASE_URL,
+    PreparationPlan, SkillBatchMode, DEFAULT_TRANSLATOR_BASE_URL,
 };
 #[cfg(test)]
 use crate::features::paper::import::{
@@ -75,6 +75,7 @@ pub async fn import_by_identifier_remote(
         asset_messages: commit.asset_messages,
         status: None,
         recognize_pending: false,
+        preparation: PreparationPlan::default(),
     })
 }
 
@@ -320,6 +321,7 @@ async fn import_one_local_pdf_remote(
         asset_messages: commit.asset_messages,
         status: None,
         recognize_pending: false,
+        preparation: PreparationPlan::default(),
     })
 }
 

@@ -3,9 +3,12 @@
 //! Desktop wraps its `tauri::AppHandle` into [`AppHandle`] with a [`HostHooks`]
 //! implementation (see `agentero_lib::core::app_handle`), letting the shared
 //! business logic emit frontend events and schedule follow-up jobs without
-//! knowing about Tauri. Headless consumers (CLI) pass `None` — every hook is
-//! then a no-op, matching the historical headless semantics where the desktop
-//! branches were compiled out.
+//! knowing about Tauri. Headless consumers (CLI) pass `None`. `emit` is then
+//! a no-op. Commit and asset download do not schedule follow-up jobs through
+//! the spawn hooks below; they return a preparation plan. Desktop enqueues
+//! that plan, and the CLI prints the skipped steps. The spawn methods remain
+//! for callers that still schedule directly (auto-ingest, Connector
+//! standalone recognition) and stay no-ops without a host.
 
 use serde::Serialize;
 use std::path::Path;
@@ -19,6 +22,9 @@ pub trait HostHooks: Send + Sync + 'static {
     /// (desktop: `tauri::Emitter::emit`).
     fn emit(&self, event: &str, payload: serde_json::Value);
     /// Enqueue a ParseBody job after assets landed (desktop: JobCenter).
+    ///
+    /// Paper commit and download no longer call this. They return a
+    /// preparation plan for the adapter to enqueue.
     fn spawn_parse_body_after_assets(&self, vault: &Path, path_rel: &str, force: bool) {
         let _ = (vault, path_rel, force);
     }

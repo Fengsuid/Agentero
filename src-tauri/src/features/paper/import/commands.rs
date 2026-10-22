@@ -49,8 +49,20 @@ pub async fn lookup_import_batch(
         }
         return Ok(op.finish_result(result));
     }
+    let vault_path = args.vault_path.clone();
     let result =
         super::import_by_identifier_batch(args, Some(&host_app), Some(&cache), note_mode).await;
+    if let Ok(batch) = &result {
+        if let Ok(vault) = resolve_vault(&vault_path) {
+            for paper in &batch.imported {
+                crate::features::host_hooks::enqueue_preparation_plan(
+                    &app,
+                    &vault,
+                    &paper.preparation,
+                );
+            }
+        }
+    }
     Ok(op.finish_result(result))
 }
 
@@ -121,7 +133,20 @@ pub async fn paper_import_local_pdf(
         }
         result
     } else {
-        super::import_local_pdfs(args, Some(&host_app), Some(&cache), note_mode).await
+        let vault_path = args.vault_path.clone();
+        let result = super::import_local_pdfs(args, Some(&host_app), Some(&cache), note_mode).await;
+        if let Ok(imported) = &result {
+            if let Ok(vault) = resolve_vault(&vault_path) {
+                for paper in &imported.papers {
+                    crate::features::host_hooks::enqueue_preparation_plan(
+                        &app,
+                        &vault,
+                        &paper.preparation,
+                    );
+                }
+            }
+        }
+        result
     };
     Ok(op.finish_result_ok_extra(result, |r| {
         format!("imported={} errors={}", r.papers.len(), r.errors.len())

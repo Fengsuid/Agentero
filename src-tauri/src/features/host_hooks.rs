@@ -1,12 +1,18 @@
 //! Desktop [`HostHooks`] implementation: routes the tauri-free host
 //! callbacks from `agentero_core::app_handle` to the desktop runtime —
-//! Tauri events for `emit`, JobCenter spawns for the follow-up jobs.
+//! Tauri events for `emit`, JobCenter spawns for callers that still
+//! schedule directly (auto-ingest, Connector standalone recognition).
+//!
+//! Paper commit and asset download do not call those spawn hooks. They
+//! return a [`PreparationPlan`]; [`enqueue_preparation_plan`] puts the same
+//! jobs on the JobCenter.
 //!
 //! Lives in `features/` (not `core/`) because it depends on
 //! `features::jobs` / `features::paper::analyze::refs`; `crate::core::app_handle` only
 //! re-exports the tauri-free bridge types.
 
 use crate::core::app_handle::{AppHandle, HostHooks};
+use agentero_core::features::paper::import::{PreparationPlan, PreparationStep};
 use std::path::Path;
 use std::sync::Arc;
 use tauri::Emitter;
@@ -40,4 +46,33 @@ impl HostHooks for TauriHostHooks {
 /// Wrap a desktop handle for the migrated (tauri-free) service APIs.
 pub fn wrap(app: &tauri::AppHandle) -> AppHandle {
     AppHandle::with_hooks(Arc::new(TauriHostHooks(app.clone())))
+}
+
+/// Enqueue the jobs a commit or download used to start through [`HostHooks`].
+///
+/// Same JobCenter helpers and the same `force` flag carried on each
+/// `ParseBody` step. An empty plan does nothing.
+pub fn enqueue_preparation_plan(app: &tauri::AppHandle, vault: &Path, plan: &PreparationPlan) {
+    for step in &plan.steps {
+        match step {
+            PreparationStep::ParseBody { force } => {
+                crate::features::jobs::spawn_parse_body_after_assets(
+                    Some(app),
+                    vault,
+                    &plan.vault_rel,
+                    *force,
+                );
+            }
+            PreparationStep::ParseRefs => {
+                crate::features::paper::analyze::refs::spawn_parse_after_import(
+                    Some(app),
+                    vault,
+                    &plan.vault_rel,
+                );
+            }
+            PreparationStep::RecognizeMetadata => {
+                crate::features::jobs::spawn_recognize_metadata(Some(app), vault, &plan.vault_rel);
+            }
+        }
+    }
 }
