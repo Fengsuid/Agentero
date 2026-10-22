@@ -617,7 +617,7 @@ export async function openTexPdf(
 	opts?: {
 		referencePanelId?: string | null;
 		forceCompile?: boolean;
-		/** Explicit "Open PDF" switches modes; the compile button keeps live. */
+		/** Compile and View PDF leave live preview. Pass false to keep it (⌘\\). */
 		exitLive?: boolean;
 	},
 ): Promise<void> {
@@ -732,6 +732,25 @@ export async function openTexPdf(
 		texCompiling: false,
 		...(keepLive ? {} : { texLive: false }),
 		title: basenameOf(pdfPath),
+	});
+}
+
+/**
+ * Leave live preview and show the PDF already on disk. Does not run latexmk.
+ * With no PDF yet, the pane stays on the empty preview state.
+ */
+export async function closeTexLive(texPath: string): Promise<void> {
+	if (!isTexPath(texPath)) return;
+	const rootPath = await resolveTexRoot(texPath);
+	const pdfPath = texPdfPath(rootPath);
+	const pdfId = tabIdForPath(pdfPath);
+	const tab = getTabs().find((item) => item.id === pdfId);
+	if (!tab?.texLive) return;
+	const bytes = tab.pdfBytes ?? (await localFileToArrayBuffer(pdfPath));
+	updateTab(pdfId, {
+		texLive: false,
+		texCompiling: false,
+		...(bytes ? { pdfBytes: bytes, loaded: true } : {}),
 	});
 }
 
@@ -897,7 +916,7 @@ export async function compileTexOnManualSave(path: string): Promise<void> {
 	await ensureTexEngines();
 	const { engines, selectedEngine } = texCompileStore.getState();
 	if (!selectedEngine && engines.length === 0) {
-		notifyError(i18n.t("sidebar:fileTree.selectEngineFirst"));
+		notifyError(i18n.t("sidebar:fileTree.noLatexEngine"));
 		return;
 	}
 	await compileTexOnSave(path);

@@ -279,6 +279,7 @@
 			"label": "Formatting toolbar"
 		},
 		"livePreview": "Open live preview",
+		"livePreviewClose": "Close live preview",
 		"livePreviewUnavailable": "Live preview needs LuaLaTeX and realtime-tex support files"
 	},
 	"agent": {

@@ -17,8 +17,13 @@ import { cn } from "@/lib/core/utils";
 interface TextEditorToolbarProps {
 	fontSize: TextEditorFontSize;
 	onFontSizeChange: (size: TextEditorFontSize) => void;
-	/** Live TeX preview entry; null hides it (not a .tex / not LuaLaTeX). */
-	livePreview?: { disabled: boolean; title: string; onOpen: () => void } | null;
+	/** Live TeX preview toggle; null hides it (not a .tex / LuaLaTeX missing). */
+	livePreview?: {
+		disabled: boolean;
+		pressed?: boolean;
+		title: string;
+		onOpen: () => void;
+	} | null;
 }
 
 export function TextEditorToolbar({
@@ -65,9 +70,10 @@ export function TextEditorToolbar({
 					<Button
 						type="button"
 						size="icon-xs"
-						variant="ghost"
+						variant={livePreview.pressed ? "secondary" : "ghost"}
 						className="shrink-0 self-center"
 						aria-label={livePreview.title}
+						aria-pressed={livePreview.pressed || undefined}
 						title={livePreview.title}
 						disabled={livePreview.disabled}
 						onClick={livePreview.onOpen}

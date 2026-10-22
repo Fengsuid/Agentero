@@ -1,3 +1,4 @@
+import { syntaxTree } from "@codemirror/language";
 import {
 	Compartment,
 	EditorState,
@@ -24,14 +25,21 @@ import {
 import { TextEditorToolbar } from "@/components/viewer/text-editor-toolbar";
 import { useTextEditorSelection } from "@/components/viewer/use-text-editor-selection";
 import { commands } from "@/lib/core/bindings";
-import { basenameOf } from "@/lib/core/path";
+import { basenameOf, dirnameOf } from "@/lib/core/path";
+import { texOutlineFromTree } from "@/lib/tex/outline";
+import { isInsideProject } from "@/lib/tex/project";
 import {
 	registerTexLiveEditor,
 	texLiveApplyUpdate,
 	texLiveSetDocument,
 } from "@/lib/tex-live/session";
-import { openTexLive } from "@/lib/workspace/actions";
+import { closeTexLive, openTexLive } from "@/lib/workspace/actions";
+import { workspaceStore } from "@/lib/workspace/store";
 import { ensureTexEngines, texCompileStore } from "@/lib/workspace/tex-compile";
+import {
+	bindTexOutline,
+	registerTexOutlineJump,
+} from "@/lib/workspace/tex-outline-bridge";
 import { registerTextEditorFlusher } from "@/lib/workspace/text-editor-flush";
 import { isTexPath, textLanguageIdForPath } from "@/lib/workspace/viewer";
 
@@ -106,7 +114,15 @@ export function TextEditor({
 	// Font size managed by hook with process-wide persistence (like PDF paper tone).
 	const { fontSize, setFontSize } = useTextEditorFontSize();
 
-	const selectedEngine = useStore(texCompileStore, (s) => s.selectedEngine);
+	const engines = useStore(texCompileStore, (s) => s.engines);
+	const tabs = useStore(workspaceStore, (s) => s.tabs);
+	const canLive = engines.some((engine) => engine.id === "lualatex");
+	const liveOn = tabs.some(
+		(tab) =>
+			tab.texLive === true &&
+			typeof tab.texRoot === "string" &&
+			isInsideProject(path, dirnameOf(tab.texRoot)),
+	);
 	const [liveStatus, setLiveStatus] = useState<{
 		available: boolean;
 		error: string | null;
@@ -250,6 +266,10 @@ export function TextEditor({
 	// so it must first land this editor's debounced autosave.
 	useEffect(() => registerTextEditorFlusher(path, flush), [path, flush]);
 
+	// Filled after mount. The update listener (registered once) publishes
+	// through it; the effect below owns the binding.
+	const publishOutlineRef = useRef<((view: EditorView) => void) | null>(null);
+
 	// Editor owns its state: mount once, reconfigure language/theme in place.
 	useEffect(() => {
 		const host = hostRef.current;
@@ -268,6 +288,9 @@ export function TextEditor({
 			),
 			baseTheme,
 			EditorView.updateListener.of((update) => {
+				if (update.docChanged || update.selectionSet) {
+					publishOutlineRef.current?.(update.view);
+				}
 				if (!update.docChanged) return;
 				if (!dirtyRef.current) {
 					dirtyRef.current = true;
@@ -292,6 +315,43 @@ export function TextEditor({
 		// (`manualSaveKeymap` / `selection.selectionListener` /
 		// `handleDiagnostics` are stable — never re-mount the editor).
 	}, [manualSaveKeymap, selection.selectionListener, handleDiagnostics]);
+
+	// Mounted TeX buffer owns the sidebar outline and the click-to-jump
+	// target, including while the PDF tab is the one in front. Runs after
+	// the editor mounts so the first snapshot is the current buffer.
+	useEffect(() => {
+		if (!isTexPath(path)) return;
+		const binding = bindTexOutline(path);
+		const publish = (view: EditorView) => {
+			const tree = syntaxTree(view.state);
+			binding.publish(
+				texOutlineFromTree(tree.topNode, view.state.doc),
+				view.state.doc.lineAt(view.state.selection.main.head).number,
+			);
+		};
+		publishOutlineRef.current = publish;
+		const view = viewRef.current;
+		if (view) publish(view);
+		const unregisterJump = registerTexOutlineJump(path, (line) => {
+			const current = viewRef.current;
+			if (!current) return;
+			const doc = current.state.doc;
+			const clamped = Math.min(Math.max(1, line), doc.lines);
+			const pos = doc.line(clamped).from;
+			current.dispatch({
+				selection: { anchor: pos },
+				scrollIntoView: true,
+			});
+			current.focus();
+		});
+		return () => {
+			if (publishOutlineRef.current === publish) {
+				publishOutlineRef.current = null;
+			}
+			binding.unbind();
+			unregisterJump();
+		};
+	}, [path]);
 
 	// A live preview session may already be running (restored pane / another
 	// split). Register this buffer so its edits and current text reach rtex.
@@ -390,16 +450,19 @@ export function TextEditor({
 				fontSize={fontSize}
 				onFontSizeChange={setFontSize}
 				livePreview={
-					isTexPath(path) && selectedEngine === "lualatex"
+					isTexPath(path) && (canLive || liveOn)
 						? {
-								disabled: liveStatus?.available !== true,
-								title:
-									liveStatus?.available === false
+								disabled: !liveOn && liveStatus?.available !== true,
+								pressed: liveOn,
+								title: liveOn
+									? t("appearance.livePreviewClose")
+									: liveStatus?.available === false
 										? (liveStatus.error ??
 											t("appearance.livePreviewUnavailable"))
 										: t("appearance.livePreview"),
 								onOpen: () => {
-									void openTexLive(path);
+									if (liveOn) void closeTexLive(path);
+									else void openTexLive(path);
 								},
 							}
 						: null

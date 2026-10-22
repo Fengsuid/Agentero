@@ -88,7 +88,7 @@
 		"liveFailed": "Live preview failed",
 		"liveFirstPage": "Waiting for the first page…",
 		"liveRetry": "Retry",
-		"liveCompile": "Live compile"
+		"liveCompile": "Live preview"
 	},
 	"importLocalPdf": {
 		"dropNoPath": "Could not read the dropped PDF. Try the magic wand → Import PDF, or drop from Finder again."
@@ -388,6 +388,17 @@
 		"searchCitations_one": "{{count}} citation",
 		"searchCitations_other": "{{count}} citations",
 		"searchCandidatesFound": "Found {{count}} matching papers. Choose one to add."
+	},
+	"latexPanel": {
+		"title": "LaTeX",
+		"resize": "Resize LaTeX panel",
+		"commands": "Commands",
+		"structure": "Structure",
+		"viewPdf": "View PDF",
+		"engineSettings": "Compile engine",
+		"engineFromFile": "The root file sets this engine.",
+		"fileMissing": "Could not find {{name}}.",
+		"emptyStructure": "No sections in this file."
 	},
 	"paperInfo": {
 		"info": "Info",

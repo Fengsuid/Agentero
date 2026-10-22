@@ -12,7 +12,9 @@ import {
 	type FileTreeHandle,
 	VaultSidebarHeader,
 } from "@/components/sidebar/file-tree";
+import { LatexPanel } from "@/components/sidebar/latex-panel";
 import { PaperInfoPanel } from "@/components/sidebar/paper-info-panel";
+import { useTexProject } from "@/components/sidebar/use-tex-project";
 import {
 	useLibraryStore,
 	useSettings,
@@ -143,6 +145,9 @@ export function VaultSidebar() {
 		(s) => s.tabs.find((tab) => tab.id === s.activeTabId) ?? null,
 	);
 	const paperMeta = activeTab?.paperMeta ?? null;
+	// Any file inside a TeX project (the PDF, a chapter, a figure) keeps
+	// the LaTeX panel. Library hover does not override it.
+	const texProjectPath = useTexProject(vaultPath, activeTab?.path ?? null);
 
 	// While a paper / note tab hydrates, its own `paperMeta` is still null.
 	// Resolve the owning paper from the tree/path so Paper Info does not
@@ -309,8 +314,11 @@ export function VaultSidebar() {
 					onLoadDirChildren={loadDirChildren}
 				/>
 			</div>
-			{/* Paper info is a resizable, unboxed section below the file tree. */}
-			{displayedPaperMeta ? (
+			{/* Paper info is a resizable, unboxed section below the file tree.
+			    A TeX project uses the same slot for compile + outline. */}
+			{texProjectPath ? (
+				<LatexPanel texPath={texProjectPath} />
+			) : displayedPaperMeta ? (
 				<PaperInfoPanel
 					meta={displayedPaperMeta}
 					onTagsChange={onPaperTagsChange}
