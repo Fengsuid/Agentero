@@ -24,7 +24,6 @@ export const texOutlineStore = createStore<TexOutlineState>(() => ({
 }));
 
 const owners = new Map<string, symbol>();
-const jumpers = new Map<string, (line: number) => void>();
 
 /**
  * The active editor owns the snapshot for `path`. A later bind (split pane
@@ -63,19 +62,4 @@ export function bindTexOutline(path: string): {
 			}
 		},
 	};
-}
-
-export function registerTexOutlineJump(
-	path: string,
-	jump: (line: number) => void,
-): () => void {
-	const key = normalizeTabPath(path);
-	jumpers.set(key, jump);
-	return () => {
-		if (jumpers.get(key) === jump) jumpers.delete(key);
-	};
-}
-
-export function jumpTexOutline(path: string, line: number): void {
-	jumpers.get(normalizeTabPath(path))?.(line);
 }

@@ -15,7 +15,6 @@ import {
 const CACHE_LIMIT = 48;
 
 type CacheEntry = {
-	mime: string;
 	url: string;
 	refs: number;
 	loading: Promise<string | null> | null;
@@ -48,7 +47,7 @@ export function acquireImageSource(
 	const key = cacheKey(absPath, mime);
 	let entry = cache.get(key);
 	if (!entry) {
-		entry = { mime, refs: 0, url: "", loading: null };
+		entry = { refs: 0, url: "", loading: null };
 		cache.set(key, entry);
 	}
 	// Refresh LRU order.
@@ -79,13 +78,4 @@ export function releaseImageSource(absPath: string, mime: string): void {
 	if (!entry) return;
 	entry.refs = Math.max(0, entry.refs - 1);
 	evict();
-}
-
-/** Drop a cached source after an on-disk change (best effort). */
-export function invalidateImageSource(absPath: string): void {
-	for (const [key, entry] of cache) {
-		if (!key.startsWith(`${absPath}\u0000`)) continue;
-		cache.delete(key);
-		if (entry.url) revokePdfViewerSource(entry.url);
-	}
 }

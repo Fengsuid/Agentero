@@ -238,11 +238,6 @@ export function texLiveSetDocument(path: string, text: string): void {
 	});
 }
 
-/** Current document text for a path, from the last mounted editor. */
-export function texLiveEditorText(path: string): string | null {
-	return editors.get(normalized(path))?.getText() ?? null;
-}
-
 /** Whether a live session currently owns this project root. */
 export function isTexLiveRootActive(rootPath: string): boolean {
 	const key = normalized(rootPath);

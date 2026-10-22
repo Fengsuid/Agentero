@@ -226,6 +226,5 @@ export type Command =
 	| { cmd: "export_pdf"; out: string }
 	| { cmd: "quit" };
 
-/** 1 pt = 65536 sp; 1 bp = 65781.76 sp. */
-export const SP_PER_PT = 65536;
+/** 1 bp = 65781.76 sp. */
 export const SP_PER_BP = 65781.76;

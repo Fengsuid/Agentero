@@ -53,10 +53,7 @@ import { dockHandle } from "@/lib/workspace/dock-registry";
 import { setActiveTabId, workspaceStore } from "@/lib/workspace/store";
 import { tabIdForPath } from "@/lib/workspace/tabs";
 import { ensureTexEngines, texCompileStore } from "@/lib/workspace/tex-compile";
-import {
-	bindTexOutline,
-	registerTexOutlineJump,
-} from "@/lib/workspace/tex-outline-bridge";
+import { bindTexOutline } from "@/lib/workspace/tex-outline-bridge";
 import { registerTextEditorFlusher } from "@/lib/workspace/text-editor-flush";
 import { isTexPath, textLanguageIdForPath } from "@/lib/workspace/viewer";
 
@@ -465,18 +462,6 @@ export function TextEditor({
 		);
 		const view = viewRef.current;
 		if (view) publish(view);
-		const unregisterJump = registerTexOutlineJump(path, (line) => {
-			const current = viewRef.current;
-			if (!current) return;
-			const doc = current.state.doc;
-			const clamped = Math.min(Math.max(1, line), doc.lines);
-			const pos = doc.line(clamped).from;
-			current.dispatch({
-				selection: { anchor: pos },
-				scrollIntoView: true,
-			});
-			current.focus();
-		});
 		return () => {
 			generation += 1;
 			if (timer) clearTimeout(timer);
@@ -484,7 +469,6 @@ export function TextEditor({
 				publishOutlineRef.current = null;
 			}
 			binding.unbind();
-			unregisterJump();
 			unsubscribeSettings();
 			unsubscribeFiles();
 		};

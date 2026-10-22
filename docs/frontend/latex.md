@@ -58,6 +58,8 @@ LaTeX 编辑使用 CodeMirror；正式编译走本机 latexmk，PDF 使用已有
 
 `lib/tex/config.ts` 保存项目偏好；`build-queue.ts` / `auto-build.ts` 负责调度；`build-state.ts` 汇总构建输出；`project-index.ts` 提供补全、引用跳转与大纲共享的项目索引；`synctex.ts` 负责源码与 PDF 导航。UI 入口是 `latex-panel.tsx`、`latex-build-log.tsx`、`text-editor-lint-footer.tsx` 与 `tex-citation-picker.tsx`。
 
+`lib/workspace/tex-outline-bridge.ts` 只发布大纲快照；大纲点击通过 `lib/tex/editor-navigation.ts` 的 `navigateTexSource` 定位源码。
+
 ```bash
 pnpm exec vitest run test/tex-*.test.ts test/pdf-reload-position.test.ts
 pnpm typecheck
