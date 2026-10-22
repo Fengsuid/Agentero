@@ -689,6 +689,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 		onContextMenu: handleEditorContextMenu,
 		onOpenChange: handleContextMenuOpenChange,
 		copy: handleContextMenuCopy,
+		copyAsMarkdown: handleContextMenuCopyAsMarkdown,
 		cut: handleContextMenuCut,
 		paste: handleContextMenuPaste,
 		insertLink: insertContextMenuLink,
@@ -1002,6 +1003,14 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 											<ContextMenuShortcut>
 												{formatModShortcut("c")}
 											</ContextMenuShortcut>
+										</ContextMenuItem>
+										<ContextMenuItem
+											disabled={!contextMenuCapabilities.copy}
+											onSelect={() => {
+												void handleContextMenuCopyAsMarkdown();
+											}}
+										>
+											{i18n.t("editor:contextMenu.copyMarkdown")}
 										</ContextMenuItem>
 										<ContextMenuItem
 											disabled={!contextMenuCapabilities.paste}
