@@ -11,15 +11,11 @@
 import { errorText } from "@/lib/core/error";
 import { notifyError } from "@/lib/core/notify";
 import { listCommands } from "@/lib/shell/commands/registry";
+import type { MenuContext } from "@/lib/shell/commands/types";
+
+export type { MenuContext } from "@/lib/shell/commands/types";
 
 export type MenuId = "fileTree.item" | "library.row" | "pdf.selection";
-
-export type MenuContext = {
-	vaultPath: string | null;
-	relPath?: string;
-	paperId?: string;
-	selectionText?: string;
-};
 
 export type MenuContribution = {
 	id: string;

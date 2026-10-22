@@ -1,4 +1,3 @@
-import type { MenuContext } from "./menu-contributions";
 /**
  * Lightweight app commands for the Command Palette (⇧⌘P).
  * Aligns with VS Code: discoverable actions, not only resource search.
@@ -8,6 +7,14 @@ import type { MenuContext } from "./menu-contributions";
  */
 
 export type PaletteMode = "go" | "commands";
+
+/** Object context passed by menu surfaces to commands. */
+export type MenuContext = {
+	vaultPath: string | null;
+	relPath?: string;
+	paperId?: string;
+	selectionText?: string;
+};
 
 type AppCommandBase = {
 	/** Stable id, e.g. `settings.open` */
