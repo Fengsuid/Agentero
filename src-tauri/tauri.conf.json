@@ -4,9 +4,9 @@
   "version": "0.12.1",
   "identifier": "com.poco-ai.agentero",
   "build": {
-    "beforeDevCommand": "pnpm pdfium:stage && pnpm adapters:stage && pnpm dev",
+    "beforeDevCommand": "pnpm pdfium:stage && pnpm adapters:stage && pnpm plugin-worker:stage && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm pdfium:stage && pnpm adapters:stage && pnpm build",
+    "beforeBuildCommand": "pnpm pdfium:stage && pnpm adapters:stage && pnpm plugin-worker:stage:release && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -57,6 +57,7 @@
     "createUpdaterArtifacts": true,
     "targets": "all",
     "category": "Productivity",
+    "externalBin": ["binaries/agentero-plugin-host"],
     "resources": [
       "pdfium/*",
       "adapters/**/*",

@@ -126,7 +126,7 @@ zh 目标走并行竞速）；商业 BYOK Key 只在桌面 settings 里，CLI �
 
 ```bash
 # CLI 只依赖 agentero-core（tauri 无关），headless 构建不走 tauri-build。
-# 桌面安装包不内置 CLI（已移除 `externalBin`，安装目录不会出现占位 agentero-cli.exe）；
+# 桌面安装包不内置 CLI（`externalBin` 只有插件 worker，不含 agentero-cli；安装目录不会出现占位 agentero-cli.exe）；
 # 开发机可选跑下面命令把真二进制放进 src-tauri/binaries，让 设置 → 安装 CLI 走本地路径：
 pnpm cli:bundle
 cargo build -p agentero-cli

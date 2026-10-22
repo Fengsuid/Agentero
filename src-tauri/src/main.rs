@@ -3,7 +3,7 @@
 
 fn main() {
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
-    if std::env::args().nth(1).as_deref() == Some(agentero_plugin_host::WORKER_ARG) {
+    if agentero_plugin_host::is_plugin_worker_arg(std::env::args().nth(1).as_deref()) {
         std::process::exit(agentero_plugin_host::worker_main());
     }
     if let Some(status) =

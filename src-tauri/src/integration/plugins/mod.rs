@@ -296,7 +296,7 @@ pub async fn plugin_run(
             "settings": loaded.settings,
         }),
     };
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let executable = agentero_plugin_host::resolve_plugin_worker()?;
     let value = agentero_plugin_host::run(&executable, input, loaded.cancel.clone(), |request| {
         broker::dispatch(
             loaded.clone(),
@@ -305,7 +305,8 @@ pub async fn plugin_run(
             window.app_handle().clone(),
         )
     })
-    .await?;
+    .await?
+    .value;
     if loaded.cancel.is_cancelled() {
         return Err("plugin_cancelled".into());
     }

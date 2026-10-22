@@ -33,15 +33,18 @@ jobs:
         # Desktop installers must not embed the headless CLI (#285). A prior
         # guard required beforeBuildCommand to run cli:bundle:stub; that stub
         # path was removed in 9dee13f0 after the fake Windows .exe triggered
-        # "Unsupported 16-bit application" (#320 follow-up). Guard the config
-        # directly: bundle.externalBin must stay empty/absent.
+        # "Unsupported 16-bit application" (#320 follow-up). externalBin may
+        # contain only the real plugin-worker sidecar. prepare-plugin-worker.mjs
+        # refuses anything under 64 KiB so a renamed batch stub cannot ship.
         run: |
           set -euo pipefail
           node --input-type=commonjs -e "
             const conf = require('./src-tauri/tauri.conf.json');
-            const bins = conf.bundle && conf.bundle.externalBin;
-            if (Array.isArray(bins) && bins.length > 0) {
-              console.error('::error file=src-tauri/tauri.conf.json::bundle.externalBin must be empty so desktop packages do not embed the CLI (#285/#320). Got: ' + JSON.stringify(bins));
+            const bins = (conf.bundle && conf.bundle.externalBin) || [];
+            const allowed = ['binaries/agentero-plugin-host'];
+            const same = bins.length === allowed.length && bins.every((bin, i) => bin === allowed[i]);
+            if (!same) {
+              console.error('::error file=src-tauri/tauri.conf.json::bundle.externalBin must be only the plugin worker sidecar, not the CLI (#285/#320). Got: ' + JSON.stringify(bins));
               process.exit(1);
             }
           "
@@ -161,6 +164,14 @@ jobs:
           # missing even for clippy/tests that never bundle.
           mkdir -p src-tauri/pdfium
           cp "$dest/lib/libpdfium.dylib" src-tauri/pdfium/libpdfium.dylib
+      - name: Stage plugin worker sidecar
+        if: matrix.task != 'cli-tests'
+        run: |
+          set -euo pipefail
+          # Desktop externalBin makes tauri-build fail when the sidecar is
+          # absent, including clippy and `cargo test -p agentero`. cli-tests
+          # does not compile the agentero package, so it does not build the worker.
+          node scripts/prepare-plugin-worker.mjs
       - name: Run Rust checks
         run: |
           set -euo pipefail

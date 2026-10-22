@@ -3,9 +3,10 @@
  * `src-tauri/binaries` (dev discovery for Settings → Install CLI) and next to
  * the GUI binary in `target/{debug,release}`.
  *
- * Desktop packages do NOT bundle the CLI anymore (no `externalBin`); end users
- * install the same-version CLI from Settings → About via GitHub Release
- * download. This script is a dev convenience only (`pnpm cli:bundle`).
+ * Desktop packages do NOT bundle the CLI (`externalBin` is only the plugin
+ * worker sidecar). End users install the same-version CLI from Settings →
+ * About via GitHub Release download. This script is a dev convenience only
+ * (`pnpm cli:bundle`).
  *
  * Usage:
  *   node scripts/prepare-bundled-cli.mjs           # debug (default)

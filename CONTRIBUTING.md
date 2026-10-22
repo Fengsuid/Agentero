@@ -37,6 +37,8 @@ cargo test -p agentero-core -p agentero-cli   # Rust 基础层与 CLI 测试
 cargo test -p agentero                        # 应用层测试
 ```
 
+桌面 `cargo test -p agentero` 与 `cargo clippy --workspace` 需要先执行 `pnpm plugin-worker:stage`，把 sidecar 放到 `src-tauri/binaries/`，否则 `tauri-build` 会因缺少 `externalBin` 失败，与缺少 `src-tauri/pdfium` 相同。
+
 仓库分为三层：`src/`（React 前端）、`src-tauri/`（Tauri 2 桌面 Host）、`crates/agentero-core` 与 `cli/`（Tauri 无关的基础层与无头 CLI）。改动了哪层，就跑对应层的检查。
 
 ## 提交前：本地必须通过 pre-commit
