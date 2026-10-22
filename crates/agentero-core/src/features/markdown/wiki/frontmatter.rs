@@ -61,13 +61,9 @@ fn source_lines(markdown: &str) -> Vec<SourceLine<'_>> {
 
 /// Canonical alias comparison key: whitespace-collapsed and lowercased.
 /// Shared with the Vault Doctor's alias checks so both agree on what counts as
-/// the same alias.
+/// the same alias. Same fold as `util::normalize_key`.
 pub(crate) fn normalize_alias(value: &str) -> String {
-    value
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
+    super::util::normalize_key(value)
 }
 
 fn push_unique(out: &mut Vec<String>, value: String) {
