@@ -1,19 +1,10 @@
-use crate::app::command_util::try_vault;
+use crate::app::command_util::{try_vault, vault_path_arg};
 use crate::core::blocking::run_blocking;
-use crate::core::error::{map_err, ApiResult, AppError};
+use crate::core::error::{map_err, ApiResult};
 use crate::core::log_util::{trunc, OpTimer};
 use crate::features::vault::tree::VaultTreeNode;
 use crate::features::vault::{self, tree, CreateVaultResult};
-use std::path::PathBuf;
 use tauri::State;
-
-fn vault_path_arg(path: &str) -> Result<std::path::PathBuf, AppError> {
-    let p = PathBuf::from(path.trim());
-    if p.as_os_str().is_empty() {
-        return Err(AppError::message("path is required"));
-    }
-    Ok(p)
-}
 
 /// Create / scaffold a Agentero vault at the given absolute path.
 #[tauri::command]

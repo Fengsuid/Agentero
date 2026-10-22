@@ -62,10 +62,9 @@ fn parse_refs_runner(
 /// `agentero_core::app_handle::HostHooks::spawn_parse_after_import`.
 #[cfg(feature = "desktop")]
 pub fn spawn_parse_after_import(app: Option<&tauri::AppHandle>, vault: &Path, path_rel: &str) {
-    let vault = vault.to_path_buf();
-    let path_rel = path_rel.to_string();
-
     if let Some(app) = app {
+        let vault = vault.to_path_buf();
+        let path_rel = path_rel.to_string();
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             let center = app.state::<crate::features::jobs::JobCenter>().handle();
@@ -91,14 +90,5 @@ pub fn spawn_parse_after_import(app: Option<&tauri::AppHandle>, vault: &Path, pa
         return;
     }
 
-    tokio::spawn(async move {
-        match parse_paper_refs(&vault, &path_rel, true, false).await {
-            Ok(s) => log::info!(
-                "op=paper_refs_parse status=ok path={path_rel} mode={} count={}",
-                s.source.mode,
-                s.citations.len()
-            ),
-            Err(e) => log::warn!("op=paper_refs_parse status=err path={path_rel} error={e}"),
-        }
-    });
+    agentero_core::features::paper::analyze::refs::spawn_parse_after_import(None, vault, path_rel);
 }

@@ -327,14 +327,7 @@ pub async fn import_by_identifier_with_progress(
 
     let vault = crate::fs::resolve_vault(&args.vault_path)?;
 
-    let base = args
-        .translator_base_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(DEFAULT_TRANSLATOR_BASE_URL)
-        .trim_end_matches('/')
-        .to_string();
+    let base = translator_base(args.translator_base_url.as_deref());
 
     let text = args.text.trim();
     if text.is_empty() {

@@ -1,6 +1,6 @@
 //! Tauri FS plugin scope grants for the active local Vault.
 
-use crate::app::vault_session::vault_path_arg;
+use crate::app::command_util::vault_path_arg;
 use crate::core::error::{map_err, ApiResult, AppError};
 use crate::core::log_util::{trunc, OpTimer};
 use tauri::{AppHandle, Runtime};

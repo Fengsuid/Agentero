@@ -7,8 +7,8 @@ use crate::app_handle::AppHandle;
 use crate::error::AppError;
 use crate::features::catalog::papers::{self, PaperKind, PaperRecord};
 use crate::features::import::{
-    api_mapper, normalize_parent_dir, translator_import_items, PaperImportArgs, PaperImportResult,
-    DEFAULT_TRANSLATOR_BASE_URL,
+    api_mapper, normalize_parent_dir, translator_base, translator_import_items, PaperImportArgs,
+    PaperImportResult,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -49,7 +49,7 @@ pub struct PaperExportResult {
 pub async fn export_catalog(args: PaperExportArgs) -> Result<PaperExportResult, AppError> {
     let vault = crate::fs::resolve_vault(&args.vault_path)?;
     let format = normalize_format(args.format.as_deref().unwrap_or("bibtex"))?;
-    let base = resolve_base(args.translator_base_url.as_deref());
+    let base = translator_base(args.translator_base_url.as_deref());
 
     let rows = papers::list_all(&vault)?;
     if rows.is_empty() {
@@ -376,15 +376,6 @@ fn normalize_format(raw: &str) -> Result<String, AppError> {
             EXPORT_FORMATS.join(", ")
         )))
     }
-}
-
-fn resolve_base(override_url: Option<&str>) -> String {
-    override_url
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(DEFAULT_TRANSLATOR_BASE_URL)
-        .trim_end_matches('/')
-        .to_string()
 }
 
 fn http_client(timeout: Duration) -> Result<reqwest::Client, AppError> {

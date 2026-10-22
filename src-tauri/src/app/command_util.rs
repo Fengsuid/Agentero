@@ -1,4 +1,4 @@
-//! Shared preflight macros for `#[tauri::command]` shells.
+//! Shared preflight helpers and macros for `#[tauri::command]` shells.
 //!
 //! Commands report failures as resolved promises carrying an `ApiResult`
 //! error object — never a rejected IPC `Err` (§2.5, `docs/backend/api.md`) —
@@ -16,6 +16,17 @@
 //!
 //! An optional trailing `$op` ([`OpTimer`](crate::core::log_util::OpTimer))
 //! logs the preflight failure (`op.finish_err(&err)`) before returning.
+
+/// Trim a path argument and reject empty input without resolving the vault.
+pub(crate) fn vault_path_arg(
+    path: &str,
+) -> Result<std::path::PathBuf, crate::core::error::AppError> {
+    let p = std::path::PathBuf::from(path.trim());
+    if p.as_os_str().is_empty() {
+        return Err(crate::core::error::AppError::message("path is required"));
+    }
+    Ok(p)
+}
 
 /// Resolve a vault path (trim + remote-handle aware) or early-return the
 /// `ApiResult` error object.

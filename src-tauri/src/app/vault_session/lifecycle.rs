@@ -1,7 +1,7 @@
 //! Cross-feature lifecycle coordination for the active Vault session.
 
+use crate::app::command_util::vault_path_arg;
 use crate::app::vault_session::holder_key;
-use crate::app::vault_session::vault_path_arg;
 use crate::app::vault_session::VaultHolders;
 use crate::core::error::{map_err, ApiResult};
 use crate::core::log_util::{trunc, OpTimer};
