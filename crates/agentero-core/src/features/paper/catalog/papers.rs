@@ -2,6 +2,7 @@
 
 use super::schema::with_catalog;
 use crate::error::AppError;
+use crate::features::paper::identity::is_paper_marker_file;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -847,6 +848,16 @@ pub fn repair_duplicates(vault_root: &Path) -> Result<DuplicateRepairResult, App
     })
 }
 
+/// A direct child file of `dir` is a paper marker (`NOTES.md` or `metadata.json`).
+fn dir_is_paper(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|ent| {
+        ent.path().is_file() && ent.file_name().to_str().is_some_and(is_paper_marker_file)
+    })
+}
+
 /// Rebuild catalog rows by scanning `papers/` on disk.
 /// Detects paper folders by NOTES.md / metadata.json presence. Idempotent —
 /// disk-only papers are re-added (sidecar metadata preferred over a minimal
@@ -861,7 +872,7 @@ pub fn rebuild_from_disk(vault_root: &Path) -> Result<usize, AppError> {
         let mut count = 0usize;
         let mut stack = vec![papers_dir];
         while let Some(dir) = stack.pop() {
-            if dir.join("NOTES.md").is_file() || dir.join(super::sidecar::SIDECAR_FILE).is_file() {
+            if dir_is_paper(&dir) {
                 // A paper folder is a leaf: reconcile and do not descend.
                 let rel = dir
                     .strip_prefix(vault_root)

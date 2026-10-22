@@ -5,6 +5,7 @@ pub mod analyze;
 pub mod capabilities;
 pub mod catalog;
 pub mod discovery;
+pub mod identity;
 pub mod import;
 pub mod scholar_api;
 pub(crate) mod util;

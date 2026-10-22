@@ -13,5 +13,6 @@ pub mod ingest;
 pub mod zotero;
 
 pub use agentero_core::features::paper::capabilities;
+pub use agentero_core::features::paper::identity;
 pub use agentero_core::features::paper::scholar_api;
 pub use agentero_core::features::paper::venue;

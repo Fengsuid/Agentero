@@ -1,7 +1,12 @@
+use super::identity::{classify_dir, ListedEntry};
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+/// Paper-internal bucket. Not walked for the primary PDF or TeX.
+const ATTACHMENTS_DIR: &str = "attachments";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PaperCaps {
@@ -106,25 +111,34 @@ impl Default for CapsCache {
 }
 
 pub fn probe_paper_caps(paper_dir: &Path) -> PaperCaps {
-    let mut caps = PaperCaps {
-        has_paper_md: has_paper_md(paper_dir),
-        ..Default::default()
-    };
+    let mut listed = Vec::new();
     let mut stack = Vec::new();
 
     if let Ok(entries) = fs::read_dir(paper_dir) {
         for entry in entries.flatten() {
+            let name = entry.file_name();
             let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-                continue;
+            let is_dir = path.is_dir();
+            if let Some(utf8) = name.to_str() {
+                listed.push(ListedEntry {
+                    name: utf8.to_string(),
+                    is_dir,
+                });
             }
-            if is_ext(&path, &["pdf"]) && caps.pdf_path.is_none() {
-                caps.pdf_path = Some(path);
-            } else if is_ext(&path, &["tex", "ltx"]) {
-                caps.has_tex = true;
+            if is_dir && !is_attachments_dir(&name) {
+                stack.push(path);
             }
         }
+    }
+
+    let unit = classify_dir(&listed);
+    let mut caps = PaperCaps {
+        pdf_path: unit.primary_pdf_name.map(|name| paper_dir.join(name)),
+        has_tex: unit.has_tex,
+        has_paper_md: unit.has_paper_md,
+    };
+    if caps.pdf_path.is_some() && caps.has_tex {
+        return caps;
     }
 
     while let Some(dir) = stack.pop() {
@@ -134,6 +148,9 @@ pub fn probe_paper_caps(paper_dir: &Path) -> PaperCaps {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
+                if is_attachments_dir(&entry.file_name()) {
+                    continue;
+                }
                 if stack.len() < 32 {
                     stack.push(path);
                 }
@@ -151,6 +168,11 @@ pub fn probe_paper_caps(paper_dir: &Path) -> PaperCaps {
     }
 
     caps
+}
+
+fn is_attachments_dir(name: &OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|n| n.eq_ignore_ascii_case(ATTACHMENTS_DIR))
 }
 
 pub fn find_local_pdf(paper_dir: &Path) -> Option<PathBuf> {
@@ -282,6 +304,45 @@ mod tests {
         fs::write(no_pdf.join("NOTES.md"), "notes").expect("write notes");
         assert!(!probe_paper_caps(&no_pdf).needs_paper_md());
         fs::remove_dir_all(&no_pdf).ok();
+    }
+
+    #[test]
+    fn probe_skips_attachments_for_primary_pdf_and_tex() {
+        let root = temp_paper_dir("root-and-attachments");
+        let root_pdf = root.join("a.pdf");
+        fs::write(&root_pdf, b"%PDF root").expect("write root pdf");
+        fs::create_dir_all(root.join("attachments/nested")).expect("create attachments");
+        fs::write(root.join("attachments/b.pdf"), b"%PDF att").expect("write attachment pdf");
+        fs::write(root.join("attachments/nested/main.tex"), "tex").expect("write attachment tex");
+        let caps = probe_paper_caps(&root);
+        assert_eq!(caps.pdf_path.as_deref(), Some(root_pdf.as_path()));
+        assert!(!caps.has_tex);
+        fs::remove_dir_all(&root).ok();
+
+        let only_att = temp_paper_dir("attachments-only");
+        fs::write(only_att.join("NOTES.md"), "notes").expect("write notes");
+        fs::create_dir_all(only_att.join("attachments/nested")).expect("create attachments");
+        fs::write(only_att.join("attachments/nested/b.pdf"), b"%PDF").expect("write nested pdf");
+        fs::write(only_att.join("attachments/main.ltx"), "ltx").expect("write attachment ltx");
+        let caps = probe_paper_caps(&only_att);
+        assert!(caps.pdf_path.is_none());
+        assert!(!caps.has_tex);
+        fs::remove_dir_all(&only_att).ok();
+
+        let mixed = temp_paper_dir("source-not-attachments");
+        fs::create_dir_all(mixed.join("source")).expect("create source");
+        fs::create_dir_all(mixed.join("attachments")).expect("create attachments");
+        fs::create_dir_all(mixed.join("source/attachments")).expect("create nested attachments");
+        fs::write(mixed.join("attachments/skip.tex"), "no").expect("write skipped tex");
+        fs::write(mixed.join("source/attachments/hidden.tex"), "no").expect("write hidden tex");
+        fs::write(mixed.join("source/main.tex"), "yes").expect("write source tex");
+        let source_pdf = mixed.join("source/real.pdf");
+        fs::write(&source_pdf, b"%PDF").expect("write source pdf");
+        fs::write(mixed.join("attachments/b.pdf"), b"%PDF att").expect("write attachment pdf");
+        let caps = probe_paper_caps(&mixed);
+        assert!(caps.has_tex);
+        assert_eq!(caps.pdf_path.as_deref(), Some(source_pdf.as_path()));
+        fs::remove_dir_all(&mixed).ok();
     }
 
     #[test]

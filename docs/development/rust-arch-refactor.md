@@ -1,6 +1,6 @@
 # Rust 端架构重构计划（2026-09）
 
-状态：**实施中：R1 WAL 一致快照、R2 字段原子更新、R3 sync 占用 RAII、A1 共享移动用例已完成；D2 已完成 MinerU 在途共享切片，其余按下文状态推进**。最后更新：2026-10-21。
+状态：**实施中：R1 WAL 一致快照、R2 字段原子更新、R3 sync 占用 RAII、R5 附件不作为主资产、A1 共享移动用例、A3 论文身份分类已完成；D2 已完成 MinerU 在途共享切片，其余按下文状态推进**。最后更新：2026-10-22。
 
 来源：2026-09-06 三轮架构审计；2026-09-08 由 3 个 sub-agent 分别复核应用边界、存储一致性、运行时与集成，主评审补充核实论文入库及解析链路。本次为静态代码评审，未运行行为测试。历史 V 编号保留，旧 P0–P6 执行顺序由本文新计划替代。
 
@@ -43,10 +43,13 @@
 - [ ] **A2 统一 trash/restore 操作计划**（依赖 A1 的用例边界；恢复策略与 B 协作）
   - 收敛本地与远端的校验、恢复 manifest、执行顺序和失败结果；IO 执行器保留能力差异。
   - 验收：移动后 manifest 写失败、Catalog 更新失败、远端发布失败均有明确可恢复结果；同表测试覆盖两种后端。
-- [ ] **A3 收敛论文身份与 Vault 能力解析**
+- [x] **A3 收敛论文身份与 Vault 能力解析**（2026-10-22）
   - `PaperUnit` / `PaperLayout` 统一论文 marker、主 PDF、正文源、支撑材料分类，供 rescan、caps、Doctor、树与同步消费；`attachments/` 不是身份 marker。
   - 在适配边界解析本地/远端目标，共享服务只依赖所需能力；不让 core 持有 integration 的具体远端 session 类型。
   - 验收：本地与远端同目录结构得到相同分类；保留有依据的旧 Vault 兼容行为，Windows 路径归一和越界校验一致。
+  - 实施：core `features/paper/identity.rs` 的 `classify_dir` / `is_paper_marker_file`。身份标记只有文件 `NOTES.md` 或 `metadata.json`。本地 `rebuild_from_disk` 与远端 `remote_rescan_impl` 都走该判定；远端不再把 `highlights.md`、`PAPER.md` 或目录 `source/`、`assets/`、`marks/` 当成论文。`PAPER.md` 只表示正文。`probe_paper_caps` 用同一分类取根级 PDF / TeX / `PAPER.md`，缺根级 PDF 或 TeX 时继续下探子目录，但跳过名为 `attachments` 的目录（其下 PDF/TeX 不是主资产）；`source/` 内的 PDF/TeX 仍算。不移动用户文件，IPC 类型不变。core 不依赖 `RemoteSession`。
+  - 未改：Doctor 只检查 catalog 行的 NOTES aliases；文件树与 auto-ingest 仍把 `PAPER.md` 和 `source/`、`assets/`、`marks/` 当作懒加载或收录护栏（与 rescan 身份不是同一规则）；sync 直接调用 `rebuild_from_disk`，没有另一套 marker。Connector 保存目标另把 `{stem}.pdf` 算作论文包，也未改。
+  - 验证：`cargo test -p agentero-core --lib` 分别过滤 `features::paper::identity`（4 通过）、`features::paper::capabilities`（11 通过，含 attachments 探针）、`features::paper::catalog::papers::tests`（24 通过）。`probe_paper` 匹配不到现有测试名。`cargo check -p agentero --offline --lib` 通过。
 - [ ] **A4 统一入库用例与入口适配**（依赖 B 的提交契约）
   - 本地导入、remote commit、Connector 两条远端路径、Zotero migrate 共用去重、ID 分配、提交结果及失败语义；来源 metadata/linkage、Connector 时限留在入口策略。
   - Catalog 与目录共同参与路径碰撞检查；远端发布及附件延迟明确表达。
@@ -146,7 +149,7 @@
 - [x] **R2 字段原子更新**（旧 P0-7，2026-09-25）：`papers.rs::mutate_paper` 用 `BEGIN IMMEDIATE` 统一 `update_meta`、`set_is_read`、`set_tags`、`add_tags`、`remove_tags` 的事务内读改写与回读。标签集合修改受同一写预约保护，覆盖独立 SQLite 连接。验证：`cargo test -p agentero-core features::paper::catalog::papers::tests -- --nocapture`（22 通过），新增独立连接写预约/错误释放及并发字段/标签集合测试。sidecar 与 NOTES 仍在提交后 best-effort 写入；B1 的投影重试和顺序保护未完成。提交：`90f26ca99`。
 - [x] **R3 sync 占用 RAII**（旧 P0-2，2026-09-25）：`SyncRunLease` 替代手工 begin/end，正常/错误/超时/abort 均释放占用；退出 flush 使用相同 lease，忙碌 Vault 跳过。验证：`cargo test -p agentero integration::sync::tests --lib -- --nocapture`（3 通过），覆盖真实 tokio abort、虚拟时钟 timeout、错误返回与多 Vault 独立性。保留既有 wire 终态；abort 后的 UI 事件对账及子任务协调取消留在 E2，不宣称 abort 可撤销远端 IO 或 `spawn_blocking`。提交：`ef2ca0a75`。
 - [ ] **R4 Agent 交互清理与转发**（旧 P0-3/P0-4）：超时/取消移除 pending，补齐 Bridge ask-user/elicitation 请求转发；晚到回答保持 `resolved:false`，完整交互链路验证后再由 F1 替换临时转发。
-- [ ] **R5 论文附件分类**（旧 P0-5）：附件 PDF/TeX 不成为主资产；测试锁定 AGENTS.md 约定，不未经确认搬动历史用户文件。
+- [x] **R5 论文附件分类**（旧 P0-5，2026-10-22，随 A3）：`probe_paper_caps` 跳过名为 `attachments` 的目录，其下 PDF/TeX 不再成为主资产；`source/` 内的 PDF/TeX 仍算。测试在 `capabilities`。不搬动已有用户文件。
 - [ ] **R6 文件授权与会话清退**（旧 P0-6/P0-8 连接项）：规范化路径并校验已授权 Vault 范围；远端断开前释放 work-root 连接和任务。验证正常打开流程及越界拒绝。
 
 ## S · 后置整理与条件性工作
@@ -164,14 +167,14 @@
 
 | 批次 | 工作 | 主要依赖 | 状态 |
 |---|---|---|---|
-| 前置修复 | R1–R6 | 各项独立；按影响优先处理 R1/R2/R3 | R1/R2/R3 已完成，其余未开始 |
-| 第一批 | A1 移动用例，随后 A2/A3 | 复用已有 rename；A2 与 B3 明确恢复契约 | A1 已完成，A2/A3 未开始 |
+| 前置修复 | R1–R6 | 各项独立；按影响优先处理 R1/R2/R3 | R1/R2/R3/R5 已完成，R4/R6 未开始 |
+| 第一批 | A1 移动用例，随后 A2/A3 | 复用已有 rename；A2 与 B3 明确恢复契约 | A1 与 A3 已完成，A2 未开始 |
 | 第二批 | B1–B3、A4、C1/C2 | B 以前置数据修复为基础；A4/C 接入提交结果 | 未开始 |
 | 第三批 | D1/D2、E1 | D1 与 E1 先对齐计划接口；D2 可独立试点 | 未开始 |
 | 可独立推进 | E2/E3、F1–F3 | E2 从 R3 起步；F 内部按事件→执行→装配 | E2 的 sync lease 已完成，其余未开始 |
 | 后置 | S1–S6 | 主线边界稳定、或具体需求证明收益 | 未开始 |
 
-首个架构切片 **A1** 已完成：复用现有 rename，用 CLI/桌面对比证明本地移动语义收敛；后续继续 A2/A3。R 中的数据与安全问题先行或穿插处理，不要求所有 R 完成后才能开始独立主线。
+架构切片 **A1** 与 **A3** 已完成：A1 复用现有 rename，用 CLI/桌面对比证明本地移动语义收敛；A3 把论文身份收成 `identity.rs`，远端 rescan 与本地使用同一 marker，caps 不再把 `attachments/` 当主资产。后续继续 A2。R 中的数据与安全问题先行或穿插处理，不要求所有 R 完成后才能开始独立主线。
 
 ## 旧任务归并索引
 

@@ -9,6 +9,7 @@ use crate::core::fs::{FsDirEntry, WriteOpts};
 use crate::core::log_util::{trunc, OpTimer};
 use crate::features::paper::catalog::papers::{self, PaperRecord};
 use crate::features::paper::catalog::service;
+use crate::features::paper::identity::is_paper_marker_file;
 use crate::features::vault::CreateVaultResult;
 use crate::integration::remote::{
     ensure_remote_vault_skills, RemoteRegistry, RemoteSession, RemoteSessionInfo,
@@ -486,10 +487,11 @@ pub async fn remote_paper_rescan(
 }
 
 /// Remote-only rescan: walk `papers/` over the session FS (local rescan uses
-/// `papers::rebuild_from_disk` on `std::fs`), backfill marker folders with a
-/// NOTES.md title and a `remote_rescan` fallback row, then report the count.
-/// The catalog push stays in [`commit_paper_write`] for both rescan and the
-/// other remote writes.
+/// `papers::rebuild_from_disk` on `std::fs`). A folder is a paper when a file
+/// is named `NOTES.md` or `metadata.json` ([`is_paper_marker_file`]); those
+/// folders are backfilled with a NOTES.md title and a `remote_rescan` fallback
+/// row. Confirmed paper folders are not descended. The catalog push stays in
+/// [`commit_paper_write`] for both rescan and the other remote writes.
 async fn remote_rescan_impl(session: &RemoteSession) -> Result<RemotePaperRescanResult, AppError> {
     use papers::PaperRecord;
 
@@ -502,20 +504,9 @@ async fn remote_rescan_impl(session: &RemoteSession) -> Result<RemotePaperRescan
             Ok(e) => e,
             Err(_) => continue,
         };
-        let mut has_marker = false;
-        for e in &entries {
-            if e.is_file
-                && matches!(
-                    e.name.as_str(),
-                    "NOTES.md" | "highlights.md" | "PAPER.md" | "metadata.json"
-                )
-            {
-                has_marker = true;
-            }
-            if e.is_dir && matches!(e.name.as_str(), "source" | "assets" | "marks") {
-                has_marker = true;
-            }
-        }
+        let has_marker = entries
+            .iter()
+            .any(|e| e.is_file && is_paper_marker_file(&e.name));
         if has_marker && dir != "papers" {
             let path = dir.clone();
             let id = path.rsplit('/').next().unwrap_or("paper").to_string();
@@ -539,7 +530,7 @@ async fn remote_rescan_impl(session: &RemoteSession) -> Result<RemotePaperRescan
             continue;
         }
         for e in entries {
-            if e.is_dir && e.name != "source" && e.name != "assets" && e.name != "marks" {
+            if e.is_dir {
                 stack.push(e.path);
             }
         }

@@ -1282,11 +1282,11 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
 
 #### `paper_rescan`
 
-扫描 `papers/` 磁盘目录，用每个 paper 文件夹的 `NOTES.md`（标记文件）**重建 / 补齐 catalog 行**——找回”盘上有、catalog 无”的论文（外部拷入，或历史删除顺序 bug 丢失的行）。幂等。
+扫描 `papers/` 磁盘目录，用每个 paper 文件夹的 `NOTES.md` 或 `metadata.json`（身份标记）**重建 / 补齐 catalog 行**——找回”盘上有、catalog 无”的论文（外部拷入，或历史删除顺序 bug 丢失的行）。幂等。
 
 - **参数**（invoke 字段名 `args`）：`{ vaultPath: string }`。
 - **返回**：`{ ok: true; data: { count: number } }`（重新导入的 paper 数）。
-- **行为**：递归遍历 `papers/`，遇含 `NOTES.md` 的文件夹即为 paper 叶子；创建最小化 paper 记录并 `upsert` 进 catalog。不删行、不改磁盘文件。
+- **行为**：递归遍历 `papers/`，遇该目录下一层有文件 `NOTES.md` 或 `metadata.json` 即为 paper 叶子（`PAPER.md` 与 `source/`、`assets/`、`marks/`、`attachments/` 本身不是身份标记）；有 sidecar 则按其恢复，否则创建最小化 paper 记录并 `upsert` 进 catalog。不删行、不改磁盘文件。
 - **前端**：`src/lib/paper/api.ts` → `rescanPapers`；论文库空态「重新扫描 papers/」按钮。
 
 > **Catalog 行删除**：不再有独立的 `paper_delete` command；删除走 `path_trash`（`trashPaths`），catalog 行随回收站快照清理（底层 `papers::delete_under_path`，CLI `agentero paper rm` 亦复用）。

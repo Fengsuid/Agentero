@@ -28,7 +28,7 @@
 
 ## 论文命令的实现共享（本地/远端）
 
-`remote_paper_get` / `remote_paper_set_tags` / `remote_paper_set_is_read` 与本地 `paper_get` / `paper_set_tags` / `paper_set_is_read` 共用同一实现入口 `src-tauri/src/features/paper/catalog/service.rs`：命令先解析目标（本地 `resolve_vault` → `PathBuf`，远端 `try_session!` → `session.work_root`），再调用同一用例（同一校验、错误文案与 catalog 写入）；远端壳额外在写入成功后经 `RemoteSession::push_catalog` 发布 catalog（`PaperCommitOptions.push_catalog` 与断开 flush 复用同一方法）。`remote_paper_rescan` 的 SFTP 回填扫描（marker 探测 + NOTES.md 标题回填 + `remote_rescan` 兜底行）是远端独有实现，本地 rescan 走 `papers::rebuild_from_disk`，两者只在参数/包络与 push 时机上一致。
+`remote_paper_get` / `remote_paper_set_tags` / `remote_paper_set_is_read` 与本地 `paper_get` / `paper_set_tags` / `paper_set_is_read` 共用同一实现入口 `src-tauri/src/features/paper/catalog/service.rs`：命令先解析目标（本地 `resolve_vault` → `PathBuf`，远端 `try_session!` → `session.work_root`），再调用同一用例（同一校验、错误文案与 catalog 写入）；远端壳额外在写入成功后经 `RemoteSession::push_catalog` 发布 catalog（`PaperCommitOptions.push_catalog` 与断开 flush 复用同一方法）。`remote_paper_rescan` 的 SFTP 回填扫描（与本地相同的 `NOTES.md` 或 `metadata.json` 身份判定 + NOTES.md 标题回填 + `remote_rescan` 兜底行）是远端独有的 IO 实现，本地 rescan 走 `papers::rebuild_from_disk`，两者只在参数/包络与 push 时机上一致。身份标记已对齐；标题回填与 `updated_at` 刷新仍是远端行为。
 
 **已知差异（wire 契约保留，待后续单独评估）**：`paper_list` 返回按 `id` 去重的 `PaperListRow`（含本地 `has_pdf` 探测）；`remote_paper_list` 刷新远端镜像后返回裸 `PaperRecord[]`，不去重、无 `has_pdf`（前端视为"未探测"，见 [api.md](api.md) 的 `paper_list` 一节）。两端命令名、参数、返回类型（specta bindings）保持现状，不因去重实现而变化。
 
