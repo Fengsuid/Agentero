@@ -111,12 +111,6 @@ export const syncTexBackward = (
 	y: number,
 ): Promise<SyncTexSource | null> =>
 	call("latex_synctex_backward", { pdfPath, page, x, y });
-export const formatLatex = (
-	path: string,
-	content: string,
-	formatter: "latexindent" | "tex-fmt",
-): Promise<string> => call("latex_format", { path, content, formatter });
-
 export const cleanLatexArtifacts = (
 	rootPath: string,
 	build?: LatexBuildOptions | null,

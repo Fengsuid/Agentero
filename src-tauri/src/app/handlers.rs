@@ -234,7 +234,6 @@ pub fn attach_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<ta
             crate::features::compile::project::latex_project_inspect,
             crate::features::compile::tools::latex_synctex_forward,
             crate::features::compile::tools::latex_synctex_backward,
-            crate::features::compile::tools::latex_format,
             crate::features::compile::tools::latex_clean,
             // Real-time preview shells out to LuaLaTeX and is desktop-only
             // (see `features::rtex`'s cfg gate).

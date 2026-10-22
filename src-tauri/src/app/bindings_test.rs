@@ -246,7 +246,6 @@ fn export_typescript_bindings() {
             crate::features::compile::project::latex_project_inspect,
             crate::features::compile::tools::latex_synctex_forward,
             crate::features::compile::tools::latex_synctex_backward,
-            crate::features::compile::tools::latex_format,
             crate::features::compile::tools::latex_clean,
             crate::features::jobs::commands::job_latex_compile_enqueue,
             crate::features::jobs::commands::job_jev_smart_highlights_enqueue,

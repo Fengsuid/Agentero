@@ -668,7 +668,6 @@ export const commands = {
 } | null) => __TAURI_INVOKE<ApiResult<LatexProjectInfo>>("latex_project_inspect", { texPath, vaultPath, rootPath, build }),
 	latexSynctexForward: (pdfPath: string, texPath: string, line: number, column: number) => __TAURI_INVOKE<ApiResult<SyncTexLocation[]>>("latex_synctex_forward", { pdfPath, texPath, line, column }),
 	latexSynctexBackward: (pdfPath: string, page: number, x: number | null, y: number | null) => __TAURI_INVOKE<ApiResult<SyncTexSource | null>>("latex_synctex_backward", { pdfPath, page, x, y }),
-	latexFormat: (path: string, content: string, formatter: string) => __TAURI_INVOKE<ApiResult<string>>("latex_format", { path, content, formatter }),
 	latexClean: (rootPath: string, build: {
 	recipe: LatexRecipe | null,
 	outDir: string | null,

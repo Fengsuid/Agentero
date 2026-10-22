@@ -2,7 +2,7 @@ use super::resolve_engine;
 use crate::core::error::{ApiResult, AppError};
 use serde::Serialize;
 use std::{path::Path, process::Stdio, time::Duration};
-use tokio::{io::AsyncWriteExt, process::Command};
+use tokio::process::Command;
 
 pub(super) fn prepare_command(command: &mut Command, executable: &Path) {
     if let Some(dir) = executable.parent() {
@@ -19,12 +19,7 @@ pub(super) fn prepare_command(command: &mut Command, executable: &Path) {
     command.kill_on_drop(true);
 }
 
-async fn tool_output(
-    name: &str,
-    args: &[String],
-    cwd: &Path,
-    stdin: Option<String>,
-) -> Result<String, String> {
+async fn tool_output(name: &str, args: &[String], cwd: &Path) -> Result<String, String> {
     let executable =
         resolve_engine(name).ok_or_else(|| format!("{name} not found on this system"))?;
     let mut command = Command::new(&executable);
@@ -32,11 +27,7 @@ async fn tool_output(
     command
         .args(args)
         .current_dir(cwd)
-        .stdin(if stdin.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     // SyncTeX honors these variables by launching another app; this API only
@@ -44,14 +35,9 @@ async fn tool_output(
     command
         .env_remove("SYNCTEX_VIEWER")
         .env_remove("SYNCTEX_EDITOR");
-    let mut child = command
+    let child = command
         .spawn()
         .map_err(|e| format!("failed to run {name}: {e}"))?;
-    if let (Some(mut input), Some(text)) = (child.stdin.take(), stdin) {
-        tokio::spawn(async move {
-            let _ = input.write_all(text.as_bytes()).await;
-        });
-    }
     let output = tokio::time::timeout(Duration::from_secs(30), child.wait_with_output())
         .await
         .map_err(|_| format!("{name} timed out"))?
@@ -149,7 +135,6 @@ pub async fn latex_synctex_forward(
         "synctex",
         &args,
         Path::new(&tex_path).parent().unwrap_or(Path::new(".")),
-        None,
     )
     .await
     {
@@ -177,7 +162,7 @@ pub async fn latex_synctex_backward(
         "-o".into(),
         format!("{page}:{x}:{y}:{pdf_path}"),
     ];
-    match tool_output("synctex", &args, cwd, None).await {
+    match tool_output("synctex", &args, cwd).await {
         Ok(text) => {
             let value = |key: &str| {
                 text.lines()
@@ -212,45 +197,6 @@ pub async fn latex_synctex_backward(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn latex_format(path: String, content: String, formatter: String) -> ApiResult<String> {
-    let args = match formatter.as_str() {
-        "tex-fmt" => vec!["--stdin".into(), "--nowrap".into()],
-        // -c moves latexindent's log and backup artifacts to an RAII temp dir.
-        "latexindent" => Vec::new(),
-        _ => return ApiResult::err(AppError::message("unknown LaTeX formatter")),
-    };
-    let scratch = match tempfile::tempdir() {
-        Ok(v) => v,
-        Err(e) => return ApiResult::err(AppError::message(e.to_string())),
-    };
-    let mut args = args;
-    if formatter == "latexindent" {
-        args.extend([
-            "-c".into(),
-            format!(
-                "{}{sep}",
-                scratch.path().display(),
-                sep = std::path::MAIN_SEPARATOR
-            ),
-            "-".into(),
-        ]);
-    }
-    match tool_output(
-        &formatter,
-        &args,
-        Path::new(&path).parent().unwrap_or(Path::new(".")),
-        Some(content.clone()),
-    )
-    .await
-    {
-        Ok(text) if !text.is_empty() || content.is_empty() => ApiResult::ok(text),
-        Ok(_) => ApiResult::err(AppError::message("formatter returned empty output")),
-        Err(e) => ApiResult::err(AppError::message(e)),
-    }
-}
-
-#[tauri::command]
-#[specta::specta]
 pub async fn latex_clean(
     root_path: String,
     build: Option<super::types::LatexBuildOptions>,
@@ -274,14 +220,7 @@ pub async fn latex_clean(
         format!("-jobname={name}"),
         root_path.clone(),
     ];
-    match tool_output(
-        "latexmk",
-        &args,
-        root.parent().unwrap_or(Path::new(".")),
-        None,
-    )
-    .await
-    {
+    match tool_output("latexmk", &args, root.parent().unwrap_or(Path::new("."))).await {
         Ok(_) => ApiResult::ok(()),
         Err(e) => ApiResult::err(AppError::message(e)),
     }

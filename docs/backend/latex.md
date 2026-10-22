@@ -12,7 +12,7 @@
 | `types.rs` | Recipe / Tool / BuildOptions、输出与中间产物路径计算 |
 | `runner.rs` | 顺序执行配方、构建日志、进度、取消、结果发布 |
 | `diagnostics.rs` | 编译诊断、章节文件栈、跨行警告、`.fls` INPUT 解析 |
-| `tools.rs` | SyncTeX、格式化、配置产物清理、子进程环境 |
+| `tools.rs` | SyncTeX、配置产物清理、子进程环境 |
 
 `job_latex_compile_enqueue` 的 `build` 为可选项，旧 `{ engine }` 调用仍有效。它接受 recipe、outDir、auxDir、jobname、force、clean。任务层 `force` 控制已结束任务的去重；`build.force` 才表示强制重建，两者不能混用。
 
@@ -50,15 +50,13 @@ AGENTERO_UPDATE_BINDINGS=1 cargo test -p agentero export_typescript_bindings
 
 `.fls` 表示引擎读取的真实文件，但通常没有 BibTeX/Biber 读取的 `.bib`。前端必须保留项目扫描得到的 bibliography 依赖，不能用 recorder 列表直接覆盖。
 
-## 项目、SyncTeX 和格式化
+## 项目与 SyncTeX
 
 `latex_project_inspect(texPath, vaultPath, rootPath?, build?)` 返回主文件、候选根、TeX 文件、BibTeX 文件和实际依赖。显式 root 可用于 standalone subfiles；build 参数决定读取哪份 `.fls`。普通 include 优先按项目编译目录解析，再尝试声明文件目录。
 
 SyncTeX command 调用本机 `synctex`，返回页码、PDF 点坐标或源码文件 / 行 / 列；前端负责缩放与旋转转换，保持与 EmbedPDF 的坐标体系一致。
 
-`latex_format` 通过 stdin 运行 `latexindent` 或 `tex-fmt`，只返回结果，不写源文件。超时、缺少工具、工具报错均返回错误；前端检查文档是否仍为请求时的快照后应用，避免覆盖并发编辑。
-
-本地 TeX 工具由用户安装。正式构建、SyncTeX 和格式化属于本机桌面能力，不提供远程编译服务。
+本地 TeX 工具由用户安装。正式构建与 SyncTeX 属于本机桌面能力，不提供远程编译服务。
 
 ## 验证
 
