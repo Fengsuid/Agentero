@@ -9,24 +9,7 @@ import {
 	normalizeHighlightColor,
 } from "@/lib/pdf/highlight/palette";
 import { deleteMarkFile } from "@/lib/pdf/selection/marks-io";
-
-function unionRect(rects: Rect[]): Rect | null {
-	if (!rects.length) return null;
-	let minX = Number.POSITIVE_INFINITY;
-	let minY = Number.POSITIVE_INFINITY;
-	let maxX = Number.NEGATIVE_INFINITY;
-	let maxY = Number.NEGATIVE_INFINITY;
-	for (const r of rects) {
-		minX = Math.min(minX, r.origin.x);
-		minY = Math.min(minY, r.origin.y);
-		maxX = Math.max(maxX, r.origin.x + r.size.width);
-		maxY = Math.max(maxY, r.origin.y + r.size.height);
-	}
-	return {
-		origin: { x: minX, y: minY },
-		size: { width: maxX - minX, height: maxY - minY },
-	};
-}
+import { unionRectsAll } from "@/lib/pdf/selection-appearance";
 
 /**
  * One-time migration of legacy normalized-rect highlight marks
@@ -61,7 +44,7 @@ export async function migrateHighlightMarks(
 			type: PdfAnnotationSubtype.HIGHLIGHT,
 			id: h.id,
 			pageIndex,
-			rect: unionRect(segmentRects) ?? { origin: { x: 0, y: 0 }, size },
+			rect: unionRectsAll(segmentRects) ?? { origin: { x: 0, y: 0 }, size },
 			segmentRects,
 			strokeColor: HIGHLIGHT_HEX[color],
 			opacity: HIGHLIGHT_OPACITY,

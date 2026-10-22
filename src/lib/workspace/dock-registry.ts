@@ -2,8 +2,8 @@
  * Imperative dockview handle registry. The DockWorkspace component registers
  * its handle here so plain action modules (openTab/closeTab/…) can place and
  * activate panels without threading a React ref through every call site.
- * The shape mirrors `DockWorkspaceHandle` structurally (lib must not import
- * components — see .dependency-cruiser.cjs).
+ * Defines the shared contract aliased by `DockWorkspaceHandle` (lib must not
+ * import components — see .dependency-cruiser.cjs).
  */
 
 import type {

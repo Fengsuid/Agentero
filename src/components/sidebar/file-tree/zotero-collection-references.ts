@@ -1,4 +1,4 @@
-import { dirnameOf } from "@/lib/core/path";
+import { dirnameOf, normalizeRelPaperPath } from "@/lib/core/path";
 import type { PaperLibraryRow } from "@/lib/paper";
 import { zoteroCollectionPaths, zoteroCollectionRoot } from "@/lib/paper/tags";
 import type { FileNode } from "@/lib/vault";
@@ -36,10 +36,6 @@ export function isZoteroCollectionReferencePath(path: string): boolean {
 	return path.startsWith(ZOTERO_REFERENCE_PREFIX);
 }
 
-function normalizedRel(path: string): string {
-	return path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-}
-
 /**
  * Older migrations lack the explicit collection root. Recover it from the
  * paper's real location and whichever saved membership matches its parent.
@@ -48,11 +44,11 @@ function inferCollectionRoot(
 	paperPath: string,
 	collections: readonly string[],
 ): string | null {
-	const parent = normalizedRel(dirnameOf(paperPath));
+	const parent = normalizeRelPaperPath(dirnameOf(paperPath));
 	for (const collection of [...collections].sort(
 		(a, b) => b.length - a.length,
 	)) {
-		const suffix = normalizedRel(collection);
+		const suffix = normalizeRelPaperPath(collection);
 		if (parent === suffix) return "";
 		if (parent.endsWith(`/${suffix}`)) {
 			return parent.slice(0, -(suffix.length + 1));

@@ -6,9 +6,7 @@
  * fall back to the paper folder basename.
  */
 
-function normalizePaperRel(path: string): string {
-	return path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-}
+import { normalizeRelPaperPath } from "@/lib/core/path";
 
 /** Optional catalog title for a normalized `papers/…/<id>` relative path. */
 export type PaperTitleLookup = (
@@ -34,7 +32,7 @@ export function clearPaperTitleLookup(): void {
 export function paperTaskLabel(
 	paperPath: string | null | undefined,
 ): string | undefined {
-	const norm = normalizePaperRel(paperPath ?? "");
+	const norm = normalizeRelPaperPath(paperPath ?? "");
 	if (!norm) return undefined;
 
 	const parts = norm.split("/").filter(Boolean);

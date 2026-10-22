@@ -2,6 +2,8 @@
 
 中间栏由 **单一全局 Dockview** 管理全部打开文档；标题栏**无**文档 tab 条。
 
+命令式操作契约统一定义在 `lib/workspace/dock-registry.ts` 的 `DockHandle`；组件导出的 `DockWorkspaceHandle` 是其类型别名。
+
 ## 行为
 
 | 场景 | 行为 |

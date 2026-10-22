@@ -160,7 +160,7 @@ export function AboutPane() {
 			})
 			.catch((err) =>
 				notifyError(t("about.cli.uninstallFailed"), {
-					description: err instanceof Error ? err.message : String(err),
+					description: errorText(err),
 				}),
 			)
 			.finally(() => setCliBusy(false));
@@ -190,7 +190,7 @@ export function AboutPane() {
 			})
 			.catch((err) =>
 				notifyError(t("about.finder.uninstallFailed"), {
-					description: err instanceof Error ? err.message : String(err),
+					description: errorText(err),
 				}),
 			)
 			.finally(() => setFinderBusy(false));
@@ -208,7 +208,7 @@ export function AboutPane() {
 			.catch((err) => {
 				console.error("open log folder failed", err);
 				notifyError(t("about.logs.openFailed"), {
-					description: err instanceof Error ? err.message : String(err),
+					description: errorText(err),
 				});
 			});
 	};
@@ -218,7 +218,7 @@ export function AboutPane() {
 			.then(() => notifySuccess(t("about.logs.clearDone")))
 			.catch((err) =>
 				notifyError(t("about.logs.clearFailed"), {
-					description: err instanceof Error ? err.message : String(err),
+					description: errorText(err),
 				}),
 			)
 			.finally(() => setLogsBusy(false));
@@ -244,7 +244,7 @@ export function AboutPane() {
 			})
 			.catch((err) =>
 				notifyError(t("about.scratch.clearFailed"), {
-					description: err instanceof Error ? err.message : String(err),
+					description: errorText(err),
 				}),
 			)
 			.finally(() => setScratchBusy(false));

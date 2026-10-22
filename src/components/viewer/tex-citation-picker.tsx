@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { errorText } from "@/lib/core/error";
 import { notifyError } from "@/lib/core/notify";
 import { listPapers } from "@/lib/paper/api";
 import type { PaperLibraryRow, PaperMetadata } from "@/lib/paper/types";
@@ -36,8 +37,7 @@ export function TexCitationPicker({
 				if (!cancelled) setPapers(rows);
 			})
 			.catch((error) => {
-				if (!cancelled)
-					notifyError(error instanceof Error ? error.message : String(error));
+				if (!cancelled) notifyError(errorText(error));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -64,7 +64,7 @@ export function TexCitationPicker({
 			onInsert(key);
 			onOpenChange(false);
 		} catch (error) {
-			notifyError(error instanceof Error ? error.message : String(error));
+			notifyError(errorText(error));
 		} finally {
 			setInserting(false);
 		}
