@@ -30,6 +30,7 @@ async function texToResolve(activePath: string): Promise<string | null> {
 export function useTexProject(
 	vaultPath: string | null,
 	activePath: string | null,
+	activeTexRoot?: string | null,
 ): string | null {
 	const [project, setProject] = useState<TexProject | null>(null);
 
@@ -46,7 +47,7 @@ export function useTexProject(
 		}
 		let cancelled = false;
 		void (async () => {
-			const resolvedFrom = await texToResolve(activePath);
+			const resolvedFrom = activeTexRoot ?? (await texToResolve(activePath));
 			const rootFile = resolvedFrom ? await resolveTexRoot(resolvedFrom) : null;
 			if (cancelled) return;
 			setProject((previous) =>
@@ -56,7 +57,7 @@ export function useTexProject(
 		return () => {
 			cancelled = true;
 		};
-	}, [vaultPath, activePath]);
+	}, [vaultPath, activePath, activeTexRoot]);
 
 	return project?.texPath ?? null;
 }

@@ -13,6 +13,7 @@ import {
 	type useScroll,
 	useScrollCapability,
 } from "@embedpdf/plugin-scroll/react";
+import type { useZoom } from "@embedpdf/plugin-zoom/react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import {
 	type PdfNavigationRegion,
@@ -20,6 +21,12 @@ import {
 } from "@/lib/pdf/pending-pdf-page";
 import { readReadingPage, writeReadingPage } from "@/lib/pdf/reading-position";
 import { scrollToPdfRegion } from "@/lib/pdf/region-navigation";
+import {
+	capturePdfReloadPosition,
+	type PdfReloadPosition,
+	pdfReloadScrollTarget,
+} from "@/lib/pdf/reload-position";
+import { getScrollSyncElement } from "@/lib/pdf/scroll-sync";
 
 /** Debounce for persisting the last read page while scrolling. */
 const READING_POSITION_SAVE_MS = 400;
@@ -40,6 +47,8 @@ export type UsePdfNavigationOptions = {
 	scroll: ScrollCapability;
 	/** Capability ref: the restore effect must not depend on a fresh scope. */
 	scrollRef: RefObject<ScrollCapability>;
+	zoomRef?: RefObject<ReturnType<typeof useZoom>["provides"]>;
+	reloadPositionRef?: RefObject<PdfReloadPosition | null>;
 };
 
 export type PdfNavigation = {
@@ -64,6 +73,8 @@ export function usePdfNavigation({
 	totalPages,
 	scroll,
 	scrollRef,
+	zoomRef,
+	reloadPositionRef,
 }: UsePdfNavigationOptions): PdfNavigation {
 	const [pageField, setPageField] = useState("1");
 	const pageFocusedRef = useRef(false);
@@ -80,11 +91,17 @@ export function usePdfNavigation({
 
 	useEffect(() => {
 		if (!scrollCapability) return;
+		let restoreFrame: number | null = null;
+		let disposed = false;
 		restoredRef.current = false;
 		const owner = registerPdfNavigationOwner(baseDocId, {
 			navigate: (target) => {
 				const scope = scrollRef.current ?? scrollCapability.forDocument(docId);
 				if (!scope) return false;
+				if (restoreFrame != null) {
+					cancelAnimationFrame(restoreFrame);
+					restoreFrame = null;
+				}
 				restoredRef.current = true;
 				if (target.region) {
 					scrollToPdfRegion(
@@ -102,6 +119,29 @@ export function usePdfNavigation({
 				const scope = scrollRef.current ?? scrollCapability.forDocument(docId);
 				if (!scope) return false;
 				restoredRef.current = true;
+				const snapshot = reloadPositionRef?.current;
+				if (snapshot && snapshot.documentId !== docId && zoomRef?.current) {
+					restoredRef.current = false;
+					zoomRef.current.requestZoom(snapshot.zoom);
+					// Zoom changes the virtual page layout. Restore only after the
+					// new document has rendered at the requested scale.
+					let frames = 0;
+					const restore = () => {
+						if (disposed) return;
+						frames += 1;
+						const zoom = zoomRef.current?.getState().currentZoomLevel;
+						if (frames < 3 || (zoom !== snapshot.zoom && frames < 20)) {
+							restoreFrame = requestAnimationFrame(restore);
+							return;
+						}
+						scrollRef.current?.scrollToPage(
+							pdfReloadScrollTarget(snapshot, pages),
+						);
+						restoredRef.current = true;
+					};
+					restoreFrame = requestAnimationFrame(restore);
+					return true;
+				}
 				if (!paperKey || scope.getMetrics().currentPage > 1) return true;
 				const saved = readReadingPage(paperKey);
 				if (saved && saved > 1 && saved <= pages) {
@@ -117,11 +157,58 @@ export function usePdfNavigation({
 			if (event.documentId === docId) owner.layoutReady(event.totalPages);
 		});
 		return () => {
+			disposed = true;
+			if (restoreFrame != null) cancelAnimationFrame(restoreFrame);
 			off();
 			owner.dispose();
 			if (ownerRef.current === owner) ownerRef.current = null;
 		};
-	}, [docId, baseDocId, paperKey, scrollCapability, scrollRef, docCapRef]);
+	}, [
+		docId,
+		baseDocId,
+		paperKey,
+		scrollCapability,
+		scrollRef,
+		docCapRef,
+		zoomRef,
+		reloadPositionRef,
+	]);
+
+	useEffect(() => {
+		if (!reloadPositionRef || !scrollCapability) return;
+		const scope = scrollCapability.forDocument(docId);
+		if (!scope) return;
+		const capture = () => {
+			if (!restoredRef.current) return;
+			try {
+				const metrics = scope.getMetrics();
+				const state = docCapRef.current?.getDocumentState(docId);
+				const page = state?.document?.pages[metrics.currentPage - 1];
+				const snapshot = capturePdfReloadPosition(
+					docId,
+					metrics,
+					zoomRef?.current?.getState().currentZoomLevel ?? 1,
+					getScrollSyncElement(docId),
+					page
+						? {
+								size: page.size,
+								rotation: page.rotation + (state?.rotation ?? 0),
+							}
+						: undefined,
+				);
+				if (snapshot) reloadPositionRef.current = snapshot;
+			} catch {
+				/* The old document scope can already be gone during replacement. */
+			}
+		};
+		const offScroll = scope.onScroll(capture);
+		const offZoom = zoomRef?.current?.onZoomChange(capture);
+		return () => {
+			capture();
+			offScroll();
+			offZoom?.();
+		};
+	}, [docId, scrollCapability, reloadPositionRef, zoomRef, docCapRef]);
 
 	// Persist the last read page (debounced) as the user scrolls.
 	useEffect(() => {

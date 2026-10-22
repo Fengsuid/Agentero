@@ -14,6 +14,10 @@ import { latex, latexLanguage } from "codemirror-lang-latex";
 import { bibtexScholarExtension } from "@/components/viewer/bibtex-scholar-extension";
 import { commands } from "@/lib/core/bindings";
 import { basenameOf, dirnameOf, joinPath } from "@/lib/core/path";
+import {
+	texIntelligenceExtensions,
+	texProjectCompletionSource,
+} from "@/lib/tex/editor-intelligence";
 import { type FileNode, listVaultDirChildren } from "@/lib/vault";
 import { vaultStore } from "@/lib/vault/store";
 import { textLanguageIdForPath } from "@/lib/workspace/viewer";
@@ -345,7 +349,6 @@ export function chktexDiagnostics(
 			to,
 			message: `${finding.message} (chktex ${finding.code})`,
 			severity,
-			source: "chktex",
 		});
 	}
 	return diagnostics;
@@ -387,18 +390,12 @@ export function textLanguageExtensions(path: string): Extension[] {
 			return [yamlLanguage];
 		case "tex":
 			return [
-				// Overleaf-grammar language pack (highlighting, env auto-close,
-				// indent, folding, its own command/env completion via language
-				// data). enableAutocomplete stays off because it would install
-				// an autocompletion({override}) layer that swallows every other
-				// source (the path completion below); autoCloseBrackets /
-				// bracket matching already ship with basicSetup. Linting
-				// (unmatched environments, unclosed braces, …) and hover
-				// command docs are on; `fileName` lets the linter relax its
-				// document-env rules on .sty/.cls files.
+				// Keep highlighting, completion, environment closing and command docs.
+				// ChkTeX is the only editor lint provider; no package or custom
+				// project diagnostics run alongside its unmodified rule set.
 				latex({
 					enableAutocomplete: false,
-					enableLinting: true,
+					enableLinting: false,
 					enableTooltips: true,
 					autoCloseBrackets: false,
 					fileName: basenameOf(path),
@@ -406,10 +403,10 @@ export function textLanguageExtensions(path: string): Extension[] {
 				latexLanguage.data.of({
 					autocomplete: texPathCompletionSource(path, listVaultDirForTex),
 				}),
-				// chktex rules stack on the pack's built-in linter — the lint
-				// facet merges sources and runs them together. Slightly above
-				// the 750ms default because each run spawns a process (and the
-				// facet's delay max() paces the built-in linter too).
+				latexLanguage.data.of({
+					autocomplete: texProjectCompletionSource(path),
+				}),
+				...texIntelligenceExtensions(path),
 				linter(texChktexLintSource(path), { delay: 1000 }),
 			];
 		case "bib":

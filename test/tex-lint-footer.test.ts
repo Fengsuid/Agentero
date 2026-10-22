@@ -3,6 +3,7 @@ import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import {
 	collectEditorDiagnostics,
+	formatEditorDiagnostic,
 	type LintSeverity,
 } from "@/components/viewer/text-editor-lint-footer";
 
@@ -66,5 +67,34 @@ describe("collectEditorDiagnostics", () => {
 
 	it("returns empty when the lint run found nothing", () => {
 		expect(collectEditorDiagnostics(stateWith([]))).toEqual([]);
+	});
+});
+
+describe("diagnostic copying", () => {
+	it("copies location, severity and the unchanged ChkTeX rule message", () => {
+		const diagnostic = {
+			from: 0,
+			to: 1,
+			line: 44,
+			column: 10,
+			severity: "warning" as const,
+			message: "Command terminated with space. (chktex 1)",
+		};
+		expect(formatEditorDiagnostic(diagnostic, "/vault/main.tex")).toBe(
+			"/vault/main.tex:44:10 [warning]\nCommand terminated with space. (chktex 1)",
+		);
+	});
+	it("retains native Windows paths in the copied location", () => {
+		const diagnostic = {
+			from: 0,
+			to: 1,
+			line: 2,
+			column: 3,
+			severity: "warning" as const,
+			message: "native warning",
+		};
+		expect(formatEditorDiagnostic(diagnostic, "C:\\vault\\main.tex")).toBe(
+			"C:\\vault\\main.tex:2:3 [warning]\nnative warning",
+		);
 	});
 });

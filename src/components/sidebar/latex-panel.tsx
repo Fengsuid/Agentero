@@ -13,6 +13,7 @@ import {
 	Loader2,
 	Play,
 	Radio,
+	RotateCw,
 	Settings,
 } from "lucide-react";
 import {
@@ -25,6 +26,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
+import { LatexBuildLog } from "@/components/sidebar/latex-build-log";
+import { LatexProjectSettings } from "@/components/sidebar/latex-project-settings";
 import { Button } from "@/components/ui/button";
 import {
 	Collapsible,
@@ -40,11 +43,20 @@ import { notifyError } from "@/lib/core/notify";
 import { basenameOf, normalizePath } from "@/lib/core/path";
 import { readJsonStorage, writeJsonStorage } from "@/lib/core/storage";
 import { cn } from "@/lib/core/utils";
+import { trackTexProject } from "@/lib/tex/auto-build";
+import { ensureTexBuildEvents } from "@/lib/tex/build-state";
+import {
+	DEFAULT_TEX_SETTINGS,
+	setTexProjectSettings,
+	texSettingsStore,
+} from "@/lib/tex/config";
+import { navigateTexSource } from "@/lib/tex/editor-navigation";
 import { rememberTexEngine } from "@/lib/tex/engine";
 import { activeOutlineSectionId, resolveTexInputPath } from "@/lib/tex/outline";
 import { vaultPathExists } from "@/lib/vault/fs";
 import {
 	closeTexLive,
+	compileTexProject,
 	openTab,
 	openTexLive,
 	openTexPdf,
@@ -58,10 +70,7 @@ import {
 	type TexEngineChoice,
 	texCompileStore,
 } from "@/lib/workspace/tex-compile";
-import {
-	jumpTexOutline,
-	texOutlineStore,
-} from "@/lib/workspace/tex-outline-bridge";
+import { texOutlineStore } from "@/lib/workspace/tex-outline-bridge";
 import { texPdfPath } from "@/lib/workspace/viewer";
 
 const HEIGHT_STORAGE_KEY = "agentero.latexPanelHeight";
@@ -124,14 +133,14 @@ function CommandRow({
 			type="button"
 			disabled={disabled || busy}
 			aria-label={label}
-			aria-pressed={pressed || undefined}
+			aria-pressed={pressed}
 			onClick={onClick}
 			className={cn(
 				"flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-sm",
 				"hover:bg-muted/70",
 				"focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
 				"disabled:cursor-not-allowed disabled:opacity-50",
-				pressed && "bg-muted/50",
+				pressed && "bg-primary/10 hover:bg-primary/15",
 			)}
 		>
 			{busy ? (
@@ -139,13 +148,25 @@ function CommandRow({
 			) : (
 				<Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 			)}
-			<span className="min-w-0 flex-1 truncate">{label}</span>
+			<span className="flex min-w-0 flex-1 items-start gap-1.5">
+				<span className="min-w-0 truncate">{label}</span>
+				{pressed !== undefined ? (
+					<span
+						className={cn(
+							"mt-0.5 size-1.5 shrink-0 rounded-full bg-emerald-500",
+							!pressed && "invisible",
+						)}
+						aria-hidden
+					/>
+				) : null}
+			</span>
 		</button>
 	);
 }
 
 export function LatexPanel({ texPath }: { texPath: string }) {
 	const { t } = useTranslation("sidebar");
+	const { t: tb } = useTranslation("latexBuild");
 	const [open, setOpen] = useState(true);
 	const [contentHeight, setContentHeight] = useState(loadStoredHeight);
 	const [isDragging, setIsDragging] = useState(false);
@@ -163,21 +184,37 @@ export function LatexPanel({ texPath }: { texPath: string }) {
 	const [engineChoice, setEngineChoice] = useState<TexEngineChoice | null>(
 		null,
 	);
+	const rootPath = engineChoice?.rootPath ?? texPath;
+	const settings = useStore(
+		texSettingsStore,
+		(state) => state.projects[normalizePath(rootPath)] ?? DEFAULT_TEX_SETTINGS,
+	);
+	const explicitRoots = useStore(texSettingsStore, (state) => state.roots);
+	const currentOutlineRoot =
+		snapshot?.path === normalizeTabPath(texPath)
+			? snapshot.rootPath
+			: undefined;
 
 	useEffect(() => {
 		initTexEngines();
 	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: inspectTexEngine resolves the persisted root overrides through the shared resolver.
 	useEffect(() => {
 		if (enginesLoading && engines.length === 0) return;
 		let cancelled = false;
-		void inspectTexEngine(texPath).then((choice) => {
+		void inspectTexEngine(currentOutlineRoot ?? texPath).then((choice) => {
 			if (!cancelled) setEngineChoice(choice);
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, [texPath, engines, enginesLoading]);
+	}, [texPath, engines, enginesLoading, explicitRoots, currentOutlineRoot]);
+
+	useEffect(() => {
+		void ensureTexBuildEvents();
+		void trackTexProject(rootPath);
+	}, [rootPath]);
 
 	const persistHeight = (value: number) => {
 		writeJsonStorage(HEIGHT_STORAGE_KEY, Math.round(value));
@@ -244,26 +281,34 @@ export function LatexPanel({ texPath }: { texPath: string }) {
 		});
 	const compiling = compilingPath !== null;
 	const outline =
-		snapshot && snapshot.path === normalizeTabPath(texPath) ? snapshot : null;
+		snapshot &&
+		(snapshot.path === normalizeTabPath(texPath) ||
+			normalizePath(snapshot.rootPath ?? "") === normalizePath(rootPath))
+			? snapshot
+			: null;
 	const items = outline?.items ?? [];
 	const activeId = outline
-		? activeOutlineSectionId(items, outline.cursorLine)
+		? activeOutlineSectionId(items, outline.cursorLine, outline.path)
 		: null;
 
-	const openIncluded = async (fileArg: string) => {
-		const target = resolveTexInputPath(texPath, fileArg);
-		if (!target) return;
-		let exists = false;
-		try {
-			exists = await vaultPathExists(target);
-		} catch {
-			exists = false;
+	const openIncluded = async (fileArg: string, sourcePath: string) => {
+		const candidates = [
+			...new Set([
+				resolveTexInputPath(rootPath, fileArg),
+				resolveTexInputPath(sourcePath, fileArg),
+			]),
+		].filter(Boolean);
+		for (const target of candidates) {
+			try {
+				if (await vaultPathExists(target)) {
+					openTab(target, { preferMode: "text" });
+					return;
+				}
+			} catch {
+				/* Try the declaring-file fallback after the project-relative path. */
+			}
 		}
-		if (!exists) {
-			notifyError(t("latexPanel.fileMissing", { name: basenameOf(target) }));
-			return;
-		}
-		openTab(target, { preferMode: "text" });
+		notifyError(t("latexPanel.fileMissing", { name: basenameOf(fileArg) }));
 	};
 
 	return (
@@ -406,6 +451,13 @@ export function LatexPanel({ texPath }: { texPath: string }) {
 									{t("fileTree.noLatexEngine")}
 								</p>
 							)}
+							<LatexProjectSettings
+								texPath={texPath}
+								rootPath={rootPath}
+								onChanged={() => {
+									void inspectTexEngine(texPath).then(setEngineChoice);
+								}}
+							/>
 						</PopoverContent>
 					</Popover>
 				</div>
@@ -420,13 +472,49 @@ export function LatexPanel({ texPath }: { texPath: string }) {
 					<div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
 						<Group title={t("latexPanel.commands")}>
 							<div className="flex flex-col px-1 pb-1">
+								{settings.recipes.length ? (
+									<select
+										className="mx-1 mb-1 min-h-8 rounded-md border border-input bg-transparent px-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+										aria-label={tb("recipe")}
+										value={settings.selectedRecipe ?? ""}
+										onChange={(event) =>
+											setTexProjectSettings(rootPath, {
+												...settings,
+												selectedRecipe: event.target.value || null,
+											})
+										}
+									>
+										<option value="">{tb("defaultRecipe")}</option>
+										{settings.recipes.map((recipe) => (
+											<option key={recipe.name} value={recipe.name}>
+												{recipe.name}
+											</option>
+										))}
+									</select>
+								) : null}
 								<CommandRow
 									icon={Play}
 									label={t("fileTree.compileTex")}
-									disabled={!hasEngines}
+									disabled={!hasEngines && !settings.recipe}
 									busy={compiling}
 									onClick={() => {
-										void openTexPdf(texPath, { forceCompile: true });
+										void compileTexProject(texPath);
+									}}
+								/>
+								<CommandRow
+									icon={RotateCw}
+									label={tb("rebuild")}
+									disabled={compiling || (!hasEngines && !settings.recipe)}
+									onClick={() => {
+										void compileTexProject(texPath, "force");
+									}}
+								/>
+								<CommandRow
+									icon={Eraser}
+									label={tb("cleanRebuild")}
+									disabled={compiling || (!hasEngines && !settings.recipe)}
+									onClick={() => {
+										void compileTexProject(texPath, "clean");
 									}}
 								/>
 								<CommandRow
@@ -457,6 +545,7 @@ export function LatexPanel({ texPath }: { texPath: string }) {
 										}}
 									/>
 								) : null}
+								<LatexBuildLog rootPath={rootPath} />
 							</div>
 						</Group>
 						<Group title={t("latexPanel.structure")}>
@@ -477,11 +566,14 @@ export function LatexPanel({ texPath }: { texPath: string }) {
 													title={item.title}
 													onClick={() => {
 														if (item.kind === "file" && item.fileArg) {
-															void openIncluded(item.fileArg);
+															void openIncluded(
+																item.fileArg,
+																item.path ?? texPath,
+															);
 															return;
 														}
-														openTab(texPath, { preferMode: "text" });
-														jumpTexOutline(texPath, item.line);
+														const path = item.path ?? texPath;
+														navigateTexSource(path, item.line);
 													}}
 													className={cn(
 														"flex w-full items-center gap-1.5 rounded-sm py-0.5 pr-2 text-left text-sm",

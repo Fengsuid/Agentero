@@ -15,6 +15,7 @@ import { commands } from "@/lib/core/bindings";
 import { errorText } from "@/lib/core/error";
 import { notifyError } from "@/lib/core/notify";
 import { openExternalUrl } from "@/lib/core/open-external";
+import { normalizePath } from "@/lib/core/path";
 import { isTauri } from "@/lib/core/tauri";
 import {
 	detectPaperDirectory,
@@ -42,6 +43,13 @@ import {
 	type PdfNavigationIntent,
 } from "@/lib/pdf/pending-pdf-page";
 import { registerScrollSyncPair } from "@/lib/pdf/scroll-sync";
+import {
+	cancelScheduledTexAutoBuild,
+	registerTexAutoBuildRunner,
+} from "@/lib/tex/auto-build";
+import { queueTexBuild } from "@/lib/tex/build-queue";
+import { getTexProjectSettings } from "@/lib/tex/config";
+import { syncTexAfterBuild } from "@/lib/tex/synctex";
 import { isTexLiveRootActive } from "@/lib/tex-live/session";
 import { ensureLocalFsScope, joinVaultPath, writeVaultFile } from "@/lib/vault";
 import { getVaultPath, refreshTree, vaultStore } from "@/lib/vault/store";
@@ -79,6 +87,7 @@ import {
 	createNotesSplitPane,
 	createPlaceholderTab,
 	createTranslationSplitPane,
+	type DocTab,
 	insertPlaceholderTab,
 	patchTab,
 	SPLIT_PANE_ID_MARKER,
@@ -89,10 +98,34 @@ import {
 import {
 	compileTexFile,
 	ensureTexEngines,
+	resolveTexPdfPath,
 	resolveTexRoot,
 	texCompileStore,
 } from "./tex-compile";
-import { isTexPath, preferredModeForPath, texPdfPath } from "./viewer";
+import { isTexPath, preferredModeForPath } from "./viewer";
+
+function texPdfPaneId(pdfPath: string): string {
+	const matches = getTabs().filter(
+		(tab) =>
+			tab.mode === "pdf" && normalizePath(tab.path) === normalizePath(pdfPath),
+	);
+	return (
+		matches.find((tab) => tab.id === getActiveTabId())?.id ??
+		matches.find((tab) => tab.id === tabIdForPath(pdfPath))?.id ??
+		matches[0]?.id ??
+		tabIdForPath(pdfPath)
+	);
+}
+
+function updateTexPdfPanes(pdfPath: string, patch: Partial<DocTab>): void {
+	for (const tab of getTabs()) {
+		if (
+			(tab.mode === "pdf" || tab.mode === "translation") &&
+			normalizePath(tab.path) === normalizePath(pdfPath)
+		)
+			updateTab(tab.id, patch);
+	}
+}
 
 /**
  * Open (or refresh) the compiled PDF of a .tex file as a right split of its
@@ -100,7 +133,7 @@ import { isTexPath, preferredModeForPath, texPdfPath } from "./viewer";
  * the project ROOT's output (magic comment → self indicator → vault
  * \input/\include reverse scan → the file itself), so triggering this from a
  * child file still builds and shows the root's PDF. When the PDF is missing
- * on disk (or `forceCompile`, the compile-button path), the pane opens
+ * on disk (or `forceCompile` is requested), the pane opens
  * immediately with a shimmer placeholder while the compile runs, then fills
  * in. Existing PDF tabs are refreshed in place (new bytes identity reloads
  * EmbedPDF) and activated.
@@ -110,11 +143,33 @@ export async function openTexPdf(
 	opts?: {
 		referencePanelId?: string | null;
 		forceCompile?: boolean;
+		buildMode?: "normal" | "force" | "clean";
 		/** Compile and View PDF leave live preview. Pass false to keep it (⌘\\). */
 		exitLive?: boolean;
 	},
 ): Promise<void> {
 	if (!isTexPath(texPath)) return;
+	try {
+		const root = await resolveTexRoot(texPath);
+		await queueTexBuild(
+			root,
+			() => openTexPdfNow(texPath, opts),
+			opts?.buildMode ? 3 : 2,
+		);
+	} catch (error) {
+		notifyError(errorText(error));
+	}
+}
+
+async function openTexPdfNow(
+	texPath: string,
+	opts?: {
+		referencePanelId?: string | null;
+		forceCompile?: boolean;
+		buildMode?: "normal" | "force" | "clean";
+		exitLive?: boolean;
+	},
+): Promise<void> {
 	const keepLive = opts?.exitLive === false;
 	// One in-flight compile at a time (mirrors compileTexFile's guard).
 	if (texCompileStore.getState().compilingPath) return;
@@ -144,8 +199,17 @@ export async function openTexPdf(
 	// fast path: the pane id must follow the root either way.
 	await flushAllTextEditors();
 	const rootPath = await resolveTexRoot(texPath);
-	const pdfPath = texPdfPath(rootPath);
-	const pdfId = tabIdForPath(pdfPath);
+	cancelScheduledTexAutoBuild(rootPath);
+	const pdfPath = await resolveTexPdfPath(rootPath);
+	if (!keepLive) {
+		for (const tab of getTabs())
+			if (
+				tab.texLive &&
+				normalizePath(tab.texRoot ?? "") === normalizePath(rootPath)
+			)
+				updateTab(tab.id, { texLive: false });
+	}
+	const pdfId = texPdfPaneId(pdfPath);
 	await ensureLocalFsScope(vaultStore.getState().vaultPath);
 
 	if (!opts?.forceCompile) {
@@ -153,10 +217,11 @@ export async function openTexPdf(
 		const bytes = await localFileToArrayBuffer(pdfPath);
 		if (bytes) {
 			if (getTabs().some((t) => t.id === pdfId)) {
-				updateTab(pdfId, {
+				updateTexPdfPanes(pdfPath, {
 					pdfBytes: bytes,
 					loaded: true,
 					texCompiling: false,
+					texRoot: rootPath,
 					...(keepLive ? {} : { texLive: false }),
 					title: basenameOf(pdfPath),
 				});
@@ -167,6 +232,7 @@ export async function openTexPdf(
 					preferMode: "pdf",
 					placement: { direction: "right", referencePanelId },
 				});
+				updateTexPdfPanes(pdfPath, { texRoot: rootPath });
 			}
 			return;
 		}
@@ -176,7 +242,11 @@ export async function openTexPdf(
 	// once the compile lands.
 	const paneAlreadyOpen = getTabs().some((t) => t.id === pdfId);
 	if (paneAlreadyOpen) {
-		updateTab(pdfId, { texCompiling: true, texLive: false });
+		updateTexPdfPanes(pdfPath, {
+			texCompiling: true,
+			texLive: false,
+			texRoot: rootPath,
+		});
 		setActiveTabId(pdfId);
 		dockHandle()?.activatePanel(pdfId);
 	} else {
@@ -198,16 +268,19 @@ export async function openTexPdf(
 			direction: "right",
 			referencePanelId,
 		});
-		updateTab(insertedId, { texCompiling: true });
+		updateTab(insertedId, { texCompiling: true, texRoot: rootPath });
 	}
 
-	const compiled = await compileTexFile(rootPath, { triggerPath: texPath });
+	const compiled = await compileTexFile(rootPath, {
+		triggerPath: texPath,
+		...(opts?.buildMode ? { mode: opts.buildMode } : {}),
+	});
 	const bytes = compiled ? await localFileToArrayBuffer(compiled) : null;
 	if (!compiled || !bytes) {
 		// Failure already notified. Drop a pane we just created (it would sit
 		// on a shimmer forever); just un-flag a pre-existing one so it shows
 		// its previous content again.
-		if (paneAlreadyOpen) updateTab(pdfId, { texCompiling: false });
+		if (paneAlreadyOpen) updateTexPdfPanes(pdfPath, { texCompiling: false });
 		else closeTab(pdfId, { remember: false });
 		if (compiled) {
 			// The compile itself succeeded but its output could not be read
@@ -219,13 +292,19 @@ export async function openTexPdf(
 		}
 		return;
 	}
-	updateTab(pdfId, {
+	updateTexPdfPanes(pdfPath, {
 		pdfBytes: bytes,
 		loaded: true,
 		texCompiling: false,
+		texRoot: rootPath,
 		...(keepLive ? {} : { texLive: false }),
 		title: basenameOf(pdfPath),
 	});
+	void syncTexAfterBuild(
+		rootPath,
+		compiled,
+		getTexProjectSettings(rootPath).syncAfterBuild,
+	);
 }
 
 /**
@@ -235,16 +314,19 @@ export async function openTexPdf(
 export async function closeTexLive(texPath: string): Promise<void> {
 	if (!isTexPath(texPath)) return;
 	const rootPath = await resolveTexRoot(texPath);
-	const pdfPath = texPdfPath(rootPath);
-	const pdfId = tabIdForPath(pdfPath);
-	const tab = getTabs().find((item) => item.id === pdfId);
-	if (!tab?.texLive) return;
-	const bytes = tab.pdfBytes ?? (await localFileToArrayBuffer(pdfPath));
-	updateTab(pdfId, {
-		texLive: false,
-		texCompiling: false,
-		...(bytes ? { pdfBytes: bytes, loaded: true } : {}),
-	});
+	for (const tab of getTabs()) {
+		if (
+			!tab.texLive ||
+			normalizePath(tab.texRoot ?? "") !== normalizePath(rootPath)
+		)
+			continue;
+		const bytes = tab.pdfBytes ?? (await localFileToArrayBuffer(tab.path));
+		updateTab(tab.id, {
+			texLive: false,
+			texCompiling: false,
+			...(bytes ? { pdfBytes: bytes, loaded: true } : {}),
+		});
+	}
 }
 
 /**
@@ -274,7 +356,7 @@ export async function openTexLive(texPath: string): Promise<void> {
 	const vaultPath = vaultStore.getState().vaultPath;
 	if (!vaultPath) return;
 
-	const pdfPath = texPdfPath(rootPath);
+	const pdfPath = await resolveTexPdfPath(rootPath);
 	const pdfId = tabIdForPath(pdfPath);
 	const editorId = tabIdForPath(texPath);
 	const referencePanelId =
@@ -324,13 +406,8 @@ export async function openTexLive(texPath: string): Promise<void> {
 	});
 }
 
-/** Latest .tex save that landed while a compile was already running; one
- * trailing recompile keeps the PDF fresh without per-save compile storms. */
-let pendingSaveCompilePath: string | null = null;
-
 /**
- * Quiet TeX compile + in-place refresh of the open PDF pane: the compile-button
- * flow without the focus steal, pane auto-open and success toast. Called after
+ * Quiet TeX compile + in-place refresh of the open PDF pane. Called after
  * a manual ⌘S save lands (`compileTexOnManualSave`). The build target is the
  * project ROOT (saving a child recompiles the root and refreshes the root's
  * PDF pane), resolved after flushing every mounted editor — ⌘S only guaranteed
@@ -340,41 +417,91 @@ let pendingSaveCompilePath: string | null = null;
  * (re-resolving the root against the then-current disk state).
  */
 export async function compileTexOnSave(texPath: string): Promise<void> {
+	try {
+		const root = await resolveTexRoot(texPath);
+		await queueTexBuild(root, () => compileTexAndRefreshNow(texPath));
+	} catch (error) {
+		notifyError(errorText(error));
+	}
+}
+
+/** Explicit build refreshes existing previews without changing the active file or pane. */
+export async function compileTexProject(
+	texPath: string,
+	mode: "normal" | "force" | "clean" = "normal",
+): Promise<void> {
+	if (!isTexPath(texPath)) return;
+	try {
+		const root = await resolveTexRoot(texPath);
+		await queueTexBuild(
+			root,
+			() => compileTexAndRefreshNow(texPath, { explicit: true, mode }),
+			3,
+		);
+	} catch (error) {
+		notifyError(errorText(error));
+	}
+}
+
+async function compileTexAndRefreshNow(
+	texPath: string,
+	options?: { explicit: boolean; mode: "normal" | "force" | "clean" },
+): Promise<void> {
 	// Right after a window reload the detection scan may still be in flight:
 	// wait for it instead of silently dropping this trigger.
 	await ensureTexEngines();
 	const { engines, selectedEngine, compilingPath } = texCompileStore.getState();
-	// No engine available: explicit triggers surface this via
-	// `compileTexOnManualSave`; programmatic callers stay silent.
-	if (!selectedEngine && engines.length === 0) return;
-	if (compilingPath) {
-		pendingSaveCompilePath = texPath;
-		return;
-	}
+	if (compilingPath) return;
 	await flushAllTextEditors();
 	const rootPath = await resolveTexRoot(texPath);
-	const pdfPath = texPdfPath(rootPath);
-	const pdfId = tabIdForPath(pdfPath);
-	// A live pane owns the same tab; a quiet save-compile would flip it back to
-	// the compiled PDF and kill the preview. Explicit compile actions still
-	// switch modes through `openTexPdf`.
+	// Recipes belong to the resolved project, including saves from child files.
 	if (
-		isTexLiveRootActive(rootPath) ||
-		getTabs().find((t) => t.id === pdfId)?.texLive
+		!selectedEngine &&
+		engines.length === 0 &&
+		!getTexProjectSettings(rootPath).recipe
+	) {
+		if (options?.explicit)
+			notifyError(i18n.t("sidebar:fileTree.noLatexEngine"));
+		return;
+	}
+	cancelScheduledTexAutoBuild(rootPath);
+	const pdfPath = await resolveTexPdfPath(rootPath);
+	const pdfId = texPdfPaneId(pdfPath);
+	// Save-triggered builds leave live preview alone. An explicit build exits
+	// live mode and refreshes the compiled bytes in place, without activation.
+	if (
+		!options?.explicit &&
+		(isTexLiveRootActive(rootPath) ||
+			getTabs().find((t) => t.id === pdfId)?.texLive)
 	)
 		return;
+	if (options?.explicit) {
+		for (const tab of getTabs()) {
+			if (
+				tab.texLive &&
+				normalizePath(tab.texRoot ?? "") === normalizePath(rootPath)
+			)
+				updateTab(tab.id, { texLive: false });
+		}
+	}
 	const paneOpen = getTabs().some((t) => t.id === pdfId);
-	if (paneOpen) updateTab(pdfId, { texCompiling: true, texLive: false });
+	if (paneOpen)
+		updateTexPdfPanes(pdfPath, {
+			texCompiling: true,
+			texLive: false,
+			texRoot: rootPath,
+		});
 	try {
 		const compiled = await compileTexFile(rootPath, {
-			quietSuccess: true,
+			...(!options?.explicit ? { quietSuccess: true } : {}),
 			triggerPath: texPath,
+			...(options ? { mode: options.mode } : {}),
 		});
 		const bytes = compiled ? await localFileToArrayBuffer(compiled) : null;
 		if (!compiled || !bytes) {
 			// Drop the shimmer on the previous content; the failure itself was
 			// notified by compileTexFile.
-			if (paneOpen) updateTab(pdfId, { texCompiling: false });
+			if (paneOpen) updateTexPdfPanes(pdfPath, { texCompiling: false });
 			if (compiled) {
 				notifyError(
 					i18n.t("app:errors.pdfReadFailed", { name: basenameOf(pdfPath) }),
@@ -382,19 +509,21 @@ export async function compileTexOnSave(texPath: string): Promise<void> {
 			}
 			return;
 		}
-		updateTab(pdfId, {
+		updateTexPdfPanes(pdfPath, {
 			pdfBytes: bytes,
 			loaded: true,
 			texCompiling: false,
 			texLive: false,
+			texRoot: rootPath,
 			title: basenameOf(pdfPath),
 		});
+		void syncTexAfterBuild(
+			rootPath,
+			compiled,
+			getTexProjectSettings(rootPath).syncAfterBuild,
+		);
 	} finally {
-		if (pendingSaveCompilePath) {
-			const next = pendingSaveCompilePath;
-			pendingSaveCompilePath = null;
-			void compileTexOnSave(next);
-		}
+		if (paneOpen) updateTexPdfPanes(pdfPath, { texCompiling: false });
 	}
 }
 
@@ -408,12 +537,19 @@ export async function compileTexOnManualSave(path: string): Promise<void> {
 	if (!isTexPath(path)) return;
 	await ensureTexEngines();
 	const { engines, selectedEngine } = texCompileStore.getState();
-	if (!selectedEngine && engines.length === 0) {
+	const root = await resolveTexRoot(path);
+	if (
+		!selectedEngine &&
+		engines.length === 0 &&
+		!getTexProjectSettings(root).recipe
+	) {
 		notifyError(i18n.t("sidebar:fileTree.noLatexEngine"));
 		return;
 	}
 	await compileTexOnSave(path);
 }
+
+registerTexAutoBuildRunner(compileTexOnSave);
 
 /** Obsidian-style Split pane: add a right pane and keep columns evenly sized. */
 export function splitActivePane(): void {

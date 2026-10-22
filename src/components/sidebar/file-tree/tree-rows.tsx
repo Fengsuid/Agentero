@@ -324,7 +324,8 @@ function TexCompileActions({
 						type="button"
 						variant="ghost"
 						size="icon-xs"
-						className="size-5"
+						className="size-5 bg-transparent hover:bg-transparent active:bg-transparent dark:hover:bg-transparent dark:active:bg-transparent group-aria-selected:focus-visible:border-sidebar-primary-foreground/70 group-aria-selected:focus-visible:ring-sidebar-primary-foreground/50"
+						data-tex-compile=""
 						aria-label={t("fileTree.compileTex")}
 						disabled={!hasEngines || !vaultPath}
 						onClick={(e) => {

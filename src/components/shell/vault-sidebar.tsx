@@ -147,7 +147,11 @@ export function VaultSidebar() {
 	const paperMeta = activeTab?.paperMeta ?? null;
 	// Any file inside a TeX project (the PDF, a chapter, a figure) keeps
 	// the LaTeX panel. Library hover does not override it.
-	const texProjectPath = useTexProject(vaultPath, activeTab?.path ?? null);
+	const texProjectPath = useTexProject(
+		vaultPath,
+		activeTab?.path ?? null,
+		activeTab?.texRoot,
+	);
 
 	// While a paper / note tab hydrates, its own `paperMeta` is still null.
 	// Resolve the owning paper from the tree/path so Paper Info does not

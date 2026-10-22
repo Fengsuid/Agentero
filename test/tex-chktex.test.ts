@@ -39,7 +39,7 @@ describe("chktexDiagnostics", () => {
 		expect(diagnostics[0].from).toBe(14);
 		expect(diagnostics[0].to).toBe(17);
 		expect(diagnostics[0].severity).toBe("warning");
-		expect(diagnostics[0].source).toBe("chktex");
+		expect(diagnostics[0].source).toBeUndefined();
 		expect(diagnostics[0].message).toContain("(chktex 11)");
 	});
 

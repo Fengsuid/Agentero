@@ -1,0 +1,10 @@
+{
+	"insertCitation": "Insert citation from library",
+	"searchLibrary": "Search title, author, year or DOI",
+	"noPapers": "No matching papers",
+	"loading": "Loading",
+	"goToDefinition": "Go to definition",
+	"syncPdf": "Locate in PDF",
+	"saveFailed": "Save the project changes before inserting a citation.",
+	"noDocumentEnd": "Add a bibliography declaration to the root document before inserting a citation."
+}

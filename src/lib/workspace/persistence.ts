@@ -7,6 +7,7 @@ import { errorText } from "@/lib/core/error";
 import { notifyError, notifyUndo, notifyWarning } from "@/lib/core/notify";
 import { isTauri } from "@/lib/core/tauri";
 import { localFileToArrayBuffer } from "@/lib/paper";
+import { onTexFileSaved } from "@/lib/tex/auto-build";
 import {
 	isMarkdownPath,
 	readVaultFile,
@@ -74,8 +75,7 @@ const persistOutcomes: Record<
 	},
 	text: (path, content) => {
 		setTabs((prev) => seedTabs(prev, path, content, "text"));
-		// NOTE: autosave only writes — .tex compiles are manual now
-		// (⌘S / compile button); see compileTexOnManualSave.
+		onTexFileSaved(path);
 	},
 };
 

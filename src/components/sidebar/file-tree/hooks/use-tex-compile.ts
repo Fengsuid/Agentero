@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect } from "react";
 import { useStore } from "zustand";
-import { openTexLive, openTexPdf } from "@/lib/workspace/actions";
+import { compileTexProject, openTexLive } from "@/lib/workspace/actions";
 import {
 	cleanTexAuxFiles,
 	initTexEngines,
@@ -45,10 +45,7 @@ export function useTexCompile(): TexCompileActions {
 
 	const compileTex = useCallback(
 		async (texPath: string, _vaultPath: string) => {
-			// The compile button always recompiles: openTexPdf(forceCompile)
-			// splits a shimmer placeholder beside the editor right away and
-			// fills it in when the compile lands.
-			await openTexPdf(texPath, { forceCompile: true });
+			await compileTexProject(texPath);
 		},
 		[],
 	);

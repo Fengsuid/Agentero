@@ -21,7 +21,8 @@ export function panelPersistParams(tab: DocTab): PanelPersistParams {
 		path: tab.path,
 		mode: tab.mode,
 		title: tab.title,
-		...(tab.texLive ? { texLive: true, texRoot: tab.texRoot } : {}),
+		...(tab.texLive ? { texLive: true } : {}),
+		...(tab.texRoot ? { texRoot: tab.texRoot } : {}),
 	};
 }
 
@@ -116,14 +117,10 @@ export function extractTabsFromLayout(layout: unknown): {
 			path,
 			mode,
 			title,
-			...(panel.params?.texLive === true
-				? {
-						texLive: true,
-						texRoot:
-							typeof panel.params.texRoot === "string"
-								? panel.params.texRoot
-								: undefined,
-					}
+			...(panel.params?.texLive === true ? { texLive: true } : {}),
+			...(typeof panel.params?.texRoot === "string" &&
+			panel.params.texRoot.trim()
+				? { texRoot: panel.params.texRoot }
 				: {}),
 		});
 	}

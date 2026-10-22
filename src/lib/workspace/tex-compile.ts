@@ -10,12 +10,26 @@ import i18n from "@/i18n";
 import { isBackgroundTaskCancelledError } from "@/lib/core/background-tasks";
 import { commands } from "@/lib/core/bindings";
 import { notifyError, notifySuccess } from "@/lib/core/notify";
+import { normalizePath } from "@/lib/core/path";
 import { enqueueTaskSettled } from "@/lib/core/tasks";
+import { startTexAutoBuild } from "@/lib/tex/auto-build";
+import {
+	beginTexBuild,
+	ensureTexBuildEvents,
+	finishTexBuild,
+	texBuildStore,
+} from "@/lib/tex/build-state";
+import {
+	explicitTexRoot,
+	getTexProjectSettings,
+	texBuildOptions,
+} from "@/lib/tex/config";
 import {
 	chooseTexEngine,
 	parseTexProgram,
 	rememberedTexEngine,
 } from "@/lib/tex/engine";
+import { cleanLatexArtifacts, getLatexArtifacts } from "@/lib/tex/host";
 import { readVaultFile } from "@/lib/vault/fs";
 import { vaultStore } from "@/lib/vault/store";
 import { texPdfPath } from "@/lib/workspace/viewer";
@@ -79,6 +93,7 @@ export function ensureTexEngines(): Promise<void> {
  * point). Await `ensureTexEngines` when the result is needed.
  */
 export function initTexEngines(): void {
+	startTexAutoBuild();
 	void ensureTexEngines();
 }
 
@@ -137,6 +152,8 @@ export async function inspectTexEngine(
  * falls back to `texPath` on any error so compilation still runs.
  */
 export async function resolveTexRoot(texPath: string): Promise<string> {
+	const override = explicitTexRoot(texPath);
+	if (override) return override;
 	try {
 		const res = await commands.resolveLatexRoot(
 			texPath,
@@ -164,6 +181,12 @@ export async function cleanTexAuxFiles(texPath: string): Promise<boolean> {
 	if (texCompileStore.getState().compilingPath) return false;
 	const root = await resolveTexRoot(texPath);
 	try {
+		const build = texBuildOptions(root);
+		if (build.outDir || build.auxDir || build.jobname || build.recipe) {
+			await cleanLatexArtifacts(root, build);
+			notifySuccess(i18n.t("sidebar:fileTree.cleanAuxSuccess"));
+			return true;
+		}
 		const res = await commands.cleanLatexAuxFiles(root);
 		if (!res.ok) {
 			notifyError(
@@ -200,7 +223,11 @@ export async function cleanTexAuxFiles(texPath: string): Promise<boolean> {
  */
 export async function compileTexFile(
 	texPath: string,
-	opts?: { quietSuccess?: boolean; triggerPath?: string },
+	opts?: {
+		quietSuccess?: boolean;
+		triggerPath?: string;
+		mode?: "normal" | "force" | "clean";
+	},
 ): Promise<string | null> {
 	initTexEngines();
 	// Wait for the in-flight scan: reading the store immediately after a
@@ -208,7 +235,10 @@ export async function compileTexFile(
 	await ensureTexEngines();
 	const { compilingPath } = texCompileStore.getState();
 	if (compilingPath) return null;
-	const { engineId } = await engineChoiceForRoot(texPath);
+	const choice = await engineChoiceForRoot(texPath);
+	const engineId =
+		choice.engineId ??
+		(getTexProjectSettings(texPath).recipe ? "pdflatex" : null);
 	if (!engineId) {
 		notifyError(i18n.t("sidebar:fileTree.noLatexEngine"));
 		return null;
@@ -217,21 +247,36 @@ export async function compileTexFile(
 	if (texCompileStore.getState().compilingPath) return null;
 
 	texCompileStore.setState({ compilingPath: opts?.triggerPath ?? texPath });
+	const build = texBuildOptions(texPath, opts?.mode);
 	try {
+		await ensureTexBuildEvents();
+		beginTexBuild(texPath);
 		await enqueueTaskSettled({
 			kind: "latexCompile",
 			vaultPath: vaultStore.getState().vaultPath ?? "",
 			path: texPath,
 			lane: "focus",
 			force: true,
-			params: { engine: engineId },
+			params: { engine: engineId, build },
 		});
+		finishTexBuild(texPath, "succeeded");
 		if (!opts?.quietSuccess) {
 			notifySuccess(i18n.t("sidebar:fileTree.compileSuccess"));
 		}
-		// latexmk writes {stem}.pdf next to the source (deterministic path).
-		return texPdfPath(texPath);
+		return (
+			texBuildStore.getState().byRoot[normalizePath(texPath)]?.result
+				?.pdfPath ?? (await resolveTexPdfPath(texPath))
+		);
 	} catch (e) {
+		finishTexBuild(
+			texPath,
+			isBackgroundTaskCancelledError(e) ? "cancelled" : "failed",
+			isBackgroundTaskCancelledError(e)
+				? undefined
+				: e instanceof Error
+					? e.message
+					: String(e),
+		);
 		if (!isBackgroundTaskCancelledError(e)) {
 			notifyError(
 				e instanceof Error && e.message
@@ -242,5 +287,17 @@ export async function compileTexFile(
 		return null;
 	} finally {
 		texCompileStore.setState({ compilingPath: null });
+	}
+}
+
+/** The host owns artifact layout (outDir/jobname), including custom recipes. */
+export async function resolveTexPdfPath(rootPath: string): Promise<string> {
+	const build = texBuildOptions(rootPath);
+	try {
+		return (await getLatexArtifacts(rootPath, build)).pdfPath;
+	} catch (error) {
+		if (build.outDir || build.auxDir || build.jobname || build.recipe)
+			throw error;
+		return texPdfPath(rootPath);
 	}
 }

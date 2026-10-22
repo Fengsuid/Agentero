@@ -6,7 +6,7 @@
 
 - 仅 **LuaLaTeX**：`TextEditor` 工具栏和 LaTeX 面板的实时预览在本机有 `lualatex` 时出现。它不改 latexmk 用的编译引擎。
 - 仅 **本地 Vault**：rtex 需要本地 `lualatex` 子进程；远程 Vault / iOS / Android 不可用（模块按 target gate 掉）。
-- 正式 PDF 仍走 latexmk；实时预览是独立 tab，和编译 PDF 共用 root 输出路径。
+- 正式 PDF 仍走 latexmk；实时预览是独立 tab，和编译 PDF 共用项目配置后的输出路径。
 
 ## Host 结构
 
@@ -51,7 +51,7 @@
 
 1. LaTeX 面板的「实时预览」，或 `.tex` 编辑器工具栏的实时预览按钮。再点一次关闭，回到已有 PDF，不跑 latexmk。
 2. `openTexLive` flush 编辑器 → `resolveTexRoot`。
-3. 打开/复用 root PDF tab，置 `texLive: true`（`texRoot` 记录 .tex）。
+3. 打开/复用 项目输出 PDF tab，置 `texLive: true`（`texRoot` 记录 .tex）。
 4. 预览组件启动 `rtex_start`，挂载编辑器并 `set_document`；之后每次 change 走 `rtex_edit`。
 5. 编译和查看 PDF 通过 `openTexPdf` 清掉 `texLive` 回到编译 PDF。关掉实时预览（`closeTexLive`）只退出画布。手动 ⌘S 的静默编译在 live tab 下跳过。
 

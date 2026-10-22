@@ -34,7 +34,9 @@ const FILE_NODES = new Set(["Input", "Include", "Subfile"]);
 
 export type TexOutlineItem = {
 	id: string;
-	kind: "section" | "file";
+	kind: "section" | "file" | "figure" | "table" | "label";
+	/** Absolute source file for a project-wide outline item. */
+	path?: string;
 	/** Nesting under ancestor sections. Top-level rows are 0. */
 	indent: number;
 	title: string;
@@ -113,6 +115,38 @@ function walk(
 	indent: number,
 	out: TexOutlineItem[],
 ) {
+	if (node.name === "FigureEnvironment" || node.name === "TableEnvironment") {
+		const caption = descendantNamed(node, "Caption");
+		const arg = caption && descendantNamed(caption, "LongArg");
+		const kind = node.name === "FigureEnvironment" ? "figure" : "table";
+		pushItem(
+			out,
+			node,
+			doc,
+			indent,
+			kind,
+			arg ? oneLine(doc.sliceString(arg.from, arg.to)) : `\\begin{${kind}}`,
+		);
+		for (let child = node.firstChild; child; child = child.nextSibling) {
+			walk(child, doc, indent + 1, out);
+		}
+		return;
+	}
+	if (node.name === "Label") {
+		const arg =
+			descendantNamed(node, "LiteralArgContent") ??
+			descendantNamed(node, "ShortArg");
+		if (arg)
+			pushItem(
+				out,
+				node,
+				doc,
+				indent,
+				"label",
+				doc.sliceString(arg.from, arg.to).trim(),
+			);
+		return;
+	}
 	if (SECTION_NODES.has(node.name)) {
 		pushItem(out, node, doc, indent, "section", sectionTitle(node, doc));
 		// Only the body. The title argument can itself contain `\input`,
@@ -150,10 +184,16 @@ export function texOutlineFromTree(
 export function activeOutlineSectionId(
 	items: readonly TexOutlineItem[],
 	cursorLine: number,
+	path?: string,
 ): string | null {
 	let id: string | null = null;
 	for (const item of items) {
-		if (item.kind === "section" && item.line <= cursorLine) id = item.id;
+		if (
+			item.kind === "section" &&
+			item.line <= cursorLine &&
+			(!path || !item.path || item.path === path)
+		)
+			id = item.id;
 	}
 	return id;
 }

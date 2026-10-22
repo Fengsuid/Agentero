@@ -1,0 +1,10 @@
+{
+	"insertCitation": "从论文库插入引用",
+	"searchLibrary": "搜索标题、作者、年份或 DOI",
+	"noPapers": "没有匹配的论文",
+	"loading": "加载中",
+	"goToDefinition": "跳转到定义",
+	"syncPdf": "在 PDF 中定位",
+	"saveFailed": "请先保存项目中的修改，再插入引用。",
+	"noDocumentEnd": "请先在主文档中添加参考文献声明，再插入引用。"
+}

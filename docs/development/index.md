@@ -34,4 +34,6 @@
 
 macOS 签名与公证（已实现流程说明）在 [`../bug_fix/macos-signing.md`](../bug_fix/macos-signing.md)。
 
+LaTeX 写作与构建能力已落地，项目设置、依赖自动编译、统一底部问题列表、侧栏日志 modal、SyncTeX、项目补全与大纲见 [`../frontend/latex.md`](../frontend/latex.md)；本机工具链及边界见 [`../backend/latex.md`](../backend/latex.md)。
+
 本目录没有单独的 Roadmap / TODO 文件：未决项按能力记在对应已实现文档的「限制与后续」里。内置 provider（翻译 / embedding / 正文 OCR）的未决清单——`⟦n⟧` 占位符透传待真实 key 验证、Hunyuan-MT 模板空格待 A/B、目标语言从 en/zh-CN 扩到 37 种、把内嵌 key 换成网关签发的 per-install activation token——在 [`../backend/builtin-provider.md`](../backend/builtin-provider.md) §限制与后续。

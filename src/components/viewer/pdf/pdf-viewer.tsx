@@ -91,6 +91,7 @@ import { usePdfSelectionActions } from "@/components/viewer/pdf/hooks/use-pdf-se
 import { usePdfSelectionTranslate } from "@/components/viewer/pdf/hooks/use-pdf-selection-translate";
 import { useSentenceGlyphRects } from "@/components/viewer/pdf/hooks/use-pdf-sentence-glyph-rects";
 import { usePdfSidebarPanels } from "@/components/viewer/pdf/hooks/use-pdf-sidebar-panels";
+import { usePdfSyncTex } from "@/components/viewer/pdf/hooks/use-pdf-synctex";
 import { usePdfTextSelection } from "@/components/viewer/pdf/hooks/use-pdf-text-selection";
 import { usePdfTranslationSelection } from "@/components/viewer/pdf/hooks/use-pdf-translation-selection";
 import { usePdfViewerHandle } from "@/components/viewer/pdf/hooks/use-pdf-viewer-handle";
@@ -164,6 +165,7 @@ import {
 	publishTranslatedLinkSource,
 } from "@/lib/pdf/layout/translated-link-source";
 import { selectionAnchorFromVisible } from "@/lib/pdf/layout/visible-selection-rects";
+import type { PdfReloadPosition } from "@/lib/pdf/reload-position";
 import {
 	type ActiveSelectionCard,
 	selectionAnchorKey,
@@ -196,6 +198,7 @@ export type {
  */
 export const PdfViewer = memo(function PdfViewer(props: PdfViewerProps) {
 	const { t } = useTranslation("viewer");
+	const reloadPositionRef = useRef<PdfReloadPosition | null>(null);
 	const {
 		engine,
 		isLoading: engineLoading,
@@ -394,6 +397,9 @@ export const PdfViewer = memo(function PdfViewer(props: PdfViewerProps) {
 								docId={docId}
 								baseDocId={baseDocId}
 								sourceBytes={effectiveSourceBytes}
+								reloadPositionRef={
+									props.texRootPath ? reloadPositionRef : undefined
+								}
 							/>
 						);
 					}}
@@ -465,6 +471,9 @@ function PdfViewerInner({
 	plainViewer = false,
 	translationPane = false,
 	translationOnly = false,
+	texRootPath = null,
+	pdfPath = null,
+	reloadPositionRef,
 	importIdentifier,
 	onOpenSettings,
 	onHandle,
@@ -634,6 +643,8 @@ function PdfViewerInner({
 		totalPages,
 		scroll,
 		scrollRef,
+		zoomRef: zoomCapRef,
+		reloadPositionRef,
 	});
 
 	// Latest-ref wrappers: the hook's helpers close over the fresh-per-render
@@ -746,6 +757,16 @@ function PdfViewerInner({
 	}, [pageTextLinkMap, citationLinks]);
 
 	const hostRef = useRef<HTMLDivElement>(null);
+	usePdfSyncTex({
+		docId,
+		tabId: baseDocId,
+		rootPath: texRootPath,
+		pdfPath,
+		isActive,
+		hostRef,
+		navigate: goToRegion,
+		docCapRef,
+	});
 	const selectionCommentEngagedRef = useRef(false);
 
 	// ---- Text selection → floating action menu ----

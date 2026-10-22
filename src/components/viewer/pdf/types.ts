@@ -4,6 +4,7 @@
  */
 
 import type { FormattedSelection } from "@embedpdf/plugin-selection/react";
+import type { RefObject } from "react";
 import type { PromptImage } from "@/lib/agent/api";
 import type { PaperMetadata } from "@/lib/paper";
 import type { Citation } from "@/lib/paper/refs";
@@ -17,6 +18,7 @@ import type { CrossrefKind } from "@/lib/pdf/citation-dest-keys";
 import type { HighlightColor } from "@/lib/pdf/highlight/palette";
 import type { PdfHighlight } from "@/lib/pdf/highlight/types";
 import type { VisibleSelectionPage } from "@/lib/pdf/layout/visible-selection-rects";
+import type { PdfReloadPosition } from "@/lib/pdf/reload-position";
 import type { PdfViewerHandle } from "@/lib/workspace/viewer/pdf-viewer-registry";
 
 export type { PdfViewerHandle };
@@ -113,6 +115,9 @@ export type PdfViewerProps = {
 	 * (pages, zoom, search, text selection + copy) stays.
 	 */
 	plainViewer?: boolean;
+	/** Canonical TeX source and actual output path for compiled-document SyncTeX. */
+	texRootPath?: string | null;
+	pdfPath?: string | null;
 	/**
 	 * Identifier used by the "Import to library" action for remote papers.
 	 * Usually the arXiv abs/source URL.
@@ -128,6 +133,8 @@ export type PdfViewerInnerProps = PdfViewerProps & {
 	 * workspace tab — need this form, not the per-buffer `docId`.
 	 */
 	baseDocId: string;
+	/** Survives the inner EmbedPDF remount when the compiled buffer changes. */
+	reloadPositionRef?: RefObject<PdfReloadPosition | null>;
 };
 
 /** Viewport-space point (client px) used by every floating overlay. */

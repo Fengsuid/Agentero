@@ -7,6 +7,9 @@ import enAiElements from "./locales/en/aiElements.json";
 import enApp from "./locales/en/app.json";
 import enCommon from "./locales/en/common.json";
 import enEditor from "./locales/en/editor.json";
+import enLatexBuild from "./locales/en/latexBuild.json";
+import enLatexLanguage from "./locales/en/latexLanguage.json";
+import enLatexPdf from "./locales/en/latexPdf.json";
 import enMobile from "./locales/en/mobile.json";
 import enOnboarding from "./locales/en/onboarding.json";
 import enSettings from "./locales/en/settings.json";
@@ -18,6 +21,9 @@ import zhAiElements from "./locales/zh-CN/aiElements.json";
 import zhApp from "./locales/zh-CN/app.json";
 import zhCommon from "./locales/zh-CN/common.json";
 import zhEditor from "./locales/zh-CN/editor.json";
+import zhLatexBuild from "./locales/zh-CN/latexBuild.json";
+import zhLatexLanguage from "./locales/zh-CN/latexLanguage.json";
+import zhLatexPdf from "./locales/zh-CN/latexPdf.json";
 import zhMobile from "./locales/zh-CN/mobile.json";
 import zhOnboarding from "./locales/zh-CN/onboarding.json";
 import zhSettings from "./locales/zh-CN/settings.json";
@@ -39,6 +45,9 @@ export const resources = {
 		sidebar: enSidebar,
 		viewer: enViewer,
 		editor: enEditor,
+		latexBuild: enLatexBuild,
+		latexLanguage: enLatexLanguage,
+		latexPdf: enLatexPdf,
 		shortcuts: enShortcuts,
 		aiElements: enAiElements,
 		mobile: enMobile,
@@ -52,6 +61,9 @@ export const resources = {
 		sidebar: zhSidebar,
 		viewer: zhViewer,
 		editor: zhEditor,
+		latexBuild: zhLatexBuild,
+		latexLanguage: zhLatexLanguage,
+		latexPdf: zhLatexPdf,
 		shortcuts: zhShortcuts,
 		aiElements: zhAiElements,
 		mobile: zhMobile,

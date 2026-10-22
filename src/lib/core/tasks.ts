@@ -46,6 +46,7 @@ import {
 } from "@/lib/core/job-center";
 import { logger } from "@/lib/core/logger";
 import { listenEventSafe } from "@/lib/core/tauri-events";
+import { enqueueLatexBuild, type LatexBuildOptions } from "@/lib/tex/host";
 
 export type { JobKind, JobSnapshot, JobState };
 
@@ -282,16 +283,17 @@ export async function enqueueTask(spec: TaskSpec): Promise<JobSnapshot> {
 						params: (spec.params ?? null) as Json | null,
 					});
 				case "latexCompile": {
-					const engine =
-						(spec.params as { engine?: string } | null | undefined)?.engine ??
-						"pdflatex";
-					return commands.jobLatexCompileEnqueue({
+					const params = spec.params as
+						| { engine?: string; build?: LatexBuildOptions }
+						| undefined;
+					return enqueueLatexBuild({
 						vaultPath: spec.vaultPath,
 						texPath: spec.path,
-						engine,
+						engine: params?.engine ?? "pdflatex",
+						build: params?.build,
 						lane: spec.lane ?? null,
 						force: spec.force ?? false,
-					});
+					}).then((data) => ({ status: "ok" as const, data }));
 				}
 			}
 		},

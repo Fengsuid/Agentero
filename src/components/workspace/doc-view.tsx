@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import { lazy, memo, Suspense, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { PapersLibrary } from "@/components/library/papers-library";
@@ -192,6 +193,23 @@ function TexCompilingPlaceholder() {
 	);
 }
 
+function TexCompilingIndicator() {
+	const { t } = useTranslation("app");
+	return (
+		<div
+			role="status"
+			aria-live="polite"
+			className="pointer-events-none absolute bottom-12 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-background/95 px-3 py-1.5 text-xs shadow-sm"
+		>
+			<Loader2
+				className="size-3.5 animate-spin motion-reduce:animate-none"
+				aria-hidden
+			/>
+			{t("tabs.texCompiling")}
+		</div>
+	);
+}
+
 /**
  * DocView routes by tab kind/mode and only reads the matching domain props.
  * Compare just the fields the active branch consumes so a change in one
@@ -294,7 +312,7 @@ export const DocView = memo(function DocView({
 			</div>
 		);
 	}
-	if (tab.texCompiling) {
+	if (tab.texCompiling && !tab.pdfBytes && !tab.pdfUrl) {
 		return <TexCompilingPlaceholder />;
 	}
 	if (!tab.loaded) {
@@ -410,6 +428,8 @@ export const DocView = memo(function DocView({
 						isActive={active}
 						isRemotePaper={isRemoteArxivPath(tab.path)}
 						plainViewer={isPlainPdfPath(tab.path)}
+						texRootPath={tab.texRoot}
+						pdfPath={tab.path}
 						importIdentifier={tab.paperMeta?.source_url ?? undefined}
 						onOpenSettings={pdf.onOpenSettings}
 						className="h-full w-full"
@@ -420,6 +440,7 @@ export const DocView = memo(function DocView({
 						onOpenTranslationTab={pdf.onOpenTranslationTab}
 					/>
 				</Suspense>
+				{tab.texCompiling && <TexCompilingIndicator />}
 			</div>
 		);
 	}
@@ -504,6 +525,7 @@ export const DocView = memo(function DocView({
 						// Stable per-tab key: external disk changes swap the document
 						// in place via `reloadKey` (view state and scroll survive).
 						key={`text-${tab.id}`}
+						panelId={tab.id}
 						seed={tab.textSeed}
 						path={tab.path}
 						reloadKey={tab.textKey}

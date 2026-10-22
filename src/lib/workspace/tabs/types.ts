@@ -51,7 +51,7 @@ export type DocTab = {
 	texCompiling?: boolean;
 	/** Render the rtex live canvas instead of the compiled PDF (PDF tab only). */
 	texLive?: boolean;
-	/** Project root .tex for a live preview tab (derived from `path` when absent). */
+	/** Project root .tex for compiled PDFs and live previews, including custom outputs. */
 	texRoot?: string;
 	loaded: boolean;
 };
@@ -134,7 +134,7 @@ export type PanelPersistParams = {
 	mode: CenterViewMode;
 	/** Display title at save time; restore shows it before resources hydrate. */
 	title: string;
-	/** Live TeX pane state; only set while live. */
+	/** Live TeX pane state; only set while live. The source association persists in either mode. */
 	texLive?: boolean;
 	texRoot?: string;
 };

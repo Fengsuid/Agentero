@@ -49,6 +49,7 @@ export {
 	closeTexLive,
 	compileTexOnManualSave,
 	compileTexOnSave,
+	compileTexProject,
 	navigateWiki,
 	openCitation,
 	openGraphPath,

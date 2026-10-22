@@ -97,6 +97,7 @@ UI (AI Elements: Conversation + Message + PromptInput + Sources)
 | 论文库 Library（含阅读热力条） | [library.md](library.md) |
 | 入库 UI | [paper-import.md](paper-import.md) |
 | Markdown 编辑 | [markdown.md](markdown.md) |
+| LaTeX 写作、编译与 SyncTeX | [latex.md](latex.md) |
 | PDF 阅读与划词 | [pdf.md](pdf.md) |
 | 网页论文阅读与划词（内置代理 + 选区桥） | [web-view.md](web-view.md) |
 | PDF 版面分析（Figures / Tables / Algorithms / Formulas） | [pdf-layout-analysis.md](pdf-layout-analysis.md) |

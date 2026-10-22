@@ -1,4 +1,11 @@
-import { ChevronDown, Minus, Plus, Radio } from "lucide-react";
+import {
+	BookOpen,
+	ChevronDown,
+	Crosshair,
+	Minus,
+	Plus,
+	Radio,
+} from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -24,14 +31,20 @@ interface TextEditorToolbarProps {
 		title: string;
 		onOpen: () => void;
 	} | null;
+	texTools?: {
+		onCitation: () => void;
+		onSyncPdf: () => void;
+	} | null;
 }
 
 export function TextEditorToolbar({
 	fontSize,
 	onFontSizeChange,
 	livePreview,
+	texTools,
 }: TextEditorToolbarProps) {
 	const { t } = useTranslation("settings");
+	const { t: tx } = useTranslation("latexLanguage");
 	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -66,6 +79,30 @@ export function TextEditorToolbar({
 					PDF_CHROME_CHIP,
 				)}
 			>
+				{texTools ? (
+					<>
+						<Button
+							type="button"
+							size="icon-xs"
+							variant="ghost"
+							aria-label={tx("syncPdf")}
+							title={`${tx("syncPdf")} (⌘/Ctrl+Alt+J)`}
+							onClick={texTools.onSyncPdf}
+						>
+							<Crosshair className="size-3.5" aria-hidden />
+						</Button>
+						<Button
+							type="button"
+							size="icon-xs"
+							variant="ghost"
+							aria-label={tx("insertCitation")}
+							title={tx("insertCitation")}
+							onClick={texTools.onCitation}
+						>
+							<BookOpen className="size-3.5" aria-hidden />
+						</Button>
+					</>
+				) : null}
 				{livePreview ? (
 					<Button
 						type="button"

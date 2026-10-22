@@ -16,6 +16,7 @@ import { useStore } from "zustand";
 import { useTextEditorFontSize } from "@/components/viewer/hooks/use-text-editor-font-size";
 import { AskPopover } from "@/components/viewer/pdf/cards/ask-popover";
 import { SelectionMenu } from "@/components/viewer/pdf/cards/selection-menu";
+import { TexCitationPicker } from "@/components/viewer/tex-citation-picker";
 import { textLanguageExtensions } from "@/components/viewer/text-editor-language";
 import {
 	type EditorDiagnostic,
@@ -25,16 +26,32 @@ import {
 import { TextEditorToolbar } from "@/components/viewer/text-editor-toolbar";
 import { useTextEditorSelection } from "@/components/viewer/use-text-editor-selection";
 import { commands } from "@/lib/core/bindings";
-import { basenameOf, dirnameOf } from "@/lib/core/path";
-import { texOutlineFromTree } from "@/lib/tex/outline";
+import { basenameOf, dirnameOf, normalizePath } from "@/lib/core/path";
+import { texSettingsStore } from "@/lib/tex/config";
+import { insertTexCitation } from "@/lib/tex/editor-intelligence";
+import {
+	markTexEditorActive,
+	registerTexEditor,
+} from "@/lib/tex/editor-navigation";
+import { type TexOutlineItem, texOutlineFromTree } from "@/lib/tex/outline";
 import { isInsideProject } from "@/lib/tex/project";
+import {
+	invalidateTexProjectIndex,
+	loadTexProjectIndex,
+	notifyTexProjectFilesChanged,
+	registerTexProjectBuffer,
+	subscribeTexProjectChanges,
+} from "@/lib/tex/project-index";
+import { syncTexToPdf } from "@/lib/tex/synctex";
 import {
 	registerTexLiveEditor,
 	texLiveApplyUpdate,
 	texLiveSetDocument,
 } from "@/lib/tex-live/session";
 import { closeTexLive, openTexLive } from "@/lib/workspace/actions";
-import { workspaceStore } from "@/lib/workspace/store";
+import { dockHandle } from "@/lib/workspace/dock-registry";
+import { setActiveTabId, workspaceStore } from "@/lib/workspace/store";
+import { tabIdForPath } from "@/lib/workspace/tabs";
 import { ensureTexEngines, texCompileStore } from "@/lib/workspace/tex-compile";
 import {
 	bindTexOutline,
@@ -44,6 +61,7 @@ import { registerTextEditorFlusher } from "@/lib/workspace/text-editor-flush";
 import { isTexPath, textLanguageIdForPath } from "@/lib/workspace/viewer";
 
 interface TextEditorProps {
+	panelId?: string;
 	seed: string;
 	path: string;
 	reloadKey: number;
@@ -101,6 +119,7 @@ const baseTheme = EditorView.theme({
  * undo history are not thrown away.
  */
 export function TextEditor({
+	panelId,
 	seed,
 	path,
 	reloadKey,
@@ -111,6 +130,7 @@ export function TextEditor({
 	className,
 }: TextEditorProps) {
 	const { t } = useTranslation("settings");
+	const [citationOpen, setCitationOpen] = useState(false);
 	// Font size managed by hook with process-wide persistence (like PDF paper tone).
 	const { fontSize, setFontSize } = useTextEditorFontSize();
 
@@ -189,6 +209,7 @@ export function TextEditor({
 			lastSavedRef.current = content;
 			dirtyRef.current = false;
 			onDirtyChangeRef.current(false);
+			notifyTexProjectFilesChanged([path]);
 		}
 		return ok;
 	}, [onPersist, path]);
@@ -222,6 +243,20 @@ export function TextEditor({
 	onManualSaveRef.current = onManualSave;
 	const manualSaveKeymap = useMemo(
 		() => [
+			{
+				key: "Mod-Alt-j",
+				run: (view: EditorView) => {
+					if (!isTexPath(pathRef.current)) return false;
+					const position = view.state.selection.main.head;
+					const line = view.state.doc.lineAt(position);
+					void syncTexToPdf(
+						pathRef.current,
+						line.number,
+						position - line.from + 1,
+					);
+					return true;
+				},
+			},
 			{
 				key: "Mod-s",
 				preventDefault: true,
@@ -287,11 +322,20 @@ export function TextEditor({
 				EditorView.theme({ "&": { fontSize: `${fontSizeRef.current}px` } }),
 			),
 			baseTheme,
+			EditorView.domEventHandlers({
+				focus(_event, view) {
+					markTexEditorActive(pathRef.current, view);
+				},
+			}),
 			EditorView.updateListener.of((update) => {
 				if (update.docChanged || update.selectionSet) {
+					if (update.view.hasFocus)
+						markTexEditorActive(pathRef.current, update.view);
 					publishOutlineRef.current?.(update.view);
 				}
 				if (!update.docChanged) return;
+				if (isTexPath(pathRef.current) || /\.bib$/i.test(pathRef.current))
+					invalidateTexProjectIndex();
 				if (!dirtyRef.current) {
 					dirtyRef.current = true;
 					onDirtyChangeRef.current(true);
@@ -316,20 +360,109 @@ export function TextEditor({
 		// `handleDiagnostics` are stable — never re-mount the editor).
 	}, [manualSaveKeymap, selection.selectionListener, handleDiagnostics]);
 
+	useEffect(() => {
+		const view = viewRef.current;
+		if (!view) return;
+		const unregisterEditor = registerTexEditor(path, view, {
+			canonical: !panelId || panelId === tabIdForPath(path),
+			activate: panelId
+				? () => {
+						setActiveTabId(panelId);
+						dockHandle()?.activatePanel(panelId);
+					}
+				: undefined,
+		});
+		const unregisterBuffer = registerTexProjectBuffer(path, () =>
+			view.state.doc.toString(),
+		);
+		return () => {
+			unregisterEditor();
+			unregisterBuffer();
+		};
+	}, [path, panelId]);
+
 	// Mounted TeX buffer owns the sidebar outline and the click-to-jump
 	// target, including while the PDF tab is the one in front. Runs after
 	// the editor mounts so the first snapshot is the current buffer.
 	useEffect(() => {
 		if (!isTexPath(path)) return;
 		const binding = bindTexOutline(path);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let generation = 0;
+		let projectOutline: { items: TexOutlineItem[]; rootPath: string } | null =
+			null;
+		let previousDocument: Text | null = null;
+		let projectPaths = new Set<string>();
 		const publish = (view: EditorView) => {
-			const tree = syntaxTree(view.state);
-			binding.publish(
-				texOutlineFromTree(tree.topNode, view.state.doc),
-				view.state.doc.lineAt(view.state.selection.main.head).number,
-			);
+			const changed = previousDocument !== view.state.doc;
+			previousDocument = view.state.doc;
+			const cursorLine = view.state.doc.lineAt(
+				view.state.selection.main.head,
+			).number;
+			if (projectOutline) {
+				binding.publish(
+					projectOutline.items,
+					cursorLine,
+					projectOutline.rootPath,
+				);
+				if (!changed) return;
+			} else {
+				binding.publish(
+					texOutlineFromTree(syntaxTree(view.state).topNode, view.state.doc),
+					cursorLine,
+				);
+			}
+			if (timer) clearTimeout(timer);
+			const currentGeneration = ++generation;
+			timer = setTimeout(() => {
+				void loadTexProjectIndex(path)
+					.then((index) => {
+						if (currentGeneration !== generation || viewRef.current !== view)
+							return;
+						projectOutline = { items: index.outline, rootPath: index.rootPath };
+						projectPaths = new Set(
+							[...index.texFiles, ...index.bibFiles, ...index.dependencies].map(
+								normalizePath,
+							),
+						);
+						binding.publish(
+							index.outline,
+							view.state.doc.lineAt(view.state.selection.main.head).number,
+							index.rootPath,
+						);
+					})
+					.catch(() => {
+						/* Local outline remains usable without a desktop host. */
+					});
+			}, 500);
 		};
 		publishOutlineRef.current = publish;
+		const unsubscribeFiles = subscribeTexProjectChanges((paths) => {
+			const rootDir = dirnameOf(projectOutline?.rootPath ?? path);
+			if (
+				!paths.some(
+					(changed) =>
+						projectPaths.has(normalizePath(changed)) ||
+						isInsideProject(changed, rootDir),
+				)
+			)
+				return;
+			projectOutline = null;
+			const current = viewRef.current;
+			if (current) publish(current);
+		});
+		const unsubscribeSettings = texSettingsStore.subscribe(
+			(state, previous) => {
+				if (
+					state.roots === previous.roots &&
+					state.projects === previous.projects
+				)
+					return;
+				projectOutline = null;
+				const current = viewRef.current;
+				if (current) publish(current);
+			},
+		);
 		const view = viewRef.current;
 		if (view) publish(view);
 		const unregisterJump = registerTexOutlineJump(path, (line) => {
@@ -345,11 +478,15 @@ export function TextEditor({
 			current.focus();
 		});
 		return () => {
+			generation += 1;
+			if (timer) clearTimeout(timer);
 			if (publishOutlineRef.current === publish) {
 				publishOutlineRef.current = null;
 			}
 			binding.unbind();
 			unregisterJump();
+			unsubscribeSettings();
+			unsubscribeFiles();
 		};
 	}, [path]);
 
@@ -449,6 +586,24 @@ export function TextEditor({
 			<TextEditorToolbar
 				fontSize={fontSize}
 				onFontSizeChange={setFontSize}
+				texTools={
+					isTexPath(path)
+						? {
+								onCitation: () => setCitationOpen(true),
+								onSyncPdf: () => {
+									const view = viewRef.current;
+									if (!view) return;
+									const position = view.state.selection.main.head;
+									const line = view.state.doc.lineAt(position);
+									void syncTexToPdf(
+										path,
+										line.number,
+										position - line.from + 1,
+									);
+								},
+							}
+						: null
+				}
 				livePreview={
 					isTexPath(path) && (canLive || liveOn)
 						? {
@@ -468,9 +623,22 @@ export function TextEditor({
 						: null
 				}
 			/>
+			{isTexPath(path) ? (
+				<TexCitationPicker
+					path={path}
+					open={citationOpen}
+					onOpenChange={setCitationOpen}
+					onInsert={(key) => {
+						const view = viewRef.current;
+						if (!view) return;
+						insertTexCitation(view, key);
+					}}
+				/>
+			) : null}
 			<div ref={hostRef} className="min-h-0 w-full flex-1 overflow-hidden" />
 			{hasLintSources ? (
 				<TextEditorLintFooter
+					path={path}
 					diagnostics={diagnostics}
 					onJump={jumpToDiagnostic}
 				/>

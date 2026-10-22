@@ -12,6 +12,7 @@ export type TexOutlineSnapshot = {
 	path: string;
 	items: TexOutlineItem[];
 	cursorLine: number;
+	rootPath?: string;
 };
 
 type TexOutlineState = {
@@ -31,17 +32,26 @@ const jumpers = new Map<string, (line: number) => void>();
  * the new snapshot.
  */
 export function bindTexOutline(path: string): {
-	publish: (items: TexOutlineItem[], cursorLine: number) => void;
+	publish: (
+		items: TexOutlineItem[],
+		cursorLine: number,
+		rootPath?: string,
+	) => void;
 	unbind: () => void;
 } {
 	const key = normalizeTabPath(path);
 	const token = Symbol(key);
 	owners.set(key, token);
 	return {
-		publish(items, cursorLine) {
+		publish(items, cursorLine, rootPath) {
 			if (owners.get(key) !== token) return;
 			texOutlineStore.setState({
-				snapshot: { path: key, items, cursorLine },
+				snapshot: {
+					path: key,
+					items,
+					cursorLine,
+					...(rootPath ? { rootPath } : {}),
+				},
 			});
 		},
 		unbind() {

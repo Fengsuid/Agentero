@@ -2,8 +2,10 @@ import { forEachDiagnostic, setDiagnosticsEffect } from "@codemirror/lint";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { LucideIcon } from "lucide-react";
-import { CircleAlert, Info, TriangleAlert } from "lucide-react";
+import { Check, CircleAlert, Copy, Info, TriangleAlert } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { copyTextToClipboard } from "@/lib/core/clipboard";
 import { cn } from "@/lib/core/utils";
 
 /**
@@ -19,6 +21,7 @@ export type EditorDiagnostic = {
 	to: number;
 	severity: LintSeverity;
 	message: string;
+	source?: string;
 	/** 1-based position of the diagnostic start, IDE-style. */
 	line: number;
 	column: number;
@@ -44,6 +47,7 @@ export function collectEditorDiagnostics(
 			to,
 			severity,
 			message: diagnostic.message,
+			...(diagnostic.source ? { source: diagnostic.source } : {}),
 			line: line.number,
 			column: from - line.from + 1,
 		});
@@ -55,8 +59,7 @@ export function collectEditorDiagnostics(
 /**
  * Push the diagnostics to React whenever a lint run lands. The lint state
  * field is private to @codemirror/lint, but its setDiagnostics effect is the
- * public signal that a run replaced the markers (both lint sources dispatch
- * one merged transaction per run, so this fires once per run).
+ * public signal that a run replaced the markers.
  */
 export function lintDiagnosticsWatcher(
 	onDiagnostics: (diagnostics: EditorDiagnostic[]) => void,
@@ -100,72 +103,133 @@ const SEVERITY_META: Record<
 
 const SEVERITY_ORDER: LintSeverity[] = ["error", "warning", "info"];
 
-/**
- * The counts double as the hover target: resting on them reveals the problem
- * list as cards (document order, severity icon + message + L{line}:C{col});
- * clicking a card selects and scrolls to the span. Pure CSS hover — no
- * popover state to fight the editor's focus. The group is NAMED: the editor
- * wrapper also carries a bare `group` (toolbar hover chrome), and a bare
- * `group-hover` here would match it and pop the card from anywhere in the
- * editor.
- */
+/** Include the exact location and rule message when sharing findings with an agent. */
+export function formatEditorDiagnostic(
+	diagnostic: EditorDiagnostic,
+	path: string,
+): string {
+	return `${path ? `${path}:` : ""}${diagnostic.line}:${diagnostic.column} [${diagnostic.severity}]\n${diagnostic.message}`;
+}
+
+/** ChkTeX-only diagnostics keep the original lightweight hover/focus list. */
 export function TextEditorLintFooter({
 	diagnostics,
 	onJump,
+	path = "",
 }: {
 	diagnostics: EditorDiagnostic[];
 	onJump: (diagnostic: EditorDiagnostic) => void;
+	path?: string;
 }) {
 	const { t } = useTranslation("viewer");
+	const { t: tb } = useTranslation("latexBuild");
+	const [copiedKey, setCopiedKey] = useState<string | null>(null);
+	useEffect(() => {
+		if (copiedKey === null) return;
+		const timeout = setTimeout(() => setCopiedKey(null), 1500);
+		return () => clearTimeout(timeout);
+	}, [copiedKey]);
 	const counts: Record<LintSeverity, number> = {
 		error: 0,
 		warning: 0,
 		info: 0,
 	};
 	for (const diagnostic of diagnostics) counts[diagnostic.severity] += 1;
-
 	return (
 		<div className="flex h-7 shrink-0 items-center border-t bg-muted/30 px-3">
 			<div className="group/lint relative flex items-center gap-3">
-				{SEVERITY_ORDER.map((severity) => {
-					const { Icon, iconClasses, countKey } = SEVERITY_META[severity];
-					const count = counts[severity];
-					return (
-						<span
-							key={severity}
-							className={cn(
-								"flex items-center gap-1 font-mono text-xs text-muted-foreground",
-								count === 0 && "opacity-45",
-							)}
-						>
-							<Icon className={cn("size-3.5", iconClasses)} aria-hidden />
-							{count}
-							<span className="sr-only">{t(countKey, { count })}</span>
-						</span>
-					);
-				})}
-				{diagnostics.length > 0 ? (
-					<div className="pointer-events-none invisible absolute bottom-full left-0 z-20 mb-1.5 max-h-72 w-[28rem] overflow-y-auto rounded-md border bg-popover p-1 text-foreground opacity-0 shadow-lg transition-opacity group-hover/lint:pointer-events-auto group-hover/lint:visible group-hover/lint:opacity-100">
+				<button
+					type="button"
+					className="flex min-h-7 items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+					aria-label={SEVERITY_ORDER.map((severity) =>
+						t(SEVERITY_META[severity].countKey, { count: counts[severity] }),
+					).join(", ")}
+				>
+					{SEVERITY_ORDER.map((severity) => {
+						const { Icon, iconClasses, countKey } = SEVERITY_META[severity];
+						const count = counts[severity];
+						return (
+							<span
+								key={severity}
+								className={cn(
+									"flex items-center gap-1 font-mono text-xs text-muted-foreground",
+									count === 0 && "opacity-45",
+								)}
+							>
+								<Icon className={cn("size-3.5", iconClasses)} aria-hidden />
+								{count}
+								<span className="sr-only">{t(countKey, { count })}</span>
+							</span>
+						);
+					})}
+				</button>
+				{diagnostics.length ? (
+					<div className="pointer-events-none invisible absolute bottom-full left-0 z-20 max-h-72 w-[28rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border bg-popover p-1 text-foreground opacity-0 shadow-lg group-hover/lint:pointer-events-auto group-hover/lint:visible group-hover/lint:opacity-100 group-focus-within/lint:pointer-events-auto group-focus-within/lint:visible group-focus-within/lint:opacity-100">
 						{diagnostics.map((diagnostic) => {
+							const key = `${diagnostic.from}:${diagnostic.to}:${diagnostic.message}`;
 							const { Icon, iconClasses } = SEVERITY_META[diagnostic.severity];
 							return (
-								<button
-									type="button"
-									key={`${diagnostic.from}:${diagnostic.to}:${diagnostic.message}`}
-									onClick={() => onJump(diagnostic)}
-									className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left hover:bg-accent"
+								<div
+									key={key}
+									className="group/diagnostic relative rounded hover:bg-accent focus-within:bg-accent"
 								>
-									<Icon
-										className={cn("mt-0.5 size-3.5 shrink-0", iconClasses)}
-										aria-hidden
-									/>
-									<span className="min-w-0 flex-1 text-xs leading-snug">
-										{diagnostic.message}
-									</span>
-									<span className="shrink-0 font-mono text-[0.65rem] text-muted-foreground">
-										L{diagnostic.line}:C{diagnostic.column}
-									</span>
-								</button>
+									<button
+										type="button"
+										className="flex w-full min-w-0 select-text items-start gap-2 rounded px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+										onClick={(event) => {
+											const selection = window.getSelection();
+											// A drag should leave the selected message ready for native copy.
+											if (
+												event.detail > 0 &&
+												selection &&
+												!selection.isCollapsed &&
+												(event.currentTarget.contains(selection.anchorNode) ||
+													event.currentTarget.contains(selection.focusNode))
+											)
+												return;
+											onJump(diagnostic);
+										}}
+									>
+										<Icon
+											className={cn("mt-0.5 size-3.5 shrink-0", iconClasses)}
+											aria-hidden
+										/>
+										<span className="min-w-0 flex-1 break-words text-xs leading-snug">
+											{diagnostic.message}
+										</span>
+										<span
+											className="min-w-6 shrink-0 text-right font-mono text-[0.65rem] text-muted-foreground group-hover/diagnostic:invisible group-focus-within/diagnostic:invisible [@media(hover:none)]:invisible"
+											title={
+												path
+													? `${path}:${diagnostic.line}:${diagnostic.column}`
+													: undefined
+											}
+										>
+											{diagnostic.line}:{diagnostic.column}
+										</span>
+									</button>
+									<button
+										type="button"
+										className="absolute right-1 top-1 flex size-6 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagnostic:opacity-100 group-focus-within/diagnostic:opacity-100 [@media(hover:none)]:opacity-100"
+										aria-label={tb("copyProblem")}
+										title={tb("copyProblem")}
+										onClick={async () => {
+											if (
+												await copyTextToClipboard(
+													formatEditorDiagnostic(diagnostic, path),
+													{ errorMessage: tb("copyFailed") },
+												)
+											)
+												setCopiedKey(key);
+										}}
+									>
+										{copiedKey === key ? (
+											<Check className="size-3.5" aria-hidden />
+										) : (
+											<Copy className="size-3.5" aria-hidden />
+										)}
+									</button>
+								</div>
 							);
 						})}
 					</div>

@@ -227,7 +227,7 @@ export function FileTreeDisclosureIcon({
 const DROP_RING = "ring-1 ring-inset ring-primary bg-accent";
 const SELECTED_ROW = [
 	"bg-sidebar-primary/75 text-sidebar-primary-foreground",
-	"hover:bg-sidebar-primary/85 active:bg-sidebar-primary/90",
+	"hover:bg-sidebar-primary/85 active:not-has-[[data-tex-compile]:active]:bg-sidebar-primary/90",
 	"[&_svg]:text-sidebar-primary-foreground/90",
 ].join(" ");
 
@@ -442,7 +442,7 @@ export const FileTreeFile = ({
 				data-path={path}
 				draggable
 				className={cn(
-					"group flex h-7 min-h-7 cursor-pointer items-center gap-1 rounded px-4 transition-colors duration-75 hover:bg-sidebar-accent/80 active:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/80",
+					"group flex h-7 min-h-7 cursor-pointer items-center gap-1 rounded px-4 transition-colors duration-75 hover:bg-sidebar-accent/80 active:not-has-[[data-tex-compile]:active]:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/80",
 					isSelected && SELECTED_ROW,
 					dropTargetPath === path && DROP_RING,
 					className,

@@ -5,6 +5,8 @@ const writeVaultFileMock = vi.hoisted(() => vi.fn());
 const localFileToArrayBufferMock = vi.hoisted(() => vi.fn());
 const compileTexFileMock = vi.hoisted(() => vi.fn());
 const ensureTexEnginesMock = vi.hoisted(() => vi.fn());
+const dock = vi.hoisted(() => ({ openPanel: vi.fn(), activatePanel: vi.fn() }));
+vi.mock("@/lib/workspace/dock-registry", () => ({ dockHandle: () => dock }));
 
 vi.mock("@/lib/core/tauri", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/core/tauri")>();
@@ -25,6 +27,13 @@ vi.mock("@/lib/paper", async (importOriginal) => {
 	return { ...actual, localFileToArrayBuffer: localFileToArrayBufferMock };
 });
 
+vi.mock("@/lib/tex/host", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/tex/host")>()),
+	getLatexArtifacts: vi.fn(async (rootPath: string) => ({
+		pdfPath: rootPath.replace(/\.tex$/i, ".pdf"),
+	})),
+}));
+
 vi.mock("@/lib/core/notify", () => ({
 	notifyError: vi.fn(),
 	notifyUndo: vi.fn(),
@@ -43,9 +52,19 @@ vi.mock("@/lib/workspace/tex-compile", async (importOriginal) => {
 });
 
 import { notifyError } from "@/lib/core/notify";
+import {
+	DEFAULT_TEX_SETTINGS,
+	setTexProjectRoot,
+	setTexProjectSettings,
+	texSettingsStore,
+} from "@/lib/tex/config";
 import { vaultStore } from "@/lib/vault/store";
 // Import after the mocks: the actions under test save through mocked barrels.
-import { compileTexOnSave, persistTextFile } from "@/lib/workspace/actions";
+import {
+	compileTexOnSave,
+	compileTexProject,
+	persistTextFile,
+} from "@/lib/workspace/actions";
 import { workspaceStore } from "@/lib/workspace/store";
 import { createPlaceholderTab, tabIdForPath } from "@/lib/workspace/tabs";
 import { texCompileStore } from "@/lib/workspace/tex-compile";
@@ -80,6 +99,9 @@ function pdfTab() {
 }
 
 beforeEach(() => {
+	dock.openPanel.mockClear();
+	dock.activatePanel.mockClear();
+	texSettingsStore.setState({ projects: {}, roots: {} });
 	vi.mocked(notifyError).mockClear();
 	readVaultFileMock.mockReset().mockResolvedValue(SEED);
 	writeVaultFileMock.mockReset().mockResolvedValue(undefined);
@@ -195,6 +217,28 @@ describe("compileTexOnSave (manual ⌘S trigger)", () => {
 		expect(compileTexFileMock).not.toHaveBeenCalled();
 	});
 
+	it("uses the root recipe when saving a child without a detected engine", async () => {
+		const childPath = `${VAULT}/plans/chapters/intro.tex`;
+		setTexProjectRoot(childPath, TEX_PATH);
+		const recipe = {
+			name: "project build",
+			tools: [{ command: "/custom/latex", args: ["%DOC%"] }],
+		};
+		setTexProjectSettings(TEX_PATH, {
+			...DEFAULT_TEX_SETTINGS,
+			recipes: [recipe],
+			selectedRecipe: recipe.name,
+		});
+		texCompileStore.setState({ engines: [], selectedEngine: null });
+		const { compileTexOnManualSave } = await import("@/lib/workspace/actions");
+		await compileTexOnManualSave(childPath);
+		expect(compileTexFileMock).toHaveBeenCalledWith(TEX_PATH, {
+			quietSuccess: true,
+			triggerPath: childPath,
+		});
+		expect(notifyError).not.toHaveBeenCalled();
+	});
+
 	it("waits for the in-flight engine scan instead of dropping the trigger", async () => {
 		seedPdfPane();
 		const bytes = new ArrayBuffer(32);
@@ -220,6 +264,60 @@ describe("compileTexOnSave (manual ⌘S trigger)", () => {
 		await vi.waitFor(() => {
 			expect(pdfTab()?.pdfBytes).toBe(bytes);
 		});
+	});
+});
+
+describe("explicit builds preserve the active editor", () => {
+	it.each([
+		"normal",
+		"force",
+		"clean",
+	] as const)("refreshes an existing PDF without activating it (%s)", async (mode) => {
+		seedPdfPane();
+		const textTab = createPlaceholderTab(TEX_PATH, "text");
+		workspaceStore.setState((state) => ({
+			tabs: [...state.tabs, textTab],
+			activeTabId: textTab.id,
+		}));
+		const bytes = new ArrayBuffer(64);
+		compileTexFileMock.mockResolvedValue(PDF_PATH);
+		localFileToArrayBufferMock.mockResolvedValue(bytes);
+		await compileTexProject(TEX_PATH, mode);
+		expect(compileTexFileMock).toHaveBeenCalledWith(TEX_PATH, {
+			triggerPath: TEX_PATH,
+			mode,
+		});
+		expect(pdfTab()?.pdfBytes).toBe(bytes);
+		expect(workspaceStore.getState().activeTabId).toBe(textTab.id);
+		expect(workspaceStore.getState().tabs).toHaveLength(2);
+		expect(dock.openPanel).not.toHaveBeenCalled();
+		expect(dock.activatePanel).not.toHaveBeenCalled();
+	});
+
+	it("builds without creating a PDF pane when only the source is open", async () => {
+		const textTab = createPlaceholderTab(TEX_PATH, "text");
+		workspaceStore.setState({ tabs: [textTab], activeTabId: textTab.id });
+		compileTexFileMock.mockResolvedValue(PDF_PATH);
+		localFileToArrayBufferMock.mockResolvedValue(new ArrayBuffer(32));
+		await compileTexProject(TEX_PATH);
+		expect(workspaceStore.getState().tabs).toEqual([textTab]);
+		expect(workspaceStore.getState().activeTabId).toBe(textTab.id);
+		expect(dock.openPanel).not.toHaveBeenCalled();
+		expect(dock.activatePanel).not.toHaveBeenCalled();
+	});
+
+	it("preserves old PDF content and the source tab when compilation fails", async () => {
+		const previous = seedPdfPane();
+		const textTab = createPlaceholderTab(TEX_PATH, "text");
+		workspaceStore.setState((state) => ({
+			tabs: [...state.tabs, textTab],
+			activeTabId: textTab.id,
+		}));
+		await compileTexProject(TEX_PATH);
+		expect(pdfTab()?.pdfBytes).toBe(previous);
+		expect(pdfTab()?.texCompiling).toBe(false);
+		expect(workspaceStore.getState().activeTabId).toBe(textTab.id);
+		expect(dock.activatePanel).not.toHaveBeenCalled();
 	});
 });
 
