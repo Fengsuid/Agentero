@@ -9,17 +9,11 @@ import {
 	type CSSProperties,
 	useCallback,
 	useEffect,
-	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { usePdfEngineContext } from "@/components/viewer/pdf/engine-provider";
 import type {
 	CompileStatus,
@@ -54,6 +48,11 @@ import {
 	stopTexLiveSession,
 	type TexLiveSession,
 } from "@/lib/tex-live/session";
+
+import {
+	type TexLiveStatus,
+	useTexLiveStatusStore,
+} from "@/lib/tex-live/status";
 
 const PAGE_GAP = 16;
 const A4_WIDTH_SP = 597.5 * SP_PER_BP;
@@ -115,8 +114,6 @@ function cachedLayout(sessionId: string): LayoutUpdateEvent | null {
 		wall_ms: entry.wallMs,
 	};
 }
-
-type Status = "starting" | "live" | "waiting" | "restarting" | "failed";
 
 function taskToPromise<T>(task: {
 	wait: (ok: (value: T) => void, error: (error: unknown) => void) => void;
@@ -235,7 +232,7 @@ export function TexLiveViewer({
 	const renderScheduledRef = useRef(false);
 	const observerRef = useRef<IntersectionObserver | null>(null);
 	const [pageCount, setPageCount] = useState(0);
-	const [status, setStatus] = useState<Status>("starting");
+	const [status, setStatus] = useState<TexLiveStatus>("starting");
 	const [error, setError] = useState<string | null>(null);
 	const [retryKey, setRetryKey] = useState(0);
 
@@ -804,20 +801,17 @@ export function TexLiveViewer({
 		if (active) scheduleRenderRef.current();
 	}, [active]);
 
-	const statusLabel = useMemo(() => {
-		switch (status) {
-			case "starting":
-				return t("fileTree.liveStarting");
-			case "waiting":
-				return t("fileTree.liveWaiting");
-			case "restarting":
-				return t("fileTree.liveRestarting");
-			case "failed":
-				return t("fileTree.liveFailed");
-			default:
-				return t("fileTree.liveReady");
-		}
-	}, [status, t]);
+	useEffect(() => {
+		useTexLiveStatusStore.getState().setStatus(rootPath, {
+			status,
+			error: status === "failed" ? error : null,
+		});
+	}, [rootPath, status, error]);
+
+	useEffect(
+		() => () => useTexLiveStatusStore.getState().clearStatus(rootPath),
+		[rootPath],
+	);
 
 	return (
 		<div
@@ -826,33 +820,6 @@ export function TexLiveViewer({
 				className,
 			)}
 		>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<button
-						type="button"
-						aria-label={statusLabel}
-						className="absolute top-2 right-3 z-10 flex size-6 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					>
-						<span
-							className={cn(
-								"size-2 rounded-full ring-2 ring-background/80",
-								status === "live"
-									? "bg-emerald-500"
-									: status === "failed"
-										? "bg-red-500"
-										: "bg-amber-500",
-							)}
-							aria-hidden
-						/>
-					</button>
-				</TooltipTrigger>
-				<TooltipContent side="bottom" align="end" sideOffset={4}>
-					<span className="whitespace-pre-wrap break-words">
-						{error ? `${statusLabel}\n${error}` : statusLabel}
-					</span>
-				</TooltipContent>
-			</Tooltip>
-
 			<div ref={viewportRef} className="relative min-h-0 flex-1 overflow-auto">
 				<div
 					ref={pagesRef}

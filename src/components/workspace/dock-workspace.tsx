@@ -43,6 +43,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { TexLiveStatusDot } from "@/components/viewer/texlive/tex-live-status";
 import { DocView, type DocViewProps } from "@/components/workspace/doc-view";
 import { PaperPathBar } from "@/components/workspace/paper-path-bar";
 import { AgenteroTabGroupChip } from "@/components/workspace/tab-group-chip";
@@ -293,6 +294,11 @@ function WorkspaceTab({
 			<span className="dv-default-tab-content">
 				<MathText text={title ?? ""} />
 			</span>
+			{tab?.texLive ? (
+				<TexLiveStatusDot
+					rootPath={tab.texRoot ?? tab.path.replace(/\.pdf$/i, ".tex")}
+				/>
+			) : null}
 			{canToggleHtml ? (
 				<Tooltip>
 					<TooltipTrigger asChild>
