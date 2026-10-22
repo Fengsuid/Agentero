@@ -17,12 +17,105 @@ use std::{
 };
 use tauri::Emitter;
 
-fn executable_path(command: &str, cwd: &Path) -> Option<PathBuf> {
+fn environment_value<'a>(environment: &'a BTreeMap<String, String>, name: &str) -> Option<&'a str> {
+    // Match Command::envs precedence when a Windows recipe contains e.g.
+    // both PATH and Path: environment names are case-insensitive there.
+    environment.iter().rev().find_map(|(key, value)| {
+        let matches = if cfg!(windows) {
+            key.eq_ignore_ascii_case(name)
+        } else {
+            key == name
+        };
+        matches.then_some(value.as_str())
+    })
+}
+
+fn tool_environment(
+    tool: &LatexTool,
+    root: &Path,
+    artifact: &LatexArtifacts,
+) -> BTreeMap<String, String> {
+    tool.env
+        .iter()
+        .flat_map(|environment| environment.iter())
+        .map(|(key, value)| (key.clone(), expand(value, root, artifact)))
+        .collect()
+}
+
+#[cfg(windows)]
+fn windows_executable_path(
+    command: &str,
+    cwd: &Path,
+    environment: &BTreeMap<String, String>,
+) -> Option<PathBuf> {
+    let path = Path::new(command);
+    let directories = if path.is_absolute() || path.components().count() > 1 {
+        vec![cwd.to_path_buf()]
+    } else {
+        let paths = environment_value(environment, "PATH")
+            .map(std::ffi::OsString::from)
+            .or_else(|| std::env::var_os("PATH"))?;
+        std::env::split_paths(&paths)
+            .map(|path| {
+                if path.is_absolute() {
+                    path
+                } else {
+                    cwd.join(path)
+                }
+            })
+            .collect()
+    };
+    let extensions = environment_value(environment, "PATHEXT")
+        .map(String::from)
+        .or_else(|| std::env::var("PATHEXT").ok())
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into());
+    for directory in directories {
+        let candidate = super::root::normalize_lexical(&directory.join(path));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        // PATHEXT belongs to this recipe, rather than which's cached copy of
+        // the host environment. Never mutate the process-wide environment.
+        for extension in extensions.split(';').filter(|value| !value.is_empty()) {
+            let mut filename = candidate.as_os_str().to_os_string();
+            filename.push(extension);
+            let candidate = PathBuf::from(filename);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn executable_path(
+    command: &str,
+    cwd: &Path,
+    environment: &BTreeMap<String, String>,
+) -> Option<PathBuf> {
+    #[cfg(windows)]
+    if environment_value(environment, "PATH").is_some()
+        || environment_value(environment, "PATHEXT").is_some()
+    {
+        return windows_executable_path(command, cwd, environment);
+    }
     let path = Path::new(command);
     if path.is_absolute() {
         Some(path.to_path_buf())
     } else if path.components().count() > 1 {
         Some(super::root::normalize_lexical(&cwd.join(path)))
+    } else if let Some(paths) = environment_value(environment, "PATH") {
+        // The recipe's PATH is a replacement. A miss must not fall back to
+        // the host PATH or launch an unrelated system tool of the same name.
+        let paths = std::env::join_paths(std::env::split_paths(paths).map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                cwd.join(path)
+            }
+        }))
+        .ok()?;
+        which::which_in(command, Some(paths), cwd).ok()
     } else {
         resolve_engine(command)
     }
@@ -256,7 +349,8 @@ pub(super) async fn run_latexmk(
         }
         let command_name = expand(&tool.command, &root, &artifact);
         let tool_dir = tool_directory(&tool, &root, &artifact);
-        let Some(executable) = executable_path(&command_name, &tool_dir) else {
+        let environment = tool_environment(&tool, &root, &artifact);
+        let Some(executable) = executable_path(&command_name, &tool_dir, &environment) else {
             outcome = RunOutcome::Failed(Some(format!("{command_name} not found on this system")));
             break;
         };
@@ -271,12 +365,6 @@ pub(super) async fn run_latexmk(
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let environment: BTreeMap<String, String> = tool
-            .env
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(key, value)| (key, expand(&value, &root, &artifact)))
-            .collect();
         command.envs(environment);
         let description = format!(
             "[{} / {total}] {command_name} {}",
@@ -445,10 +533,77 @@ mod tests {
         assert_eq!(artifact.pdf_path, "/project/build/out/main.pdf");
         let cwd = tool_directory(&tool, root, &artifact);
         assert_eq!(
-            executable_path(&tool.command, &cwd),
+            executable_path(&tool.command, &cwd, &BTreeMap::new()),
             Some(PathBuf::from("/project/build/scripts/build.sh"))
         );
         assert_eq!(tool_arguments(&tool, root, &artifact, &options)[1], "out");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_and_runs_command_using_expanded_recipe_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let project = tempfile::tempdir().unwrap();
+        let bin = project.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let executable = bin.join("project-latex");
+        std::fs::write(&executable, "#!/bin/sh\nprintf 'recipe compiler'\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let root = project.path().join("main.tex");
+        let artifact = artifacts(&root, &Default::default()).unwrap();
+        let tool = LatexTool {
+            command: "project-latex".into(),
+            args: Vec::new(),
+            cwd: None,
+            env: Some(BTreeMap::from([("PATH".into(), "%DIR%/bin".into())])),
+        };
+        let environment = tool_environment(&tool, &root, &artifact);
+        let found = executable_path(&tool.command, project.path(), &environment).unwrap();
+        assert_eq!(found, executable);
+        let output = std::process::Command::new(found)
+            .current_dir(project.path())
+            .envs(&environment)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"recipe compiler");
+        // Relative PATH entries resolve against the tool cwd too.
+        let relative = BTreeMap::from([("PATH".into(), "bin".into())]);
+        assert_eq!(
+            executable_path(&tool.command, project.path(), &relative),
+            Some(executable)
+        );
+        let absent = BTreeMap::from([(
+            "PATH".into(),
+            project.path().join("absent").to_string_lossy().into_owned(),
+        )]);
+        assert!(executable_path("sh", project.path(), &absent).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_recipe_path_and_pathext_names_are_case_insensitive() {
+        let project = tempfile::tempdir().unwrap();
+        let bin = project.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let executable = bin.join("project-latex.TOOL");
+        std::fs::write(&executable, "test executable lookup").unwrap();
+        let environment = BTreeMap::from([
+            ("Path".into(), bin.to_string_lossy().into_owned()),
+            ("PathExt".into(), ".TOOL".into()),
+        ]);
+        assert_eq!(
+            executable_path("project-latex", project.path(), &environment),
+            Some(executable.clone())
+        );
+        assert_eq!(
+            executable_path("bin/project-latex", project.path(), &environment),
+            Some(executable.clone())
+        );
+        assert_eq!(
+            executable_path(&executable.to_string_lossy(), project.path(), &environment),
+            Some(executable)
+        );
     }
 
     #[test]

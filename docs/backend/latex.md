@@ -36,7 +36,7 @@ AGENTERO_UPDATE_BINDINGS=1 cargo test -p agentero export_typescript_bindings
 | `%OUTDIR%` / `%AUXDIR%` | 解析后的输出 / 中间产物目录 |
 | `%JOBNAME%` | 产物文件名，不含扩展名 |
 
-相对 cwd、可执行文件、输出参数按同一工具上下文解析。兼容的编译器步骤会接收项目显式输出参数；任意 helper 工具保留原参数。直接 TeX 引擎不支持分离 aux 时明确报错，建议使用 latexmk。
+相对 cwd、可执行文件、输出参数按同一工具上下文解析。工具环境先展开占位符，再用其 `PATH` 查找命令；相对 `PATH` 条目按工具 cwd 解析，显式 `PATH` 查找失败不回落系统路径。Windows 按大小写不敏感处理 `PATH` / `PATHEXT`。兼容的编译器步骤会接收项目显式输出参数；任意 helper 工具保留原参数。直接 TeX 引擎不支持分离 aux 时明确报错，建议使用 latexmk。
 
 产物路径统一由 `latex_build_artifacts` 计算。PDF 与 `.synctex.gz` 位于输出目录，`.fls` 与 `*.agentero.log` 位于 aux 目录；`*.agentero.log` 保存整条配方的输出，不覆盖引擎自己的 `.log`。自定义工具需要让参数与声明的产物布局一致。
 
