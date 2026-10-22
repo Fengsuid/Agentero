@@ -10,9 +10,16 @@ minimumReleaseAgeExclude:
   - '@embedpdf/plugin-ai-manager@0.0.1'
 overrides:
   brace-expansion@<5.0.12: '>=5.0.12 <6'
+  # Vite dev-server and launch-editor advisories (Dependabot #83 #85 #86 #88 #89).
+  vite@>=7.0.0 <7.3.7: '>=7.3.7 <8'
+  # Vitest manual-mock injection and Windows redirect bypass (Dependabot #90 #91).
+  '@vitest/mocker@<4.1.12': '>=4.1.12 <5'
+  # MCP SDK bearer-token, task-session, OAuth, and redirect advisories
+  # (Dependabot #79 #81 #82 #84). shadcn 4.13 allows ^1.26.0.
+  '@modelcontextprotocol/sdk@<1.32.0': '>=1.32.0 <2'
   browserslist@<4.28.7: '>=4.28.7 <5'
   dompurify@<3.4.16: '>=3.4.16 <4'
-  fast-uri@<3.1.6: '>=3.1.6 <4'
+  fast-uri@<3.1.8: '>=3.1.8 <4'
   hono@<4.13.7: '>=4.13.7 <5'
   ip-address@<10.7.1: '>=10.7.1 <11'
   js-yaml@<4.3.1: '>=4.3.1 <5'
