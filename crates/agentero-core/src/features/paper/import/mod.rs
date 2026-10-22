@@ -510,6 +510,49 @@ fn emit_batch_progress(
     );
 }
 
+/// Host scratch directory for path-less OS drops: `<home>/.agentero/import-tmp`.
+fn import_staging_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".agentero").join("import-tmp"))
+}
+
+/// `true` when `path` lives inside the Host drop staging directory.
+fn is_import_staging_path(path: &Path, staging_dir: &Path) -> bool {
+    path.starts_with(staging_dir)
+}
+
+/// Strip the [`stage_import_file`] stamp `<13-digit millis>-<8 hex>-` from a
+/// staged drop's file stem. Only the exact stamp is removed, so ordinary local
+/// filenames (arXiv ids, DOIs, user PDFs) always pass through unchanged.
+fn strip_staged_drop_prefix(stem: &str) -> &str {
+    const STAMP_LEN: usize = 13 + 1 + 8 + 1;
+    let bytes = stem.as_bytes();
+    // Exact stamp with nothing after it: keep the stem, there is no name left.
+    if bytes.len() <= STAMP_LEN {
+        return stem;
+    }
+    let digits_ok = bytes[..13].iter().all(u8::is_ascii_digit);
+    let hex_ok = bytes[14..22]
+        .iter()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b));
+    if digits_ok && bytes[13] == b'-' && hex_ok && bytes[22] == b'-' {
+        &stem[STAMP_LEN..]
+    } else {
+        stem
+    }
+}
+
+/// File stem to derive user-facing title/id from. Path-less drops are staged on
+/// disk as `<stamp>-<name>`; the Host stamp must never reach paper metadata
+/// (#801). `staging_dir` is injected via [`import_staging_dir`] so the decision
+/// stays pure and unit-testable.
+fn import_metadata_stem<'a>(path: &'a Path, staging_dir: Option<&Path>) -> &'a str {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("paper");
+    match staging_dir {
+        Some(dir) if is_import_staging_path(path, dir) => strip_staged_drop_prefix(stem),
+        _ => stem,
+    }
+}
+
 /// Write drop payload bytes to `~/.agentero/import-tmp/<stamp>-<name>` and return the path.
 /// Used when the webview cannot expose `File.path` (typical on macOS WKWebView).
 pub fn stage_import_file(args: StageImportFileArgs) -> Result<StageImportFileResult, AppError> {
@@ -539,9 +582,8 @@ pub fn stage_import_file(args: StageImportFileArgs) -> Result<StageImportFileRes
         return Err(AppError::message("file too large to stage (max 80MB)"));
     }
 
-    let home =
-        dirs::home_dir().ok_or_else(|| AppError::message("cannot resolve home directory"))?;
-    let dir = home.join(".agentero").join("import-tmp");
+    let dir =
+        import_staging_dir().ok_or_else(|| AppError::message("cannot resolve home directory"))?;
     fs::create_dir_all(&dir)?;
     let stamp = format!(
         "{}-{}",
@@ -677,7 +719,9 @@ async fn import_one_local_pdf(
         return Err(AppError::message("not a PDF file"));
     }
 
-    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("paper");
+    // Path-less drops are staged as `<import-tmp>/<stamp>-<name>`; never derive
+    // the paper title/id from the Host stamp (#801).
+    let stem = import_metadata_stem(&src, import_staging_dir().as_deref());
     let mut title = entry
         .title
         .as_deref()
@@ -1428,6 +1472,63 @@ mod tests {
         );
         assert_eq!(title_from_stem("  Hello   World  "), "Hello World");
         assert_eq!(title_from_stem("   "), "Untitled");
+    }
+
+    /// #801: stamped drop stems must yield clean title/id; only the exact
+    /// `<13-digit millis>-<8 lowercase hex>-` Host stamp is removed.
+    #[test]
+    fn staged_drop_stem_strips_host_stamp() {
+        assert_eq!(
+            strip_staged_drop_prefix("1792563636997-a5e60013-Differentiated Treatment"),
+            "Differentiated Treatment"
+        );
+        assert_eq!(
+            strip_staged_drop_prefix("1792563636997-a5e60013-中文标题"),
+            "中文标题"
+        );
+        assert_eq!(
+            strip_staged_drop_prefix("0000000000001-00000000-note"),
+            "note"
+        );
+    }
+
+    #[test]
+    fn staged_drop_stem_leaves_near_misses_unchanged() {
+        for stem in [
+            "1706.03762",
+            "10.1038-nature12373",
+            "1792563636997-ABCDEF12-x", // uppercase hex
+            "179256363699-ab5e60013-x", // 12-digit millis
+            "1792563636997-a5e6001-x",  // 7 hex chars
+            "1792563636997-a5e60013x",  // missing trailing separator
+            "1792563636997-a5e60013-",  // stamp only, no name
+            "Attention-Is-All-You-Need",
+        ] {
+            assert_eq!(strip_staged_drop_prefix(stem), stem, "stem: {stem}");
+        }
+    }
+
+    /// Only paths inside the Host staging dir lose the stamp; the same-looking
+    /// name in a user directory is a real filename and must be preserved.
+    #[test]
+    fn staged_drop_metadata_stem_only_strips_inside_staging_dir() {
+        let staging = Path::new("/home/u/.agentero/import-tmp");
+        let staged = staging.join("1792563636997-a5e60013-Differentiated Treatment.pdf");
+        let stem = import_metadata_stem(&staged, Some(staging));
+        assert_eq!(stem, "Differentiated Treatment");
+        assert_eq!(title_from_stem(stem), "Differentiated Treatment");
+        assert_eq!(slug_from_stem(stem), "Differentiated-Treatment");
+
+        let user_file = Path::new("/home/u/Downloads/1792563636997-a5e60013-My Paper.pdf");
+        assert_eq!(
+            import_metadata_stem(user_file, Some(staging)),
+            "1792563636997-a5e60013-My Paper"
+        );
+        // Unresolvable home dir (no staging dir) never strips.
+        assert_eq!(
+            import_metadata_stem(&staged, None),
+            "1792563636997-a5e60013-Differentiated Treatment"
+        );
     }
 
     #[test]

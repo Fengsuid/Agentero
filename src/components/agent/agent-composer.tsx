@@ -278,7 +278,6 @@ export function AgentComposer(props: AgentComposerProps) {
 						)}
 					>
 						<ComposerContextChips
-							compact={compact}
 							currentFilePath={props.currentFilePath}
 							currentFileLabel={props.currentFileLabel}
 							mentionChipPaths={[]}

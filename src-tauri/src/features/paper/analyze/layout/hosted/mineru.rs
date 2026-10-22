@@ -6,7 +6,7 @@
 //! intermediate result — `*middle.json` in older zips, `layout.json` in
 //! cloud v4 — for per-page sizes.
 //!
-//! A user-supplied `baseUrl` switches to a self-hosted deployment instead: its
+//! The `selfHosted` option switches to a self-hosted deployment instead: its
 //! dialect is detected from the health endpoint (see [`MineruDialect`]), and
 //! the same zip is read back — 4.0 zips carry `middle_json.json`
 //! (`docvortex.middle`, 0–1 normalized boxes), 3.x zips the cloud-shaped
@@ -29,6 +29,8 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::io::Read;
 use std::time::{Duration, Instant};
+
+mod extract;
 
 const MINERU_BASE_URL: &str = "https://mineru.net";
 const MINERU_POLL_INTERVAL: Duration = Duration::from_secs(3);
@@ -913,12 +915,23 @@ async fn analyze_pdf(ctx: LayoutAnalyzeContext) -> Result<LayoutRemoteAnalyzePdf
 
 /// Whole-document MinerU extract returning the result zip. Shared by the
 /// layout analyze path and the PAPER.md body-parse engine, both of which read
-/// their own entries out of that zip.
+/// their own entries out of that zip. Identical concurrent requests share one
+/// extraction; completed ZIPs are not retained in a cache.
 ///
-/// Without a `baseUrl` this is the official cloud batch flow; with one it is a
-/// self-hosted deployment, whose dialect is detected from `/v1/health` (4.0+)
-/// or `/health` (3.x).
+/// `selfHosted` chooses between the cloud batch flow (including custom relays)
+/// and a self-hosted deployment, whose dialect is detected from `/v1/health`
+/// (4.0+) or `/health` (3.x).
 pub(crate) async fn run_mineru_extract(
+    credentials: &HostedProviderCredentials,
+    pdf_bytes: Vec<u8>,
+    file_name: &str,
+    progress: super::ProgressFn<'_>,
+    cancel: super::CancelFn<'_>,
+) -> Result<std::sync::Arc<Vec<u8>>, AppError> {
+    extract::run(credentials, pdf_bytes, file_name, progress, cancel).await
+}
+
+async fn run_mineru_extract_unshared(
     credentials: &HostedProviderCredentials,
     pdf_bytes: Vec<u8>,
     file_name: &str,

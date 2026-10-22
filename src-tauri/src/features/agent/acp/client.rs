@@ -242,14 +242,18 @@ pub(crate) fn build_child_env(
 }
 
 pub(crate) fn effective_local_agent_env(desc: &AgentDescriptor) -> HashMap<String, String> {
-    build_child_env(std::env::vars(), login_shell_env(), &desc.env)
+    build_child_env(std::env::vars(), login_shell_env().as_deref(), &desc.env)
 }
 
 /// Merged process + login-shell environment without any per-agent overrides.
 /// Used when resolving a template-owned command (e.g. the login terminal) that
 /// is not tied to a registered `AgentDescriptor`.
 pub(crate) fn local_login_shell_env() -> HashMap<String, String> {
-    build_child_env(std::env::vars(), login_shell_env(), &HashMap::new())
+    build_child_env(
+        std::env::vars(),
+        login_shell_env().as_deref(),
+        &HashMap::new(),
+    )
 }
 
 pub(crate) fn resolve_command_in_agent_env(

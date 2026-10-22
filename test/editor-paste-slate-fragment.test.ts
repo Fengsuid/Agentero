@@ -1,7 +1,9 @@
+// @vitest-environment happy-dom
 import { HeadingRules } from "@platejs/basic-nodes";
 import { H2Plugin } from "@platejs/basic-nodes/react";
 import { BaseListPlugin } from "@platejs/list";
-import { createSlateEditor, createSlatePlugin, KEYS } from "platejs";
+import { createSlatePlugin, KEYS } from "platejs";
+import { createPlateEditor } from "platejs/react";
 import { describe, expect, it } from "vitest";
 import { MarkdownKit } from "@/components/editor/plugins/markdown-kit";
 
@@ -23,7 +25,7 @@ const TestWikiLinkPlugin = createSlatePlugin({
 function createPasteEditor(
 	initialValue: unknown[] = [{ type: "p", children: [{ text: "" }] }],
 ) {
-	const editor = createSlateEditor({
+	const editor = createPlateEditor({
 		plugins: [
 			TestParagraphPlugin,
 			RealH2Plugin,
@@ -49,25 +51,24 @@ function encodeFragment(fragment: unknown[]): string {
 function slateClipboard(options: {
 	text?: string;
 	fragment?: unknown[];
+	encodedFragment?: string;
 	htmlWithFragment?: boolean;
 }) {
 	const text = options.text ?? "";
-	const encoded = options.fragment ? encodeFragment(options.fragment) : "";
+	const encoded =
+		options.encodedFragment ??
+		(options.fragment ? encodeFragment(options.fragment) : "");
 	return {
 		files: [],
 		getData: (type: string) => {
 			if (
 				type === "application/x-slate-fragment" &&
-				options.fragment &&
+				encoded &&
 				!options.htmlWithFragment
 			) {
 				return encoded;
 			}
-			if (
-				type === "text/html" &&
-				options.fragment &&
-				options.htmlWithFragment
-			) {
+			if (type === "text/html" && encoded && options.htmlWithFragment) {
 				return `<div data-slate-fragment="${encoded}">copied content</div>`;
 			}
 			if (type === "text/plain") return text;
@@ -77,6 +78,25 @@ function slateClipboard(options: {
 }
 
 describe("intra-editor paste preserving Slate fragment", () => {
+	it.each([
+		"not base64!",
+		Buffer.from("%invalid-uri").toString("base64"),
+		Buffer.from("not json").toString("base64"),
+		encodeFragment([{ type: KEYS.p, children: [null] }]),
+		encodeFragment([
+			{ type: KEYS.p, children: [{ type: "a", children: [{ text: 42 }] }] },
+		]),
+	])("falls back to Markdown without partial insertion for malformed fragment %s", (encodedFragment) => {
+		const editor = createPasteEditor([
+			{ type: KEYS.h2, children: [{ text: "" }] },
+		]);
+		editor.tf.insertData(slateClipboard({ text: "fallback", encodedFragment }));
+		expect(editor.children).toMatchObject([
+			{ type: KEYS.h2, children: [{ text: "fallback" }] },
+		]);
+		expect(editor.children).toHaveLength(1);
+	});
+
 	it("preserves rich AST (headings and paragraphs) without inserting extra blank lines", () => {
 		const editor = createPasteEditor();
 		const fragment = [
@@ -241,7 +261,7 @@ describe("intra-editor paste preserving Slate fragment", () => {
 	});
 
 	it("reproduces heading paste with MarkdownEditorKit", () => {
-		const editor = createSlateEditor({
+		const editor = createPlateEditor({
 			plugins: [TestParagraphPlugin, RealH2Plugin, ...MarkdownKit],
 			value: [{ type: KEYS.p, children: [{ text: "" }] }],
 		});

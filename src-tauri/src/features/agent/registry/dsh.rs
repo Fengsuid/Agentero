@@ -64,21 +64,19 @@ fn npm_entry(command: &Path) -> Result<Option<PathBuf>, String> {
 }
 
 fn compatible_node(node: &Path) -> bool {
-    use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
-    let Ok(mut child) = Command::new(node)
-        .args([
+    let mut command = Command::new(node);
+    command.args([
             "--input-type=module",
             "-e",
             "const [major,minor]=process.versions.node.split('.').map(Number); process.exit(((major===22&&minor>=19)||(major===24&&minor>=2)||major>24)&&typeof import.meta.main==='boolean'?0:1)",
         ])
-        .creation_flags(0x0800_0000)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
+        .stderr(Stdio::null());
+    crate::core::process::hide_console_window(&mut command);
+    let Ok(mut child) = command.spawn() else {
         return false;
     };
     let started = Instant::now();

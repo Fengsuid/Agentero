@@ -99,6 +99,7 @@ nav:
       - A2A 本机与远端协作: development/A2A.md
       - 面板 resize 性能调研（同类项目做法）: development/resize-performance-research.md
       - Agent DX（CLI / MCP / Skill）: development/agent-dx.md
+      - 插件 API 契约（Phase 0–1）: development/plugin-api.md
       - Crate 拆分路线图: development/crate-split-roadmap.md
       - Import 学术 API 抽象层: development/import-api-abstraction.md
       - Rust 端架构重构计划: development/rust-arch-refactor.md
@@ -111,6 +112,7 @@ nav:
       - 发布前 Checklist: test/release-checklist.md
 
   - Bug 修复记录:
+      - 兼容补丁清理与验证: bug_fix/compatibility-patch-cleanup.md
       - DeepSeek 正文落入 Thinking: bug_fix/deepseek-thinking-body.md
       - ACP 会话恢复 ID 错误: bug_fix/acp-session-resume-id.md
       - 输入法组字 Enter 误发送: bug_fix/ime-composition-enter-submit.md

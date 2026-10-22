@@ -15,6 +15,11 @@ import {
 import type { ScreenPoint } from "@/components/viewer/pdf/types";
 import { cn } from "@/lib/core/utils";
 import type { HighlightColor } from "@/lib/pdf/highlight/palette";
+import type { MenuContext } from "@/lib/shell/commands/menu-contributions";
+import {
+	activateMenuContribution,
+	visibleMenuContributions,
+} from "@/lib/shell/commands/menu-contributions";
 import { formatModShortcut } from "@/lib/shell/shortcuts";
 import { useSelectionOverlayGuard } from "@/lib/workspace/selection-overlay";
 
@@ -33,6 +38,11 @@ type SelectionMenuProps = {
 	showHighlight?: boolean;
 	/** Show the translate action (ephemeral cards on surfaces without marks/). */
 	showTranslate?: boolean;
+	/**
+	 * PDF selection only. HTML and the text editor omit this, so their
+	 * toolbars do not query `pdf.selection`.
+	 */
+	contributionContext?: MenuContext;
 };
 
 const BAR_H = 32;
@@ -107,6 +117,7 @@ function SelectionCopyButton({
  * Annotate lives on the right-rail selection comment chip instead.
  * `showHighlight` / `showTranslate` hide the persistent actions on surfaces
  * without marks/ (remote papers, proxied web pages).
+ * Visible `pdf.selection` contributions append after the built-in buttons.
  */
 export function SelectionMenu({
 	screen,
@@ -117,6 +128,7 @@ export function SelectionMenu({
 	onCopy,
 	showHighlight = true,
 	showTranslate = true,
+	contributionContext,
 }: SelectionMenuProps) {
 	const { t } = useTranslation("viewer");
 	// Suspend dockview drag-and-drop while this toolbar floats over the tab
@@ -126,12 +138,19 @@ export function SelectionMenu({
 	const quickChatShortcut = formatModShortcut("k");
 	const addToChatShortcut = formatModShortcut("l");
 	const copyShortcut = formatModShortcut("c");
+	const contributions = contributionContext
+		? visibleMenuContributions("pdf.selection", contributionContext)
+		: [];
 
 	const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
 	const vh = typeof window !== "undefined" ? window.innerHeight : 800;
 	// Approximate collapsed width for centering; flex content sizes the real bar.
 	// Pin with CSS `right` so stack width changes grow left without moving actions.
-	const barW = (showTranslate ? 280 : 200) + (onCopy ? 32 : 0);
+	// Zero contributions keep the built-in width.
+	const barW =
+		(showTranslate ? 280 : 200) +
+		(onCopy ? 32 : 0) +
+		(contributions.length > 0 ? contributions.length * 72 : 0);
 	const expandPad = showHighlight ? HIGHLIGHT_COLOR_STACK_WIDTH_DELTA : 0;
 	let left = screen.x - barW / 2;
 	// Leave room on the left so the color stack can expand without clipping.
@@ -223,6 +242,24 @@ export function SelectionMenu({
 						{addToChatShortcut}
 					</kbd>
 				</button>
+				{contributions.length > 0 ? (
+					<>
+						<div className="mx-0.5 h-4 w-px shrink-0 bg-border" />
+						{contributions.map((item) => (
+							<button
+								key={item.id}
+								type="button"
+								className="inline-flex h-7 shrink-0 items-center rounded-md px-1.5 text-caption font-medium text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] motion-reduce:active:scale-100"
+								onPointerDown={(event) => event.preventDefault()}
+								onClick={() => {
+									activateMenuContribution(item);
+								}}
+							>
+								<span>{item.title}</span>
+							</button>
+						))}
+					</>
+				) : null}
 			</TooltipProvider>
 		</div>
 	);

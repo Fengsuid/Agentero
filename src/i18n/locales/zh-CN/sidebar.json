@@ -88,7 +88,7 @@
 		"liveFailed": "实时预览失败",
 		"liveFirstPage": "正在等待第一页…",
 		"liveRetry": "重试",
-		"liveCompile": "实时编译"
+		"liveCompile": "实时预览"
 	},
 	"importLocalPdf": {
 		"dropNoPath": "无法读取拖入的 PDF。请改用魔棒 → 导入 PDF，或从 Finder 再拖一次。"
@@ -387,6 +387,17 @@
 		"searchConfirm": "添加",
 		"searchCitations_other": "被引 {{count}} 次",
 		"searchCandidatesFound": "找到 {{count}} 篇匹配论文，请选择要添加的一篇。"
+	},
+	"latexPanel": {
+		"title": "LaTeX",
+		"resize": "调整 LaTeX 面板高度",
+		"commands": "命令",
+		"structure": "结构",
+		"viewPdf": "查看 PDF",
+		"engineSettings": "编译引擎",
+		"engineFromFile": "根文件指定了这个引擎。",
+		"fileMissing": "找不到「{{name}}」。",
+		"emptyStructure": "这个文件里没有章节。"
 	},
 	"paperInfo": {
 		"info": "信息",

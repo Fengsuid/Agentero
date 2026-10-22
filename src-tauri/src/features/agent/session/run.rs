@@ -947,13 +947,6 @@ impl RunOnceContext {
     }
 }
 
-/// Every template can reuse a warm connection — the current `dsh --profile
-/// acp` advertises session list/resume, so pooling no longer changes its
-/// continue semantics.
-fn poolable_template(_template: &AgentTemplate) -> bool {
-    true
-}
-
 /// Terminal outcome of a pooled run: `Done` finishes the run (result or
 /// post-prompt error → `agent:failed` upstream); `Handoff` marks a pre-prompt
 /// failure that should fall back to the cold path.
@@ -1109,27 +1102,25 @@ pub async fn run_once(params: RunOnceParams) -> Result<AgentResultPayload, AppEr
         prep.resume_session_id.as_deref(),
     ) {
         if let Some(pool) = params.warm_pool.clone() {
-            if poolable_template(&params.desc.template) {
-                let key = pool_key(&params.desc.id, prep.cwd.clone(), params.remote.as_ref());
-                if let Some(slot) = pool.take(&key).await {
-                    match run_on_pooled(&pool, slot, &params, &prep).await {
-                        PooledOutcome::Done(result) => {
-                            return match result {
-                                Ok(payload) => Ok(payload),
-                                Err(e) => {
-                                    let msg = e.to_string();
-                                    emit_run_failed(&params.app, &params.session_id, &msg);
-                                    Err(AppError::domain("acp", format!("acp: {msg}")))
-                                }
-                            };
-                        }
-                        PooledOutcome::Handoff => {
-                            log::warn!(
-                                target: "agentero::agent",
-                                "agent={} pooled connection failed pre-prompt; retrying cold",
-                                params.desc.id
-                            );
-                        }
+            let key = pool_key(&params.desc.id, prep.cwd.clone(), params.remote.as_ref());
+            if let Some(slot) = pool.take(&key).await {
+                match run_on_pooled(&pool, slot, &params, &prep).await {
+                    PooledOutcome::Done(result) => {
+                        return match result {
+                            Ok(payload) => Ok(payload),
+                            Err(e) => {
+                                let msg = e.to_string();
+                                emit_run_failed(&params.app, &params.session_id, &msg);
+                                Err(AppError::domain("acp", format!("acp: {msg}")))
+                            }
+                        };
+                    }
+                    PooledOutcome::Handoff => {
+                        log::warn!(
+                            target: "agentero::agent",
+                            "agent={} pooled connection failed pre-prompt; retrying cold",
+                            params.desc.id
+                        );
                     }
                 }
             }

@@ -11,6 +11,12 @@ import { isBackgroundTaskCancelledError } from "@/lib/core/background-tasks";
 import { commands } from "@/lib/core/bindings";
 import { notifyError, notifySuccess } from "@/lib/core/notify";
 import { enqueueTaskSettled } from "@/lib/core/tasks";
+import {
+	chooseTexEngine,
+	parseTexProgram,
+	rememberedTexEngine,
+} from "@/lib/tex/engine";
+import { readVaultFile } from "@/lib/vault/fs";
 import { vaultStore } from "@/lib/vault/store";
 import { texPdfPath } from "@/lib/workspace/viewer";
 
@@ -34,9 +40,6 @@ export const texCompileStore = createStore<TexCompileState>(() => ({
 	compilingPath: null,
 }));
 
-// Once the user explicitly picks an engine, never overwrite their choice
-// on subsequent engine-list refreshes.
-let userPickedEngine = false;
 // Single-flight detection promise: callers can await it instead of racing
 // the async result (compile right after a window reload used to read an
 // empty list and falsely report "no engine").
@@ -54,12 +57,7 @@ export function ensureTexEngines(): Promise<void> {
 			try {
 				const res = await commands.detectLatexEngines();
 				if (res.ok && res.data && res.data.length > 0) {
-					const prev = texCompileStore.getState();
 					texCompileStore.setState({ engines: res.data });
-					// First-time default: only seed if the user has not picked yet.
-					if (!prev.selectedEngine && !userPickedEngine) {
-						texCompileStore.setState({ selectedEngine: res.data[0].id });
-					}
 				} else {
 					// Failed scan or engine-less host: allow a later retry (a
 					// TeX install mid-session is picked up by the next compile).
@@ -85,8 +83,50 @@ export function initTexEngines(): void {
 }
 
 export function selectTexEngine(id: string): void {
-	userPickedEngine = true;
 	texCompileStore.setState({ selectedEngine: id });
+}
+
+export type TexEngineChoice = {
+	rootPath: string;
+	engineId: string | null;
+	/** Root file names an engine that is installed. The settings list stays put. */
+	locked: boolean;
+};
+
+async function magicProgram(rootPath: string): Promise<string | null> {
+	try {
+		return parseTexProgram(await readVaultFile(rootPath));
+	} catch {
+		return null;
+	}
+}
+
+/** Engine for an already-resolved root file. */
+export async function engineChoiceForRoot(
+	rootPath: string,
+): Promise<TexEngineChoice> {
+	await ensureTexEngines();
+	const available = texCompileStore
+		.getState()
+		.engines.map((engine) => engine.id);
+	const magic = await magicProgram(rootPath);
+	return {
+		rootPath,
+		engineId: chooseTexEngine({
+			magic,
+			remembered: rememberedTexEngine(rootPath),
+			available,
+		}),
+		locked: magic != null && available.includes(magic),
+	};
+}
+
+/** Resolve the root, then the engine latexmk should call for it. */
+export async function inspectTexEngine(
+	texPath: string,
+): Promise<TexEngineChoice> {
+	const rootPath = await resolveTexRoot(texPath);
+	return engineChoiceForRoot(rootPath);
 }
 
 /**
@@ -144,7 +184,8 @@ export async function cleanTexAuxFiles(texPath: string): Promise<boolean> {
 }
 
 /**
- * Compile with the selected (or first detected) engine. Runs as a background
+ * Compile with the root file's engine (`% !TEX program`, else the engine
+ * remembered for that project, else XeLaTeX). Runs as a background
  * job: the tasks panel shows live latexmk progress (rule / run milestones)
  * and a cancel button; `compilingPath` still drives the file-tree spinner.
  * Returns the absolute pdf path on success, else null.
@@ -165,14 +206,15 @@ export async function compileTexFile(
 	// Wait for the in-flight scan: reading the store immediately after a
 	// window reload races detection and falsely reports "no engine".
 	await ensureTexEngines();
-	const { selectedEngine, engines, compilingPath } = texCompileStore.getState();
-	const engine = selectedEngine ?? engines[0]?.id ?? null;
-	if (!engine) {
-		notifyError(i18n.t("sidebar:fileTree.selectEngineFirst"));
+	const { compilingPath } = texCompileStore.getState();
+	if (compilingPath) return null;
+	const { engineId } = await engineChoiceForRoot(texPath);
+	if (!engineId) {
+		notifyError(i18n.t("sidebar:fileTree.noLatexEngine"));
 		return null;
 	}
 	// One in-flight compile at a time (prevents ⌘\ double-fire).
-	if (compilingPath) return null;
+	if (texCompileStore.getState().compilingPath) return null;
 
 	texCompileStore.setState({ compilingPath: opts?.triggerPath ?? texPath });
 	try {
@@ -182,7 +224,7 @@ export async function compileTexFile(
 			path: texPath,
 			lane: "focus",
 			force: true,
-			params: { engine },
+			params: { engine: engineId },
 		});
 		if (!opts?.quietSuccess) {
 			notifySuccess(i18n.t("sidebar:fileTree.compileSuccess"));

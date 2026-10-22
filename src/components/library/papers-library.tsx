@@ -492,6 +492,7 @@ export function PapersLibrary({
 												? joinVaultPath(vaultPath, p.path)
 												: null
 										}
+										vaultPath={vaultPath}
 										canEditMeta={canEditMeta}
 										onOpenPaper={openPaperFromRow}
 										onRowClick={onRowClick}

@@ -5,7 +5,7 @@ import {
 	Settings2,
 	SquareTerminal,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { buildPaperSearchText } from "@/components/library/library-row-utils";
@@ -21,7 +21,13 @@ import type { PaperMetadata } from "@/lib/paper";
 import { paperDirFromPath } from "@/lib/paper/detect";
 import { editablePaperTags } from "@/lib/paper/tags";
 import { filterByFuzzy } from "@/lib/shell/commands/match";
-import type { AppCommand, PaletteMode } from "@/lib/shell/commands/types";
+import { listCommands } from "@/lib/shell/commands/registry";
+import {
+	type AppCommand,
+	commandCategory,
+	commandTitle,
+	type PaletteMode,
+} from "@/lib/shell/commands/types";
 import { type SearchHit, searchVault } from "@/lib/vault/search";
 import { searchWikiLinks, type WikiSearchCandidate } from "@/lib/wiki/api";
 
@@ -33,7 +39,11 @@ type CommandPaletteProps = {
 	vaultPath: string | null;
 	/** In-memory catalog rows for instant title/author quick-open. */
 	papers: PaperMetadata[];
-	/** Commands for ⇧⌘P / `>` mode */
+	/**
+	 * Commands for ⇧⌘P / `>` mode. While the palette is open this component
+	 * re-reads the registry, so a registration after the parent rendered
+	 * still shows up on the next palette render.
+	 */
 	commands: AppCommand[];
 	/** Open a paper by its vault-relative folder (e.g. papers/x). */
 	onOpenPaper: (paperRel: string) => void;
@@ -97,17 +107,23 @@ export function CommandPalette({
 			: query;
 	}, [query, effectiveMode]);
 
+	const resolvedCommands = open ? listCommands() : commands;
+	const translate = useCallback(
+		(key: string) => t(key as "commandPalette.title"),
+		[t],
+	);
+
 	const visibleCommands = useMemo(() => {
-		const available = commands.filter((c) => (c.when ? c.when() : true));
+		const available = resolvedCommands.filter((c) =>
+			c.when ? c.when() : true,
+		);
 		return filterByFuzzy(available, commandQuery, (c) => {
-			const title = t(c.titleKey as "commandPalette.title");
-			const cat = c.categoryKey
-				? t(c.categoryKey as "commandPalette.title")
-				: "";
+			const title = commandTitle(c, translate);
+			const cat = commandCategory(c, translate);
 			const kw = c.keywords?.join(" ") ?? "";
 			return `${cat} ${title} ${kw} ${c.id}`;
 		});
-	}, [commands, commandQuery, t]);
+	}, [resolvedCommands, commandQuery, translate]);
 
 	// PERF: precompute each paper's haystack once per catalog snapshot
 	// (buildPaperSearchText — same source as the library table filter) so
@@ -261,10 +277,8 @@ export function CommandPalette({
 						hasCmdResults ? (
 							<CommandGroup heading={t("commandPalette.commands")}>
 								{visibleCommands.map((cmd) => {
-									const titleText = t(cmd.titleKey as "commandPalette.title");
-									const catText = cmd.categoryKey
-										? t(cmd.categoryKey as "commandPalette.title")
-										: "";
+									const titleText = commandTitle(cmd, translate);
+									const catText = commandCategory(cmd, translate);
 									return (
 										<CommandItem
 											key={cmd.id}

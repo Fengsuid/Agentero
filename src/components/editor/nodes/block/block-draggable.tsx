@@ -4,7 +4,6 @@ import {
 	DndPlugin,
 	type DragItemNode,
 	type ElementDragItemNode,
-	getDropPath,
 	onDropNode,
 	onHoverNode,
 	useDraggable,
@@ -172,27 +171,7 @@ function Draggable(props: PlateElementProps) {
 						);
 						return;
 					}
-					// 文件拖放保持 stock 语义(纵向落位插入),图片文件仍可拖入。
-					if (!isElementDragItemNode(dragItem)) {
-						const result = getDropPath(editor, {
-							dragItem,
-							element,
-							monitor,
-							nodeRef: dropNodeRef,
-							orientation: "vertical",
-						});
-						const onDropFiles = editor.getOptions(DndPlugin).onDropFiles;
-						if (!result || !onDropFiles) return;
-						onDropFiles({
-							id: element.id as string,
-							dragItem,
-							editor,
-							monitor,
-							nodeRef: dropNodeRef,
-							target: result.to,
-						});
-						return;
-					}
+					if (!isElementDragItemNode(dragItem)) return;
 					// 复刻 onDropHandler(drop 后恢复块选),再走横向落位;
 					// 左≡上、右≡下,moveNodes 落到目标旁,成组交给 normalize。
 					blockSelectionApi.add(dragItem.id);

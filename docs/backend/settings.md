@@ -5,7 +5,7 @@
 | `settings_get` | 读全部设置 |
 | `settings_set` | 合并写入并广播 `settings:changed` |
 
-- 路径：`$XDG_CONFIG_HOME/agentero/settings.json`（macOS 通常 `~/.config/agentero/`）。
+- 路径：`$XDG_CONFIG_HOME/agentero/settings.json`（macOS 通常 `~/.config/agentero/`）。同目录的 `plugins.json` 不是 `AppSettings` 的字段：`schemaVersion` 1，`plugins` 是尚未解释的 JSON 数组（缺文件时为空），未知键保留，启动时不读取，设置页没有插件开关。见 [plugin-api.md](../development/plugin-api.md)。
 - `telemetryEnabled`：是否把行为事件脱敏投影到 PostHog（见 [telemetry.md](telemetry.md)）。本地 `usage.sqlite` 记录始终开启、无开关。
 - `plazaEnabled`：是否显示并加载广场（默认开）。关闭后侧栏不渲染广场节点，已开的广场 tab 关闭，且不挂载 `PlazaView`（含站点代理 iframe / 订阅轮询）。
 - `plazaHiddenSources`：被隐藏的广场来源 id 列表（默认空）。侧栏广场子行按此过滤；右键广场父节点逐条勾选显隐。
@@ -13,7 +13,7 @@
 - `mcpTunnelId` / `mcpTunnelApiKey`：ChatGPT Secure MCP Tunnel 凭据；key 与 translate API key 同样走 mask/keep-previous，不回流 WebView。
 - `onboardingDone` / `featureTourDone`：首次运行向导与 Vault 打开后的功能导引是否已完成（默认 `false`）。前端完成/跳过后写入；Host schema 必须保留这两个字段，否则 `settings_set` 会静默丢掉，下次启动再次弹出（#398）。
 - `wikiEmbedFontSize` / `markdownMaxWidth`：双链嵌入正文字号（12–20，默认 13）和 Markdown 编辑列最大宽度（`0` 或 640 / 720 / 800 / 960 / 1120，默认 `0` 全宽）。Host schema 必须保留这两个字段，否则保存时会丢掉，下次启动回到默认值（#733）。
-- 网络代理（`networkProxyEnabled` / `networkProxyUrl`）：作用于 Host 全部 reqwest 客户端（广场站点代理、订阅、检索、翻译、模型下载）与 Agent 流量。**开关关闭时自动回退 Windows 系统代理**（读注册表 `Internet Settings` 的 `ProxyEnable`/`ProxyServer`，30s TTL 缓存以跟随代理软件开关）；reqwest 默认不读 Windows 系统代理，此回退避免“浏览器能开、应用内页面打不开”的割裂。`network_system_proxy` 命令暴露检测结果：更新器插件用它做代理回退，设置页在开关关闭时显示“检测到系统代理”。
+- 网络代理（`networkProxyEnabled` / `networkProxyUrl`）：作用于 Host 全部 reqwest 客户端（广场站点代理、订阅、检索、翻译、模型下载）与 Agent 流量。**开关关闭时自动回退 Windows 系统代理**（读注册表 `Internet Settings` 的 `ProxyEnable`/`ProxyServer`，30s TTL 缓存以跟随代理软件开关）。reqwest 0.12 的 `system-proxy` feature 已有 Windows/macOS 检测，但不提供将选中 URL 导出给子进程的公开接口；本项目保留动态检测与统一优先级，URL 校验、代理连接交给上游 `Proxy::all`，不额外开启 feature 改变 macOS / 分协议路由策略。`network_system_proxy` 命令暴露检测结果：更新器插件用它做代理回退，设置页在开关关闭时显示“检测到系统代理”。共享 HTTP client 与缓存键使用同一代理快照，避免设置更新时标错缓存。
 - GitHub 镜像（`githubMirrorEnabled` / `githubMirrorBaseUrl`）：Skill 导入专用 URL 前缀回退（直连 `api.github.com` / `codeload.github.com` 超时、连接失败、5xx、429 或 403 后再试 `{base}/https://…`；404 等真实不存在仍不回退）。GitHub REST API 请求优先使用本机已登录的 `gh api`；没有 `gh`、未登录或 `gh api` 失败时才走 Host 直连 API；第三方镜像不带 token。默认关；`githubMirrorBaseUrl` 只能从内建预设列表中选取，不再允许用户填写自定义地址。与网络代理正交。见 [skill-import.md](skill-import.md)。
 - 机构代理（`institutionProxyType` / `institutionProxyPrefix` / `institutionProxyCookie`）：付费文献 PDF 兜底，OA 链路全未命中时经机构网关重写请求。`institutionProxyType` 取 `ezproxy`（查询透传 `{prefix}{urlencode(target)}`，裸域名自动补 `/login?url=`）或 `wengine`（网瑞达路径式 `/https/{AES-128-CTR(host)}/{path}`，浙大等）；空前缀禁用。设置页提供常见院校快速填充（均为实测 wengine 网关）。见 [academic-search-apis.md](academic-search-apis.md)。该三字段除 Host 设置存储外，headless CLI 启动时也会读取同一份 `settings.json` 并注入进程级下载链（`download::load_institution_proxy_from_settings`），使 CLI 的 `import id` / `paper download` 与桌面行为一致。
 - 旧 localStorage 键一次性迁移。

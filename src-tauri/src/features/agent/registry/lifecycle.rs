@@ -33,12 +33,7 @@ use std::fs::OpenOptions;
 #[cfg(target_os = "windows")]
 use std::io::Write;
 #[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-#[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicU64, Ordering};
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 static TOOL_LIFECYCLE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -1261,12 +1256,14 @@ fn run_tool_lifecycle_silently(
         if let Some(prefix) = npm_prefix {
             cmd.env("npm_config_prefix", prefix);
         }
-        if let Some(login_path) = login_shell_path() {
+        let shell_env = crate::core::process::discover::refresh_login_shell_env();
+        if let Some(login_path) = shell_env.as_ref().and_then(|env| env.get("PATH")) {
             let inherited = std::env::var("PATH").unwrap_or_default();
-            cmd.env("PATH", merge_path_segments(&login_path, &inherited));
+            cmd.env("PATH", merge_path_segments(login_path, &inherited));
         }
-        let output = run_command_with_cancellation(cmd, app, task_id, phase)
-            .map_err(format_lifecycle_process_error)?;
+        let output = run_command_with_cancellation(cmd, app, task_id, phase);
+        crate::core::process::discover::invalidate_login_shell_env();
+        let output = output.map_err(format_lifecycle_process_error)?;
         check_lifecycle_cancelled(task_id)?;
         finish_lifecycle_output(&output)
     }
@@ -1280,8 +1277,8 @@ fn run_tool_lifecycle_silently(
         cmd.arg("/D")
             .arg("/C")
             .arg(&bat_file)
-            .env("PATH", merged_path)
-            .creation_flags(CREATE_NO_WINDOW);
+            .env("PATH", merged_path);
+        crate::core::process::hide_console_window(&mut cmd);
         apply_proxy_env_to_command(&mut cmd, proxy_enabled, proxy_url);
         apply_npm_cache_env(&mut cmd, effective_npm_cache_dir().as_deref());
         if let Some(prefix) = npm_prefix {
@@ -1622,26 +1619,6 @@ fn last_lines(text: &str, n: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let start = lines.len().saturating_sub(n);
     lines[start..].join("\n")
-}
-
-/// GUI apps inherit a narrow PATH; install scripts need the login shell PATH
-/// so bare `npm` / `brew` resolve like a normal terminal session.
-#[cfg(not(target_os = "windows"))]
-fn login_shell_path() -> Option<String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let output = Command::new(&shell)
-        .args(["-lic", "printf '%s' \"$PATH\""])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() {
-        None
-    } else {
-        Some(path)
-    }
 }
 
 #[cfg(not(target_os = "windows"))]

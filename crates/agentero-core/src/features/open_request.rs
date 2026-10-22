@@ -463,7 +463,7 @@ pub fn write_cli_open_request(absolute_path: &Path) -> Result<PathBuf, AppError>
     };
     let json = serde_json::to_string_pretty(&body)
         .map_err(|e| AppError::message(format!("serialize open request: {e}")))?;
-    // Atomic write: temp then rename (with the Windows replace fallback).
+    // Atomic replacement through the shared sibling-temp helper.
     crate::fs::atomic_write(&file, json.as_bytes())?;
     Ok(file)
 }

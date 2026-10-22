@@ -7,6 +7,7 @@ Plate WYSIWYG；用于普通笔记与论文 `NOTES.md`。磁盘上始终是标�
 | 库 | 用途 |
 |---|---|
 | `@platejs/*` 插件体系 | 基于某种 Slate 模型的富文本编辑 |
+| `@platejs/link` | 标准 Markdown 链接输入、空节点归一化；保留自定义编辑气泡与 Vault 导航 |
 | `@platejs/markdown` | Markdown ↔ 编辑器文档 序列化 |
 | `@platejs/media` 等 | 图片等节点 |
 | `@platejs/selection` + `@platejs/dnd` | 仅 live editor：块选与拖拽换位；内部块 id 不写盘 |
@@ -25,10 +26,11 @@ Plate WYSIWYG；用于普通笔记与论文 `NOTES.md`。磁盘上始终是标�
 - **分隔线**：`---` / `___` 渲染为紧凑分隔条；void 块放不进光标，默认 Enter 无效果，现光标停在分隔线上或块选分隔线时按 Enter 会在其下方插入新段落并落入光标。
 - **长文阅读性能**：编辑器未聚焦（阅读态）时，顶层块按 `content-visibility: auto` 跳过离屏块的布局与绘制，滚动、拖拽侧边栏或 Dockview 分隔条时只重排视口内内容；聚焦编辑时自动关闭，保证光标、选区与输入法语义不变。该优化仅对非 WebKit 引擎（Windows WebView2 等）启用（#702）。**WebKit 上改由拖动期间冻结布局兜底**：手势期间把 `@container/editor` 查询容器的宽度 pin 住、松手再还原（实测 42ms → 17ms/帧；真正的大头是容器查询的子树样式重算，不是文字折行），并自动覆盖 rail 拖拽与原生窗口缩放（见 [bug_fix/dockview-sash-pdf-resize-jank.md](../bug_fix/dockview-sash-pdf-resize-jank.md) §3.4）。
 - **外部链接**：手写或粘贴标准 Markdown `[文字](https://…)` 会成为链接节点；普通单击打开编辑气泡（改显示文字与 URL），`⌘/Ctrl+单击`、中键或右键用系统浏览器打开；气泡内也有「打开」。`/` 菜单「外部链接」或右键「新增外部链接」直接插入链接节点（默认占位文字）并打开同一编辑气泡，而不是插入字面量 `[]()`。Vault 内相对 `.md` 链接与 `wiki:` 双链仍走站内导航。Vault 内 `.pdf` 链接（含 `%20` 解码后的空格路径）单击走 `openCitation` 打开 PDF，不经双链解析。带 `#page=` / `#section=` / `#figure=` 等 fragment 的 vault PDF（或 `.tex` 回退到同论文 PDF）同样走 `openCitation`，并跳到对应页/区域。
-- **Markdown 粘贴**：普通文本粘贴默认按 Markdown 反序列化，粘贴后光标保持在插入内容之后。若剪贴板携带 Slate 富文本片段（如编辑器内复制自身），优先恢复富文本 AST 节点，保留标题层级与节点属性，避免二次文本提取引入多余空行或重复双链文字。在空标题或既有标题块内粘贴单行纯文本/公式等无块级语法的文本时，按行内子节点插入并保持原标题级别，不会被降级替换为普通正文段落。
+- **Markdown 粘贴**：普通文本粘贴默认按 Markdown 反序列化，粘贴后光标保持在插入内容之后。若剪贴板携带 Slate 富文本片段（如编辑器内复制自身），优先恢复富文本 AST 节点，保留标题层级与节点属性，避免二次文本提取引入多余空行或重复双链文字。在空标题或既有标题块内粘贴单行纯文本/公式等无块级语法的文本时，按行内子节点插入并保持原标题级别，不会被降级替换为普通正文段落。片段解码复用 Slate 的 `insertFragmentData`（支持 MIME 与 HTML 属性）；应用只在插入前校验节点结构并保留块类型，畸形片段回退到剪贴板 Markdown 文本。
 - **块选与拖拽**：编辑态悬停顶层块时左侧出现六点手柄（Notion 同款）。**悬停或点击手柄**打开操作列表（加入会话 / 复制 / 剪切 / 创建副本 / 删除）。「加入会话」把当前块（多选时为整组）序列化成 Markdown，按划词「加入对话」同样固定到 Agent 输入框并聚焦。**按住拖动手柄**在块之间换位（拖拽中禁止划词）。左 gutter 拖出虚线框可框选相邻块；多选后每个选中块保持显示手柄，任一手柄对整组复制 / 剪切 / 移动。空段落（Markdown 空行、文末 TrailingBlock）不是内容块：不显示手柄、也不画选中底色，但仍可随相邻块一起被框选移动以保留间距。在文字上拖仍是划词。`⌘A` / `Ctrl+A` 第一次选中当前顶层块（光标在代码行、Callout 内，或焦点在 Mermaid 预览等不可编辑区域时，也只框住该代码块 / Callout，不会扩成整篇），再按一次选中全部块。复制块写入 Markdown 纯文本。只读、导出面和 `![[…]]` 嵌入不显示手柄。内部 Plate 块 id 不写回磁盘。块拖拽用指针后端（非 HTML5）：macOS 上 wry 会吞掉 DOM `drop`，和文件树一样。长笔记下拖拽/框选的两个全局标志由单一订阅镜像成编辑器根节点上的 `data-dnd-dragging` / `data-dnd-selection-area`，块级样式走 CSS 后代选择器而非每块订阅；手柄的操作菜单 Popover 直到指针进入手柄才挂载。放置目标与 drop line 必须常驻——指针后端在拖拽途中不会触发「被拖过的那个块」去注册自己。
+- **复制（文字 + 公式）**：选中一段文字时，如果选区里包含公式，`⌘C` / 右键「复制」会把整段按 Markdown 复制，公式保留为 `$…$` / `$$…$$`（此前走 DOM 纯文本，会拷出 KaTeX 渲染字形、丢失 TeX 源）；不含公式的普通选区仍复制纯文本。右键「复制为 Markdown」可对任意选区强制复制 Markdown 源码；块选（点块手柄或连按两次 `⌘A`）复制整块同样是 Markdown。文档不会在渲染态和源码态之间切换：`.md` 始终用 WYSIWYG 编辑器打开，需要逐字编辑源码时可用「导出笔记 → Markdown」或在外部编辑器中打开文件。
 - **Slash 格式命令**：在可编辑正文中输入 `/` 打开轻量命令列表；使用上下方向键选择、Enter 执行、Escape 关闭。Slash 与双链候选会在可视窗口边缘自动翻转并限制高度；滚动编辑器时关闭候选，避免脱离光标。
-- **美元符号**：`\$a\$` 是普通文本，`$a$` 是行内公式；行内公式两侧可直接接普通文字（如 `第一段$x_0$第三段`），编辑时继续输入不会吞掉公式；含 `cases` 等较高内容的行内公式 hover / 选中背景按公式盒子覆盖，不只覆盖文本行高；两者经编辑、粘贴和保存后保持不同语义。顺序输入 `$…$` 在闭合 `$` 处即时转换；若先输入 `$|$` 再补中间内容（无法逐字转换，因为公式是 void 节点、经气泡编辑），在光标位于 `$…$` 内时按 Enter 或离开编辑器即转换。行内公式按基线对齐（`align-baseline`），与正文同一行基线。
+- **美元符号**：`\$a\$` 是普通文本，`$a$` 是行内公式；行内公式两侧可直接接普通文字（如 `第一段$x_0$第三段`），编辑时继续输入不会吞掉公式；含 `cases` 等较高内容的行内公式 hover / 选中背景按公式盒子覆盖，不只覆盖文本行高；两者经编辑、粘贴和保存后保持不同语义。顺序输入 `$…$` 在闭合 `$` 处即时转换；若先输入 `$|$` 再补中间内容（无法逐字转换，因为公式是 void 节点、经气泡编辑），在光标位于 `$…$` 内时按 Enter 或离开编辑器即转换。逐字输入、粘贴与 Enter / 失焦转换共用上下文判断：代码块、行内代码标记及已有公式内保持字面量，避免 `$HOME$` 等代码被误转；代码内粘贴走 Slate 的 `insertTextData`，保留换行和标记。行内公式按基线对齐（`align-baseline`），与正文同一行基线。
 - **独立公式**：`$$...$$` 渲染为块级 KaTeX；多行 `cases` / `aligned` 等高度较大的公式由整宽块级容器承载，hover / 选中背景覆盖完整公式块，超宽内容横向滚动，不会压到前后正文。
 - **公式错误恢复**：未闭合的独立 `$$` 不会吞掉其后的 Markdown；围栏内的错误内容按普通文本保留，后续段落和标题继续正常解析。
 - **正文小于号容错**：正文里 `<0.5B`、`p<0.05`，以及编辑器不支持的 `<Constraints>`、`<AI Paper Analyst>` 这类尖括号，不会再被当成未闭合 JSX 而截掉后面的内容（#533）。解析前把它们改写成 `&lt;`，编辑器里仍显示为 `<`。代码块、公式，以及真正支持的标签（`<div>`、`<center>`、`<iframe>`、`<p align>`、`<p>`、`<br>`、`<u>`、`<sub>`、`<sup>`、`<mark>`、`<kbd>`、`<callout>`）保持原样。详见 [bug_fix/note-markdown-stray-less-than.md](../bug_fix/note-markdown-stray-less-than.md)。
@@ -41,6 +43,12 @@ Plate WYSIWYG；用于普通笔记与论文 `NOTES.md`。磁盘上始终是标�
 - **导出 PDF / PNG / Markdown**（桌面端）：工具栏分享按钮或右键「导出笔记…」。Markdown 格式直接把当前序列化内容（含未保存改动与 frontmatter）另存为独立 `.md` 文件。PDF / PNG 离屏只读渲染当前序列化内容；页面背景贴边；正文内边距对齐编辑器 `default`（`px-16 pt-4`，底边 `pb-10`）。默认完整展开 `![[…]]` 嵌入，就绪后用 `html-to-image` 截视觉层。**PDF**（`pdf-lib`）在位图上叠 **不可见可选中文字层**（DOM 测量 + Host `export_system_cjk_font`）与 **http(s)/mailto 链接注解**，再按 A4 分页；**PNG** 仍为纯位图。可选论文页眉、每页水印（logo + `muted-foreground`）。完整 PDF 附件嵌入为路径占位。导出默认带水印，可在对话框内临时取消。
 - **外部改盘**：无未存改动则重载；有未存则 toast；内容相等抑制自写回声。主窗与文档弹出窗（「移动至新窗口」）各自监听本窗 Vault watcher，规则相同。
 - **保存冲突**：写盘前比对上次落盘内容；磁盘已被外部改则中止并警告。
+
+## 上游能力与适配边界
+
+标准 Markdown 链接使用 `@platejs/link` 的 `BaseLinkPlugin` / `LinkRules.markdown()`：上游负责解析、插入、闭合后光标与 `removeEmpty` 归一化；本地只适配全角右括号、IME 整段输入、已经成为链接节点的 URL 粘贴，以及 Vault 相对路径。普通 URL 和 Markdown 粘贴仍共用 Markdown 反序列化管线；未闭合的 `[文字](` 内粘贴 URL 保留字面量，之后闭合得到单个链接。链接显示、编辑气泡与站内跳转由现有组件处理。参见 [Plate Link](https://platejs.org/docs/link) 和 [Plugin rules](https://platejs.org/docs/plugin-rules)。
+
+工具栏只在真实文本选区上查询 mark 状态，块选切换产生的短暂容器端点会禁用 mark 按钮；不再全局包装 `hasMark` / `some` 吞掉异常。链接、公式和粘贴的上下文判断共用 `input-context.ts`。块拖拽仍只接收指针后端的编辑器节点，不挂载无法触发的 HTML5 文件 drop 分支。
 
 ## 阅读与打开性能
 
@@ -174,6 +182,10 @@ Markdown 已能表达的语法不做 HTML 语义化转换，只处理 Markdown �
 | `src/components/editor/plugins/dnd-kit.tsx` | 仅 live editor：块拖拽换位（指针后端；不接手 OS 文件 drop） |
 | `src/components/editor/nodes/block/block-draggable.tsx` | 左侧拖动手柄、drop line 与拖拽/框选状态桥 |
 | `src/lib/markdown/block-selection.ts` | 块选查询与 Markdown 序列化；void 块（分隔线 / 图）Enter 向下换行 |
+| `src/components/editor/plugins/link-plugin.tsx` | 上游链接插件配置与整段输入适配 |
+| `src/lib/markdown/link-input-rule.ts` | 上游 Markdown 链接规则的全角与富粘贴适配 |
+| `src/lib/markdown/input-context.ts` | 文本选区校验与代码 / 公式上下文边界 |
+| `src/components/editor/plugins/markdown-paste-plugin.ts` | Slate 原生片段解码、结构校验、Markdown 回退与标题保留 |
 | `src/components/editor/plugins/markdown-kit.tsx` | Markdown 解析、序列化、粘贴与 Callout portable rules |
 | `src/lib/markdown/image.ts` | 内嵌图 IO / GC |
 | `src/lib/markdown/image-source-cache.ts` | 本地图片 `blob:` 源共享缓存（引用计数 + LRU + 撤销） |

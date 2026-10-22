@@ -658,7 +658,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AppError> {
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)?;
     }
-    // Shared default temp `{name}.tmp`: snapshot scans skip `*.tmp`, so the
+    // Shared unique sibling temp: snapshot scans skip `*.tmp`, so the
     // half-written download is never synced.
     crate::fs::atomic_write(target, bytes)?;
     Ok(())

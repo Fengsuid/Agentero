@@ -48,19 +48,12 @@ export function useTexCompile(): TexCompileActions {
 			// The compile button always recompiles: openTexPdf(forceCompile)
 			// splits a shimmer placeholder beside the editor right away and
 			// fills it in when the compile lands.
-			await openTexPdf(texPath, { forceCompile: true, exitLive: false });
+			await openTexPdf(texPath, { forceCompile: true });
 		},
 		[],
 	);
 
-	/**
-	 * latexmk -c behind the engine picker's "clear intermediates" entry.
-	 */
 	const liveCompile = useCallback((texPath: string) => {
-		// The live path is LuaLaTeX-only; selecting the engine also makes the
-		// editor toolbar shortcut available and keeps the next manual compile
-		// consistent with the preview.
-		selectTexEngine("lualatex");
 		void openTexLive(texPath);
 	}, []);
 

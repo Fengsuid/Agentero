@@ -89,6 +89,7 @@
 	"contextMenu": {
 		"cut": "Cut",
 		"copy": "Copy",
+		"copyMarkdown": "Copy as Markdown",
 		"paste": "Paste",
 		"exportNote": "Export note…",
 		"insertWikiLink": "Add internal link",

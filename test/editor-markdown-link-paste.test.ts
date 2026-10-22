@@ -5,10 +5,7 @@ import { describe, expect, it } from "vitest";
 import { LinkPlugin } from "@/components/editor/plugins/link-plugin";
 import { MarkdownKit } from "@/components/editor/plugins/markdown-kit";
 import { prepareMarkdownForDeserialize } from "@/lib/markdown/deserialize";
-import {
-	convertMarkdownLinkBeforeClosingParen,
-	isUnfinishedMarkdownLinkContext,
-} from "@/lib/markdown/link-input-rule";
+import { isUnfinishedMarkdownLinkContext } from "@/lib/markdown/link-input-rule";
 
 const plugins = [ParagraphPlugin, LinkPlugin, ...MarkdownKit];
 
@@ -46,9 +43,14 @@ describe("paste URL into unfinished markdown link", () => {
 		const editor = makeEditor();
 		for (const c of "[xx](") editor.tf.insertText(c);
 
-		// Simulate MarkdownPastePlugin plain-text path for unfinished context.
 		expect(isUnfinishedMarkdownLinkContext(editor)).toBe(true);
-		editor.tf.insertText("https://github.com/poco-ai/Agentero/issues");
+		editor.tf.insertData({
+			files: [],
+			getData: (type: string) =>
+				type === "text/plain"
+					? "https://github.com/poco-ai/Agentero/issues"
+					: "",
+		} as unknown as DataTransfer);
 		expect(JSON.stringify(editor.children)).not.toContain('"type":"a"');
 
 		editor.tf.insertText(")");
@@ -74,12 +76,11 @@ describe("paste URL into unfinished markdown link", () => {
 			);
 		editor.tf.insertFragment(fragment);
 
-		// Caret is inside the autolink (same as real paste).
-		expect(editor.api.above({ match: { type: KEYS.a } })).toBeTruthy();
+		// Upstream link normalization leaves a text point after the pasted URL.
+		expect(findOuterLinks(editor)).toHaveLength(1);
 
 		// Typing ) must fold [xx]( + autolink into one labeled link.
-		const converted = convertMarkdownLinkBeforeClosingParen(editor);
-		expect(converted).toBe(true);
+		editor.tf.insertText(")");
 
 		const links = findOuterLinks(editor);
 		expect(links).toHaveLength(1);
@@ -90,7 +91,7 @@ describe("paste URL into unfinished markdown link", () => {
 		expect(JSON.stringify(editor.children)).not.toContain("[xx](");
 	});
 
-	it("converts via insertText ) after autolink paste (full LinkPlugin path)", () => {
+	it("converts fullwidth ) from inside a pasted autolink", () => {
 		const editor = makeEditor();
 		for (const c of "[issue](") editor.tf.insertText(c);
 
@@ -102,7 +103,11 @@ describe("paste URL into unfinished markdown link", () => {
 				),
 			);
 		editor.tf.insertFragment(fragment);
-		editor.tf.insertText(")");
+		editor.tf.select({
+			path: [0, 1, 0],
+			offset: "https://github.com/poco-ai/Agentero/issues".length,
+		});
+		editor.tf.insertText("）");
 
 		const links = findOuterLinks(editor);
 		expect(links).toHaveLength(1);

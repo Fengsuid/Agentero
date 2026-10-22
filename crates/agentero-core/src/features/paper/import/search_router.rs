@@ -14,7 +14,9 @@ use crate::features::catalog::papers;
 use crate::features::scholar_api::identifiers::{
     extract_skill_source, skill_identifier, ResolvedIdentifier, SkillSource,
 };
-use crate::features::scholar_api::search::{rank_candidates, search_papers_by_title, SourceScope};
+use crate::features::scholar_api::search::{
+    fuse_and_rank_candidates, search_papers_by_title, SourceScope,
+};
 
 use super::SkippedImport;
 
@@ -94,7 +96,7 @@ pub async fn search_papers(
     limit: usize,
 ) -> Result<Vec<PaperSearchCandidate>, AppError> {
     let hits = search_papers_by_title(query, SourceScope::All, limit).await?;
-    Ok(rank_candidates(hits, query, limit)
+    Ok(fuse_and_rank_candidates(hits, query, limit)
         .into_iter()
         .map(PaperSearchCandidate::from)
         .collect())

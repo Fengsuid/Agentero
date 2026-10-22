@@ -385,7 +385,7 @@ impl AgentRegistry {
                     .unwrap_or_else(|| catalog_env(&info));
                 let environment = build_child_env(
                     std::env::vars(),
-                    crate::features::agent::registry::discovery::login_shell_env(),
+                    crate::features::agent::registry::discovery::login_shell_env().as_deref(),
                     &descriptor_env,
                 );
                 let path_acp_available =

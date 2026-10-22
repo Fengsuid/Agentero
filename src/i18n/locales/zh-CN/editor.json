@@ -89,6 +89,7 @@
 	"contextMenu": {
 		"cut": "剪切",
 		"copy": "复制",
+		"copyMarkdown": "复制为 Markdown",
 		"paste": "粘贴",
 		"exportNote": "导出笔记…",
 		"insertWikiLink": "新增双链",

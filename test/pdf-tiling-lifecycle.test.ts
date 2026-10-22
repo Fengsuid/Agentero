@@ -1,4 +1,3 @@
-import "@/lib/pdf/dual-pane-scroll";
 import { PdfErrorCode, type PdfErrorReason, Task } from "@embedpdf/models";
 import { type Tile, TilingPlugin } from "@embedpdf/plugin-tiling";
 import { expect, it, vi } from "vitest";

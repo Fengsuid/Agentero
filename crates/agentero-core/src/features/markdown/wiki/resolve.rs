@@ -344,35 +344,6 @@ pub(crate) fn resolve_occurrence_with(
     }
 }
 
-/// Compatibility helper for callers that only have file paths and no source context.
-pub fn resolve_target(target_raw: &str, vault_files: &[String]) -> Option<String> {
-    let documents = vault_files
-        .iter()
-        .map(|path| WikiDocument {
-            path: path.clone(),
-            aliases: Vec::new(),
-            headings: Vec::new(),
-            blocks: Vec::new(),
-        })
-        .collect::<Vec<_>>();
-    let occurrence = InternalLinkOccurrence {
-        source: String::new(),
-        target_raw: target_raw.to_string(),
-        syntax: InternalLinkSyntax::Wikilink,
-        embed: false,
-        display_text: None,
-        fragment: None,
-        source_range: crate::features::wiki::models::SourceRange { start: 0, end: 0 },
-        fragment_range: None,
-        line: 0,
-        context: None,
-    };
-    let resolved = resolve_occurrence(occurrence, &documents);
-    matches!(resolved.status, LinkResolutionStatus::Resolved)
-        .then_some(resolved.target_path)
-        .flatten()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,7 +1,7 @@
 /**
- * Built-in command palette registry. Commands close over the action modules
- * (all stable), so this list is a module constant instead of a per-render
- * useMemo with twenty dependencies.
+ * Built-in palette commands. They close over the action modules (all stable),
+ * so this list is a module constant. Importing the module registers them as
+ * builtins; the live palette reads `listCommands()`.
  */
 
 import { fileTreeHandle } from "@/components/shell/file-tree-registry";
@@ -9,6 +9,7 @@ import { focusAgentComposer } from "@/lib/agent/composer-focus";
 import { pinActiveSelection } from "@/lib/agent/selection-store";
 import { openMagicWand } from "@/lib/paper/import-actions";
 import { refreshLibrary } from "@/lib/paper/library-store";
+import { registerBuiltinCommands } from "@/lib/shell/commands/registry";
 import type { AppCommand } from "@/lib/shell/commands/types";
 import {
 	closeSettingsWindow,
@@ -203,3 +204,6 @@ export const paletteCommands: AppCommand[] = [
 		run: () => openMagicWand(),
 	},
 ];
+
+// Second evaluation (HMR / reimport) skips ids already registered.
+registerBuiltinCommands(paletteCommands);

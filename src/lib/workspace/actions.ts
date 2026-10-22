@@ -60,8 +60,11 @@ import {
 } from "@/lib/pdf/layout";
 import { readLayoutSidecar } from "@/lib/pdf/layout/io";
 import {
-	clearPendingPdfPage,
-	setPendingPdfPage,
+	beginPdfNavigation,
+	cancelPdfNavigation,
+	cancelPdfNavigationForTab,
+	completePdfNavigation,
+	type PdfNavigationIntent,
 } from "@/lib/pdf/pending-pdf-page";
 import { registerScrollSyncPair } from "@/lib/pdf/scroll-sync";
 import {
@@ -510,6 +513,7 @@ export function closeTab(id: string, opts: { remember?: boolean } = {}): void {
 		for (const r of removedList) revokeTabMediaSources(r);
 		return withLibraryPresent(next);
 	});
+	for (const closeId of idsToClose) cancelPdfNavigationForTab(closeId);
 	removeTabAnnotations(idsToClose);
 }
 
@@ -578,6 +582,7 @@ export function closeTabsUnderPath(path: string): void {
 		removedIds = removed.map((t) => t.id);
 		return withLibraryPresent(tabs);
 	});
+	for (const removedId of removedIds) cancelPdfNavigationForTab(removedId);
 	if (removedIds.length) removeTabAnnotations(removedIds);
 }
 
@@ -612,7 +617,7 @@ export async function openTexPdf(
 	opts?: {
 		referencePanelId?: string | null;
 		forceCompile?: boolean;
-		/** Explicit "Open PDF" switches modes; the compile button keeps live. */
+		/** Compile and View PDF leave live preview. Pass false to keep it (⌘\\). */
 		exitLive?: boolean;
 	},
 ): Promise<void> {
@@ -727,6 +732,25 @@ export async function openTexPdf(
 		texCompiling: false,
 		...(keepLive ? {} : { texLive: false }),
 		title: basenameOf(pdfPath),
+	});
+}
+
+/**
+ * Leave live preview and show the PDF already on disk. Does not run latexmk.
+ * With no PDF yet, the pane stays on the empty preview state.
+ */
+export async function closeTexLive(texPath: string): Promise<void> {
+	if (!isTexPath(texPath)) return;
+	const rootPath = await resolveTexRoot(texPath);
+	const pdfPath = texPdfPath(rootPath);
+	const pdfId = tabIdForPath(pdfPath);
+	const tab = getTabs().find((item) => item.id === pdfId);
+	if (!tab?.texLive) return;
+	const bytes = tab.pdfBytes ?? (await localFileToArrayBuffer(pdfPath));
+	updateTab(pdfId, {
+		texLive: false,
+		texCompiling: false,
+		...(bytes ? { pdfBytes: bytes, loaded: true } : {}),
 	});
 }
 
@@ -892,7 +916,7 @@ export async function compileTexOnManualSave(path: string): Promise<void> {
 	await ensureTexEngines();
 	const { engines, selectedEngine } = texCompileStore.getState();
 	if (!selectedEngine && engines.length === 0) {
-		notifyError(i18n.t("sidebar:fileTree.selectEngineFirst"));
+		notifyError(i18n.t("sidebar:fileTree.noLatexEngine"));
 		return;
 	}
 	await compileTexOnSave(path);
@@ -1253,71 +1277,21 @@ export function openGraphPath(rel: string): void {
 	})();
 }
 
-/** Paper-key aliases so pending-page intent matches `usePdfNavigation`'s paperKey. */
-function citationPaperKeys(paperAbs: string): string[] {
-	const keys = [paperAbs];
-	const vaultPath = getVaultPath();
-	if (vaultPath) {
-		const rel = toVaultRelative(vaultPath, paperAbs);
-		if (rel && rel !== paperAbs) keys.push(rel);
-	}
-	return keys;
-}
-
-/**
- * Wait for the PDF handle after openPaper, then jump to a layout region.
- *
- * First-open races with reading-position restore and EmbedPDF layout: a single
- * early scroll often lands briefly then snaps back to page 1. Stash a pending
- * page for restore to prefer, and re-apply the jump a few times while the
- * viewport settles.
- */
+/** Queue the latest resolved citation until the source viewer's layout is ready. */
 export function scheduleCitationJump(
 	paperAbs: string,
 	target: CitationTarget,
+	intent: PdfNavigationIntent = beginPdfNavigation(tabIdForPath(paperAbs)),
 ): void {
-	const tabId = tabIdForPath(paperAbs);
-	const keys = citationPaperKeys(paperAbs);
-	const page = target.pageIndex + 1;
-	setPendingPdfPage(keys, page);
-
-	let unsubscribe: (() => void) | null = null;
-	const retryTimeoutIds: number[] = [];
-	let stopped = false;
-
-	const stop = () => {
-		if (stopped) return;
-		stopped = true;
-		unsubscribe?.();
-		for (const id of retryTimeoutIds) window.clearTimeout(id);
-	};
-
-	const kind = layoutKindFromCitationFragment(target.fragment);
-	const tryJump = () => {
-		if (stopped) return;
-		const handle = pdfHandleFor(tabId);
-		if (!handle) return;
-		handle.scrollToLayoutRegion({
+	completePdfNavigation(intent, {
+		page: target.pageIndex + 1,
+		region: {
 			id: target.regionId,
 			pageIndex: target.pageIndex,
 			bbox: target.bbox,
-			kind,
-		});
-	};
-
-	tryJump();
-	unsubscribe = subscribePdfHandles(tryJump);
-	// Re-apply after layout/restore can wipe an early scroll (not a busy loop).
-	for (const delayMs of [300, 800]) {
-		retryTimeoutIds.push(window.setTimeout(tryJump, delayMs));
-	}
-	retryTimeoutIds.push(
-		window.setTimeout(() => {
-			stop();
-			// Restore may still be about to run; keep the intent briefly.
-			window.setTimeout(() => clearPendingPdfPage(keys), 2000);
-		}, 2000),
-	);
+			kind: layoutKindFromCitationFragment(target.fragment),
+		},
+	});
 }
 
 /** Short category toast for a failed citation resolve (e.g. figure / section). */
@@ -1394,27 +1368,32 @@ export function openCitation(source: string): void {
 		paperDirFromPath(full, vaultStore.getState().paperFolders) ?? null;
 
 	if (!paperAbs) {
-		// Best-effort: if the path itself is a paper folder, open it.
+		// Reserve before detection as well: A/B clicks can resolve out of order.
+		const intent = beginPdfNavigation(tabIdForPath(full));
 		void (async () => {
 			if (await detectPaperDirectory(full)) {
 				openPaper(full);
 				void resolvePdfCitation(vaultPath, trimmed)
-					.then((target) => scheduleCitationJump(full, target))
+					.then((target) => scheduleCitationJump(full, target, intent))
 					.catch((e) => {
+						cancelPdfNavigation(intent);
 						notifyError(citationResolveFailedMessage(trimmed));
 						console.warn("resolve citation failed", e);
 					});
 				return;
 			}
+			cancelPdfNavigation(intent);
 			openGraphPath(path);
 		})();
 		return;
 	}
 
+	const intent = beginPdfNavigation(tabIdForPath(paperAbs));
 	openPaper(paperAbs);
 	void resolvePdfCitation(vaultPath, trimmed)
-		.then((target) => scheduleCitationJump(paperAbs, target))
+		.then((target) => scheduleCitationJump(paperAbs, target, intent))
 		.catch((e) => {
+			cancelPdfNavigation(intent);
 			notifyError(citationResolveFailedMessage(trimmed));
 			console.warn("resolve citation failed", e);
 		});

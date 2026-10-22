@@ -140,10 +140,6 @@ pub fn questions_to_dto(questions: &[GrokQuestion]) -> Vec<AskUserQuestionDto> {
                     })
                 })
                 .collect();
-            // Need options or free-text path.
-            if options.is_empty() {
-                // Still allow pure free-text via Other.
-            }
             Some(AskUserQuestionDto {
                 question: question.to_string(),
                 options,
