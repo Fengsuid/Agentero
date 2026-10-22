@@ -74,7 +74,7 @@ function LibraryRowMenuContributions({
 				<ContextMenuItem
 					key={item.id}
 					onSelect={() => {
-						activateMenuContribution(item);
+						activateMenuContribution(item, menuContext);
 					}}
 				>
 					{item.title}

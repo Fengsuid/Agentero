@@ -17,6 +17,22 @@ type Registration = {
 
 const builtins: Registration[] = [];
 const externals: Registration[] = [];
+const listeners = new Set<() => void>();
+let revision = 0;
+
+export const commandRegistryRevision = () => revision;
+
+export function subscribeCommands(listener: () => void): () => void {
+	listeners.add(listener);
+	return () => {
+		listeners.delete(listener);
+	};
+}
+
+function changed(): void {
+	revision += 1;
+	for (const listener of listeners) listener();
+}
 
 function findRegistration(id: string): Registration | undefined {
 	return (
@@ -49,9 +65,13 @@ export function registerCommand(
 	const entry: Registration = { command };
 	const list = source === "builtin" ? builtins : externals;
 	list.push(entry);
+	changed();
 	return () => {
 		const index = list.indexOf(entry);
-		if (index >= 0) list.splice(index, 1);
+		if (index >= 0) {
+			list.splice(index, 1);
+			changed();
+		}
 	};
 }
 
@@ -70,4 +90,5 @@ export function registerBuiltinCommands(commands: readonly AppCommand[]): void {
 export function resetCommandRegistryForTests(): void {
 	builtins.length = 0;
 	externals.length = 0;
+	changed();
 }

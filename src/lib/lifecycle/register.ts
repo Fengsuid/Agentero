@@ -67,17 +67,13 @@ export function registerLifecycleHandlers(): () => void {
 				setFeaturePoppedOut(view, false);
 			}
 		}),
-		lifecycle.on("vault:opened", ({ vaultId }) => {
+		lifecycle.on("vault:opened", async ({ vaultId }) => {
 			void refreshTree(vaultId);
 			void refreshLibrary();
 			seedVaultSkills(vaultId);
 			if (isTauri() && !isRemoteVaultHandle(vaultId)) {
-				// Register this window as a holder of the vault: the Host runs its
-				// vault-global release sequence (cancel in-flight jobs / clear caps
-				// cache / evict catalog) only when the last window lets go. Fire &
-				// forget — the teardown below always releases, and a missed hold
-				// degrades to the single-window always-release fallback.
-				void callApi(() => commands.vaultHold(vaultId), {
+				// Establish the Host scope before later handlers activate plugins.
+				await callApi(() => commands.vaultHold(vaultId), {
 					fallback: "vault hold failed",
 				}).catch((e: unknown) => {
 					logger.warn("vault hold failed", { error: errorText(e) });

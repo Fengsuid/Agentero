@@ -475,7 +475,14 @@ export function TreeContextMenuPortal({
 									className="flex w-full cursor-default items-center gap-4 rounded-md px-2 py-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
 									onClick={() => {
 										onClose();
-										activateMenuContribution(item);
+										activateMenuContribution(
+											item,
+											fileTreeItemContext(
+												vaultPath,
+												menu.path,
+												isPaperMenu ? paperId : undefined,
+											),
+										);
 									}}
 								>
 									<span>{item.title}</span>

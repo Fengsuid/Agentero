@@ -3,8 +3,8 @@
 //! The document is a JSON object. `schemaVersion` must be `1` and `plugins`
 //! must be an array. Entries are not interpreted; they stay JSON values so a
 //! later object shape round-trips, including unknown fields. Unknown top-level
-//! keys are kept. A missing file is the empty document. This module is not
-//! called at startup. See `docs/development/plugin-api.md`.
+//! keys are kept. A missing file is the empty document. The desktop plugin
+//! manager interprets installed entries. See `docs/backend/plugins.md`.
 
 use std::fs;
 use std::path::Path;
@@ -71,7 +71,7 @@ impl PluginsDocument {
         &self.value
     }
 
-    fn from_value(value: Value) -> Result<Self, PluginsError> {
+    pub fn from_value(value: Value) -> Result<Self, PluginsError> {
         let Some(root) = value.as_object() else {
             return Err(PluginsError::NotObject);
         };

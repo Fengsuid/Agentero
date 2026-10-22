@@ -9,6 +9,12 @@ import { focusAgentComposer } from "@/lib/agent/composer-focus";
 import { pinActiveSelection } from "@/lib/agent/selection-store";
 import { openMagicWand } from "@/lib/paper/import-actions";
 import { refreshLibrary } from "@/lib/paper/library-store";
+import {
+	canLoadDevelopmentPlugin,
+	hasDevelopmentPlugins,
+	loadDevelopmentPlugin,
+	unloadDevelopmentPlugins,
+} from "@/lib/plugins/development";
 import { registerBuiltinCommands } from "@/lib/shell/commands/registry";
 import type { AppCommand } from "@/lib/shell/commands/types";
 import {
@@ -38,6 +44,20 @@ import { resolveActivePdfHandle } from "@/lib/workspace/viewer/pdf-viewer-regist
 const hasVault = () => Boolean(getVaultPath());
 
 export const paletteCommands: AppCommand[] = [
+	{
+		id: "plugins.loadDevelopment",
+		titleKey: "commands.pluginsLoadDevelopment",
+		categoryKey: "commands.catApp",
+		when: canLoadDevelopmentPlugin,
+		run: loadDevelopmentPlugin,
+	},
+	{
+		id: "plugins.unloadDevelopment",
+		titleKey: "commands.pluginsUnloadDevelopment",
+		categoryKey: "commands.catApp",
+		when: hasDevelopmentPlugins,
+		run: unloadDevelopmentPlugins,
+	},
 	{
 		id: "settings.open",
 		titleKey: "commands.settingsOpen",

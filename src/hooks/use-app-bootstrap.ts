@@ -25,6 +25,7 @@ import { registerImportTaskExecutor } from "@/lib/paper/import/import-tasks";
 import { startJobCompletionRefresh } from "@/lib/paper/job-refresh";
 import { refreshLibrary } from "@/lib/paper/library-store";
 import { registerLibraryTaskExecutors } from "@/lib/paper/library-tasks";
+import { startDevelopmentPlugins } from "@/lib/plugins/development";
 // Side-effect: register catalog title lookup for JobCenter task subjects.
 import "@/lib/paper/task-label";
 import { registerLayoutTaskExecutor } from "@/lib/pdf/layout/enqueue-paper-layout";
@@ -97,6 +98,8 @@ export function useAppBootstrap(): void {
 			unregister();
 		};
 	}, []);
+
+	useEffect(startDevelopmentPlugins, []);
 
 	// Per-vault side effects hang off vault:opened (see lifecycle/register.ts).
 	// Returning the scope release makes switch / close / unmount all tear down.

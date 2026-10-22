@@ -13,3 +13,9 @@ pub mod mcp;
 pub mod remote;
 #[cfg(feature = "desktop")]
 pub mod sync;
+
+#[cfg(all(
+    feature = "desktop",
+    not(any(target_os = "ios", target_os = "android"))
+))]
+pub mod plugins;

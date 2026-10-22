@@ -3,6 +3,7 @@
  * papers, and the command palette. Each subscribes to its own store slice.
  */
 
+import { useSyncExternalStore } from "react";
 import { CommandPalette } from "@/components/dialogs/command-palette";
 import { ExternalRenameDialog } from "@/components/dialogs/external-rename-dialog";
 import { PaperSearchDialog } from "@/components/dialogs/paper-search-dialog";
@@ -27,7 +28,11 @@ import {
 } from "@/lib/paper/import-actions";
 import { paperMetaChange } from "@/lib/paper/library-actions";
 import { setEditMetaDraft } from "@/lib/paper/library-store";
-import { listCommands } from "@/lib/shell/commands/registry";
+import {
+	commandRegistryRevision,
+	listCommands,
+	subscribeCommands,
+} from "@/lib/shell/commands/registry";
 import {
 	setCommandOpen,
 	setZoteroOpen,
@@ -38,6 +43,7 @@ import { refreshAll } from "@/lib/vault/actions";
 import { openPaper, openVaultRel } from "@/lib/workspace/actions";
 
 export function AppDialogs() {
+	useSyncExternalStore(subscribeCommands, commandRegistryRevision);
 	const vaultPath = useVaultStore((s) => s.vaultPath);
 	const zoteroOpen = useUiStore((s) => s.zoteroOpen);
 	const zoteroSyncOpen = useUiStore((s) => s.zoteroSyncOpen);

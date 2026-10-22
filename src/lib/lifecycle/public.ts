@@ -33,7 +33,7 @@ type PublicFactHandler<E extends PublicFactEvent> = (
 /**
  * Subscribe to one public lifecycle event on the in-webview bus.
  * Delegates to `on` and returns the same unsubscribe function.
- * Does not cross a process boundary. Production code does not call this.
+ * The desktop plugin bridge forwards these events to authorized instances.
  */
 export function onPublic<E extends PublicScopedEvent>(
 	event: E,

@@ -1,3 +1,4 @@
+import type { MenuContext } from "./menu-contributions";
 /**
  * Lightweight app commands for the Command Palette (⇧⌘P).
  * Aligns with VS Code: discoverable actions, not only resource search.
@@ -15,7 +16,7 @@ type AppCommandBase = {
 	keywords?: string[];
 	/** When false, hide from the palette. `listCommands` does not apply this. */
 	when?: () => boolean;
-	run: () => void | Promise<void>;
+	run: (context?: MenuContext) => void | Promise<void>;
 };
 
 /** Built-in command. Title copy lives in the `app` i18n catalog. */

@@ -1,12 +1,12 @@
 //! Application assembly: plugins, managed state, setup, and event wiring.
 
-#[cfg(test)]
-mod bindings_test;
+#[cfg(any(test, feature = "bindings-export"))]
+pub(crate) mod bindings_test;
 // `pub(crate)`: the mirror-shape anti-drift tests live in the owning modules
 // of the private payload structs and reference the mirrors from here. Test
 // builds only — the module does not exist otherwise.
 pub(crate) mod command_util;
-#[cfg(test)]
+#[cfg(any(test, feature = "bindings-export"))]
 pub(crate) mod events_contract;
 mod handlers;
 mod logging;
@@ -192,6 +192,11 @@ pub fn run() {
                 }
             }
         });
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        builder = builder.manage(crate::integration::plugins::PluginManager::default());
     }
 
     builder = builder.setup(|app| {
@@ -504,6 +509,10 @@ pub fn run() {
                 let drained = window
                     .state::<vault_session::VaultHolders>()
                     .drain_window(window.label());
+                #[cfg(not(any(target_os = "ios", target_os = "android")))]
+                window
+                    .state::<crate::integration::plugins::PluginManager>()
+                    .unload(window.label(), None, None);
                 if !drained.is_empty() {
                     let app = window.app_handle().clone();
                     tauri::async_runtime::spawn(async move {

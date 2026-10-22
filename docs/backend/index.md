@@ -140,3 +140,7 @@ ACP / SSH 子进程由 Rust 与 ACP SDK 启动，不注册 Tauri shell 插件。
 ## 开发插件
 
 [开发插件宿主（M0）](plugins.md)：桌面 debug 构建的显式目录加载、独立 QuickJS 进程、受限只读 API 与窗口/Vault 作用域清理。
+
+## 本地插件
+
+[本地插件系统](plugins.md)：安装、按 Vault 授权、进程隔离、受控数据 API、命令/菜单/事件、设置及私有存储。

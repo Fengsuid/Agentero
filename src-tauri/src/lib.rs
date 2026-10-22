@@ -20,3 +20,11 @@ pub mod features;
 pub mod integration;
 #[cfg(feature = "desktop")]
 pub use app::run;
+
+/// Regenerate typed IPC without running the unit-test harness.
+#[cfg(feature = "bindings-export")]
+pub fn export_bindings() {
+    std::env::set_current_dir(env!("CARGO_MANIFEST_DIR")).expect("bindings working directory");
+    std::env::set_var("AGENTERO_UPDATE_BINDINGS", "1");
+    app::bindings_test::export_typescript_bindings();
+}

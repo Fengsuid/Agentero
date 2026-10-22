@@ -252,7 +252,7 @@ export function SelectionMenu({
 								className="inline-flex h-7 shrink-0 items-center rounded-md px-1.5 text-caption font-medium text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] motion-reduce:active:scale-100"
 								onPointerDown={(event) => event.preventDefault()}
 								onClick={() => {
-									activateMenuContribution(item);
+									activateMenuContribution(item, contributionContext);
 								}}
 							>
 								<span>{item.title}</span>

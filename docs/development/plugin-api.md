@@ -1,6 +1,6 @@
 # 插件 API 契约（Phase 0–1）
 
-状态：契约已冻结。Phase 1 增加了 webview 内的 `onPublic`，以及与 `settings.json` 同目录的 `plugins.json`。没有插件进程、没有宿主、没有 Tauri command、没有设置页、没有启用开关。命令面板和三个菜单贡献位是进程内空列表，生产代码不登记条目，也不调用 `onPublic`。
+状态：Phase 0–1 core 数据契约保持冻结；本地插件初版已实现目录安装、按 Vault 授权、隔离执行、菜单/事件、设置和私有存储。实际宿主、限制和验收见 [本地插件系统](../backend/plugins.md)。下文保留 core 契约与进程内接缝的设计记录。
 
 机器可调用的操作目录本来就在 `agentero-core::ops`，给 CLI `describe` 和 MCP 共用。操作上的稳定性、权限和代际（`since`）仍是 Phase 0 的契约。前端事件的闭集仍是 `src/lib/lifecycle/events.ts` 的 `LifecycleEventMap`；对外名字是 `PUBLIC_LIFECYCLE_EVENTS`。
 
@@ -90,13 +90,13 @@
 
 宿主实际 payload 还带 `timestamp`；`paper:renamed` 还带 `updatedSources`。这两项不在 v0 契约字段里。字段名与 `src/lib/lifecycle/events.ts` 一致。`paper:imported` / `paper:assets-ready` / `paper:renamed` 的发射在 `crates/agentero-core/src/features/lifecycle.rs`；`vault:opened` 和 `paper:opened` 由前端发出。
 
-`onPublic(event, handler)` 只接受这五个名字，在 webview 里订阅。payload 用 `LifecycleEventMap` 里已有的类型，不另做一份。它转给现有的 `on()`，返回同一个取消订阅函数，不出进程。`register.ts` 仍是应用自己登记 handler 的唯一地方。生产代码不调用 `onPublic`。
+`onPublic(event, handler)` 只接受这五个名字，在 webview 里订阅。payload 用 `LifecycleEventMap` 里已有的类型，不另做一份。它转给现有的 `on()`，返回同一个取消订阅函数，插件宿主订阅后将允许的事件投递到独立调用进程；窗口/Vault 清理时取消订阅。`register.ts` 继续登记应用自身的业务 handler。
 
 `PUBLIC_LIFECYCLE_EVENTS` 与 `public_events()` 是这五个字符串。两边各自断言，没有代码生成。
 
 ## plugins.json
 
-与 `settings.json` 同目录：`$XDG_CONFIG_HOME/agentero/plugins.json`（`plugins_path()`）。不写入 `AppSettings`。设置页没有这一项，应用启动时不读取，也没有启用开关。
+与 `settings.json` 同目录：`$XDG_CONFIG_HOME/agentero/plugins.json`（`plugins_path()`）。不写入 `AppSettings`。设置页「插件」负责安装和按 Vault 授权；Vault 会话建立后宿主加载已启用的包。
 
 ```json
 {
@@ -111,11 +111,11 @@
 - 根不是对象、`plugins` 不是数组，或 `schemaVersion` 不是 `1` 时返回结构化错误，不 panic
 - 写入沿用现有的 pretty JSON（`json_store`）
 
-之后的宿主调用 `plugins_path`、`load_plugins`、`store_plugins`。没有插件宿主。
+本地宿主使用 `plugins_path`、`load_plugins`、`store_plugins` 保存包快照和作用域授权；条目具体结构见实现文档。
 
 ## 进程内命令注册表
 
-命令面板的命令列表是进程内注册表（`src/lib/shell/commands/registry.ts`），不是一份写死的数组。这一层只在应用进程里追加命令，不加载外部代码。外部列表在生产环境是空的。没有插件宿主。
+命令面板的命令列表是进程内注册表（`src/lib/shell/commands/registry.ts`），不是一份写死的数组。这一层只在应用进程里追加命令，不加载外部代码。本地插件宿主会在启用后登记命令；注册表通过 revision/subscribe 通知界面更新。
 
 两份列表按各自的注册顺序拼接：先内置，再外部。`listCommands()` 原样返回，不在这里看 `when`。命令面板自己决定隐藏哪些命令。
 
@@ -135,6 +135,6 @@
 | `library.row` | 论文库一行的右键菜单 | 行记录上已有的 `id` 和 `path`。库视图已经有 vault 根时带上 |
 | `pdf.selection` | PDF 划词浮动工具栏（高亮 / 复制 / 提问 / 加入对话 / 翻译） | 当前选中文本，以及查看器已有的路径。查看器已经知道论文 id 时带上，否则 `paperId` 留空 |
 
-贡献的 `title` 是普通字符串，不是 i18n key，文案不进 locale。`order` 小的在前，相同则按注册顺序。`when` 返回 false 或抛错，或 `commandId` 当前不在命令注册表里，该项隐藏，渲染时不抛错。点击调用该命令的 `run()`。同步抛错和失败的 Promise 用已有的 `notifyError(errorText)` 提示，菜单处理函数本身不抛。
+贡献的 `title` 是普通字符串，不是 i18n key，文案不进 locale。`order` 小的在前，相同则按注册顺序。`when` 返回 false 或抛错，或 `commandId` 当前不在命令注册表里，该项隐藏，渲染时不抛错。点击调用该命令的 `run(context)`，把菜单对象的上下文快照传入；内置命令可忽略参数。同步抛错和失败的 Promise 用已有的 `notifyError(errorText)` 提示，菜单处理函数本身不抛。
 
-`registerMenuContribution` 遇到重复 id 会抛错，并保留第一次。生产代码目前不注册任何贡献，列表为空。没有插件宿主。
+`registerMenuContribution` 遇到重复 id 会抛错，并保留第一次。本地插件宿主根据 manifest 登记三个菜单的贡献，卸载或撤权时释放。

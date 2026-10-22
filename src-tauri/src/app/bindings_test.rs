@@ -19,8 +19,8 @@
 
 use std::path::Path;
 
-#[test]
-fn export_typescript_bindings() {
+#[cfg_attr(test, test)]
+pub(crate) fn export_typescript_bindings() {
     let builder = tauri_specta::Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
             crate::features::system::settings::commands::settings_get,
@@ -155,6 +155,16 @@ fn export_typescript_bindings() {
             crate::features::paper::discovery::recommend::commands::recommend_arxiv_last,
             crate::features::paper::discovery::recommend::commands::probe_embedding,
             crate::app::menu::set_locale,
+            crate::integration::plugins::plugin_editor_state,
+            crate::integration::plugins::plugin_list,
+            crate::integration::plugins::plugin_inspect,
+            crate::integration::plugins::plugin_install,
+            crate::integration::plugins::plugin_configure,
+            crate::integration::plugins::plugin_remove,
+            crate::integration::plugins::plugin_activate,
+            crate::integration::plugins::plugin_dev_load,
+            crate::integration::plugins::plugin_unload,
+            crate::integration::plugins::plugin_run,
             crate::integration::bridge::commands::bridge_start,
             crate::integration::bridge::commands::bridge_stop,
             crate::integration::bridge::commands::bridge_status,

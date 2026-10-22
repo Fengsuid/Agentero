@@ -170,7 +170,7 @@ jobs:
               cargo clippy --workspace --all-targets -- -D warnings
               ;;
             agentero-tests)
-              cargo test -p agentero
+              cargo test -p agentero -p agentero-plugin-host
               ;;
             cli-tests)
               # Dependency builds do not run agentero-core's own tests. Keep

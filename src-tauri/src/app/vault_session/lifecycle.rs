@@ -62,7 +62,12 @@ pub async fn vault_release(
     // fallback for an already-deleted directory) `release` deliberately still
     // returns `true` — the single-window compatibility fallback in
     // `VaultHolders::release`.
-    if window.state::<VaultHolders>().release(&key, window.label()) {
+    let last_holder = window.state::<VaultHolders>().release(&key, window.label());
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    window
+        .state::<crate::integration::plugins::PluginManager>()
+        .unload(window.label(), None, Some(std::path::Path::new(&key)));
+    if last_holder {
         release_vault_resources(&app, std::path::Path::new(&key)).await;
     }
     op.finish_result(Ok(()))

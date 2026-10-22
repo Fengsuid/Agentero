@@ -17,7 +17,8 @@
 		"about": "About",
 		"quickSetup": "Quick setup wizard",
 		"featureTour": "Feature tour",
-		"sync": "Sync"
+		"sync": "Sync",
+		"plugins": "Plugins"
 	},
 	"remoteAccess": {
 		"title": "Remote access",
@@ -950,5 +951,22 @@
 		"scopePdf": "PDFs",
 		"scopeSource": "LaTeX sources",
 		"scopeAttachments": "Attachments"
+	},
+	"plugins": {
+		"install": "Install from folder…",
+		"localOnly": "Open a local Vault to manage plugins.",
+		"empty": "No plugins installed.",
+		"failed": "Plugin operation failed",
+		"configure": "Configure {{name}}",
+		"remove": "Uninstall {{name}}",
+		"enable": "Enable {{name}}",
+		"saveEnable": "Save and enable",
+		"permissions": {
+			"vault:read": "Read Vault files and papers",
+			"catalog:write": "Change paper tags and read status",
+			"vault:notes:write": "Write paper notes",
+			"vault:write": "Write Vault text and move papers"
+		},
+		"cancel": "Cancel"
 	}
 }

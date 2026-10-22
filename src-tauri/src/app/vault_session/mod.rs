@@ -30,6 +30,16 @@ impl VaultHolders {
         Self::default()
     }
 
+    pub fn holder_count(&self, key: &str) -> usize {
+        self.lock().get(key).map_or(0, |labels| labels.len())
+    }
+
+    pub fn holds(&self, key: &str, label: &str) -> bool {
+        self.lock()
+            .get(key)
+            .is_some_and(|labels| labels.contains(label))
+    }
+
     /// Registers `label` as a holder of `key` (a canonicalized vault path, see
     /// [`holder_key`]). Idempotent, so repeated activations of the same vault
     /// by one window (StrictMode remounts) are free.

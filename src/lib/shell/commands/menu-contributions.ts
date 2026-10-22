@@ -105,22 +105,26 @@ export function visibleMenuContributions(
  */
 export function runMenuContribution(
 	contribution: MenuContribution,
+	context?: MenuContext,
 ): void | Promise<void> {
 	const command = listCommands().find(
 		(entry) => entry.id === contribution.commandId,
 	);
 	if (!command) return;
-	return command.run();
+	return command.run(context);
 }
 
 /**
  * Run the contribution and toast failures with `notifyError(errorText)`.
  * Does not throw. A synchronous throw and a rejected promise both toast.
  */
-export function activateMenuContribution(contribution: MenuContribution): void {
+export function activateMenuContribution(
+	contribution: MenuContribution,
+	context?: MenuContext,
+): void {
 	let pending: void | Promise<void>;
 	try {
-		pending = runMenuContribution(contribution);
+		pending = runMenuContribution(contribution, context);
 	} catch (error) {
 		notifyError(errorText(error));
 		return;
