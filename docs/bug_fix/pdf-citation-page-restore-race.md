@@ -6,7 +6,7 @@
 
 - `src/lib/pdf/pending-pdf-page.ts` — 一次性待跳页意图
 - `src/components/viewer/pdf/hooks/use-pdf-navigation.ts` — 恢复阅读位置时优先消费 pending
-- `src/lib/workspace/actions.ts` — `scheduleCitationJump` 写入 pending 并短时重试
+- `src/lib/workspace/viewer-actions.ts` — `scheduleCitationJump` 写入 pending 并短时重试（仍从 `actions.ts` 导出）
 
 ---
 
