@@ -20,7 +20,7 @@ Agentero 基于 Tauri 2 + React 19，本地优先，Vault 文件与 Catalog SQLi
 
 - **前端**：[`docs/frontend/index.md`](frontend/index.md) — React 19、TypeScript、Tailwind CSS 4、shadcn/ui、AI Elements。按域 zustand vanilla store（`src/lib/<域>/store.ts` + `actions.ts`）；React 经 `hooks/use-app-stores.ts` selector 订阅。
 - **Host**：[`docs/backend/index.md`](backend/index.md) — Rust、Tauri commands、文件系统、Wiki 索引、ACP Client。`app/` 装配、`core/` 基础、`features/<域>/`（`mod` + `commands` + 按需 `models`）。
-- **CLI**：[`docs/backend/cli.md`](backend/cli.md) — `agentero` headless Vault/Catalog，只依赖 tauri 无关的 `agentero-core` crate。
+- **CLI**：[`docs/backend/cli.md`](backend/cli.md) — `agentero` headless Vault/Catalog。依赖 tauri 无关的 `agentero-core`，MCP 监听再依赖 `agentero-mcp`。
 
 ## 工作台布局
 

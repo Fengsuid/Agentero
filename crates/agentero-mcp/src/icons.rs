@@ -6,8 +6,8 @@
 use base64::Engine;
 use rmcp::model::Icon;
 
-const PNG_32: &[u8] = include_bytes!("../../../icons/32x32.png");
-const PNG_128: &[u8] = include_bytes!("../../../icons/128x128.png");
+const PNG_32: &[u8] = include_bytes!("../../../src-tauri/icons/32x32.png");
+const PNG_128: &[u8] = include_bytes!("../../../src-tauri/icons/128x128.png");
 
 fn png_data_uri(bytes: &[u8]) -> String {
     let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);

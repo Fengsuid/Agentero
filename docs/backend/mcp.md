@@ -1,10 +1,10 @@
 # MCP Server
 
-桌面 Host 内嵌的 Streamable HTTP MCP。设置开关打开后在 loopback 监听；关掉即停。默认作用域是当前打开的**本地** Vault；`vault_list` 会列出用户打开过的本地 Vault，其它工具可用可选参数 `vault`（绝对路径）切换到其中任意一个。
+Streamable HTTP MCP，桌面端与 headless CLI 共用 `crates/agentero-mcp`。设置开关打开后桌面在进程内 loopback 监听；关掉即停。CLI 用 `agentero mcp serve` 前台常驻，不需要桌面 App。默认作用域是当前打开的**本地** Vault；`vault_list` 会列出允许访问的本地 Vault，其它工具可用可选参数 `vault`（绝对路径）切换到其中任意一个。
 
 应用内 Quick Chat / 侧边栏用的是另一条会话级 stdio MCP（`agentero-context`），只读本轮授权的来源，不复用这里的全局工具面。见 [context.md](context.md)。
 
-远端 Vault 不服务。App 必须开着。
+远端 Vault 不服务。无鉴权，只绑 loopback。
 
 ## 开关与地址
 
@@ -26,6 +26,26 @@ Host commands：`mcp_get_status` / `mcp_set_enabled` / `mcp_set_port` / `mcp_set
 `initialize.instructions` 指向下方 resources，并强调 `paper_list` 默认瘦字段、覆盖 NOTES 前需确认。
 
 无鉴权。不要把端口绑到非 loopback。
+
+## Headless（`agentero mcp serve`）
+
+无桌面的机器上前台启动同一份工具面，交给 systemd 一类监督器。收到 SIGTERM 或 Ctrl-C 退出。必须显式给出 Vault（`--vault` 或 `AGENTERO_VAULT`），不会从当前目录向上猜。
+
+```sh
+agentero mcp serve --vault /path/to/vault --listen 127.0.0.1:8765
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--vault` / `AGENTERO_VAULT` | 无 | 当前打开的 Vault，必填 |
+| `--allow-vault` | 无 | 额外允许的本地 Vault，可重复。`vault_list` 只返回这些路径加上 `--vault` |
+| `--listen` | `127.0.0.1:8765` | 只接受 `127.0.0.1` 或 `::1`。跨机器用 SSH 本地转发 |
+| `--expose-paper-text` | 关 | 对应桌面 `mcpExposePaperText`。打开后 `paper_text_get` 会把 PDF 正文交给客户端 |
+| `--parent` | `papers` | `import_id` 的默认父目录 |
+| `--note-mode` | `standard` | 入库时的 NOTES 壳：`standard` / `title-only` / `blank` / `custom` |
+| `--translator-url` | 无 | 全局参数。也会读 `AGENTERO_TRANSLATOR_URL` 和 CLI 配置 |
+
+不读桌面 `settings.json`（`--translator-url` 仍走 CLI 全局解析，包括 `AGENTERO_TRANSLATOR_URL` 和 CLI 配置）。进程一直占着前台，监听地址打到 stderr；`--json` 的成功包在进程退出时才写到 stdout。OpenAI 隧道、stdio 传输、非 loopback 监听仍只在桌面端。导入后的解析/版面任务、删除时取消进行中的任务、打开中的 Vault 的内存双链索引，只在桌面进程内的宿主钩子上发生。
 
 ## ChatGPT Secure MCP Tunnel
 
@@ -95,9 +115,9 @@ Codex / Inspector 也可直接打 loopback URL。stdio 子进程不是这条通�
 复现（macOS 未 stage 打包资源时可仅为测试设置 `TAURI_CONFIG='{"bundle":{"resources":[],"macOS":{"frameworks":[]}}}'`）：
 
 ```bash
-cargo test -p agentero --lib vault_search_ -- --nocapture
-cargo test -p agentero --lib page_read_ -- --nocapture
-cargo test -p agentero --lib features::markdown::search -- --nocapture
+cargo test -p agentero-mcp --lib vault_search_ -- --nocapture
+cargo test -p agentero-mcp --lib page_read_ -- --nocapture
+cargo test -p agentero-core --lib features::markdown::search -- --nocapture
 cargo test -p agentero-core ops::tests
 cargo test -p agentero-core pdf::layout_index
 ```
@@ -128,7 +148,7 @@ cargo test -p agentero-core pdf::layout_index
 
 ## 代码
 
-`src-tauri/src/integration/mcp/`：`McpController` + Streamable HTTP（`rmcp`）+ tools/resource。论文工具直接调 `features::{catalog, import, vault, pdf::layout_index}`；`file_*` 只做 Vault 内 UTF-8 文本读写。
+`crates/agentero-mcp/`：`McpController` + Streamable HTTP（`rmcp`）+ tools/resource。论文工具直接调 `agentero-core` 的 catalog、import、vault、`pdf::layout_index`；全文搜索在 `agentero-core` 的 `features::markdown::search`；`file_*` 只做 Vault 内 UTF-8 文本读写。桌面侧 `src-tauri/src/integration/mcp/` 只留 Tauri 命令、状态事件、ChatGPT 隧道，以及导入后续任务、双链索引、删除取消任务、`mcpExposePaperText` 这些宿主钩子。CLI 入口是 `agentero mcp serve`。
 
 ## 安全
 

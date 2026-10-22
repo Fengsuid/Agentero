@@ -29,6 +29,8 @@ async-trait = "0.1.91"
 # `error::ApiResult` and `features::translate` models derive `specta::Type`
 # for the IPC contract; specta is lightweight and pulls in no wry/tao/tauri.
 specta = { version = "2.0.0-rc.22", features = ["derive", "chrono"] }
+# Search hit DTOs are returned both over Tauri IPC (specta) and MCP (schemars).
+schemars = "1"
 which = "7"
 # Migrated domain features (import asset unpack, feeds body extraction,
 # wiki/vault walks, citation fingerprints, scholar API queries, …).

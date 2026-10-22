@@ -91,6 +91,7 @@ version = "0.12.1"
 dependencies = [
  "agent-client-protocol",
  "agentero-core",
+ "agentero-mcp",
  "async-trait",
  "axum",
  "base64 0.22.1",
@@ -160,6 +161,7 @@ name = "agentero-cli"
 version = "0.12.1"
 dependencies = [
  "agentero-core",
+ "agentero-mcp",
  "assert_cmd",
  "clap",
  "dirs",
@@ -197,6 +199,7 @@ dependencies = [
  "pulldown-cmark",
  "reqwest 0.12.28",
  "rusqlite",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -211,6 +214,24 @@ dependencies = [
  "walkdir",
  "which",
  "winreg",
+]
+
+[[package]]
+name = "agentero-mcp"
+version = "0.12.1"
+dependencies = [
+ "agentero-core",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "log",
+ "rmcp",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "specta",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

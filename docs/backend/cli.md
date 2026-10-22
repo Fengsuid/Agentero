@@ -5,7 +5,7 @@ Headless Vault / Catalog / Wiki 接口；**不含** BYOA / paper-reader。
 ## 位置
 
 - 目录：`cli/`（crate `agentero-cli`）
-- path 依赖 `agentero-core`（**不**依赖 `agentero_lib`，依赖树无 tauri/wry/tao）：`features::{vault,catalog,import,wiki,zotero,feeds,translate,doctor,trash,pdf_locate,open_request,sync}` + 顶层 `{error,fs}`
+- path 依赖 `agentero-core` 与 `agentero-mcp`（**不**依赖 `agentero_lib`，依赖树无 tauri/wry/tao）：`features::{vault,catalog,import,wiki,zotero,feeds,translate,doctor,trash,pdf_locate,open_request,sync}` + 顶层 `{error,fs}`。`agentero mcp serve` 与桌面端共用 `agentero-mcp` 的工具面
 - 可选同版本 CLI 安装（不随桌面安装包打入，减小体积 [#285](https://github.com/poco-ai/Agentero/issues/285)；open/deep-link 仍见 [#165](https://github.com/poco-ai/Agentero/issues/165) / [#166](https://github.com/poco-ai/Agentero/issues/166)）
   - 设置 → 关于：**安装 CLI** 从 GitHub Release 下载与 App **同版本** 的 `agentero-cli-{ver}-{triple}` 归档，校验 `.sha256` 后写入用户目录并创建 PATH shim。POSIX 写 `~/.local/bin/agentero` 软链（不静默改 shell rc）；Windows 写 `agentero-cli.cmd` 并**自动把安装目录加入用户 PATH**（`HKCU\Environment`，广播 `WM_SETTINGCHANGE`，无需重启，新开终端即可用 `agentero-cli`）。下载 404 的错误文案会带上完整资产 URL（含宿主 triple），架构/版本不匹配时自解释；`CliInstallStatus.commandName` 供前端按平台展示验证命令
   - 独立 CLI 归档仍随每次 Release 发布，供无桌面的 headless 机器使用；macOS 亦可通过 Homebrew tap `poco-ai/agentero` 安装 headless CLI
@@ -18,6 +18,7 @@ Headless Vault / Catalog / Wiki 接口；**不含** BYOA / paper-reader。
 | `open` | 在桌面 App 打开本地目录为 Vault（`agentero open <PATH>`；简写 `agentero <PATH>`） |
 | `vault` | create / list 等 |
 | `sync` | 云同步（S3/R2、WebDAV、Git）：configure / status / test / now / disconnect，与桌面端共用引擎（见下） |
+| `mcp serve` | 前台 Streamable HTTP MCP（loopback）。与桌面端共用工具面，不启动 GUI。见 [mcp.md](mcp.md) |
 | `describe` | Agent 自省：策展型 op 目录与单 op 的 input/output/errors/examples（机器契约真源） |
 | `paper` | list/get、tag list/set/add/rm、move、open、download/parse… |
 | `import` | 标识符入库 |

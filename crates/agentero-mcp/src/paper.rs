@@ -1,7 +1,7 @@
 //! Paper ref resolution and list/get shaping for MCP tools.
 
-use crate::core::error::AppError;
-use crate::features::paper::catalog::papers::{self, PaperRecord, PaperRefLookup};
+use agentero_core::error::AppError;
+use agentero_core::features::paper::catalog::papers::{self, PaperRecord, PaperRefLookup};
 use serde::Serialize;
 use std::path::Path;
 
@@ -311,7 +311,8 @@ pub fn text(
     }
     let bytes =
         std::fs::read(&pdf_path).map_err(|e| AppError::message(format!("read pdf: {e}")))?;
-    let out = crate::features::pdf::text::extract_text(&bytes, pages.as_deref(), max_chars)?;
+    let out =
+        agentero_core::features::pdf::text::extract_text(&bytes, pages.as_deref(), max_chars)?;
     Ok(PaperTextOut {
         path: record.path,
         page_count: out.page_count,

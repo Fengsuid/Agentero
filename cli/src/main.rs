@@ -170,6 +170,12 @@ struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+enum McpCmd {
+    /// Listen on loopback until Ctrl-C or SIGTERM. Requires --vault or AGENTERO_VAULT.
+    Serve(commands::mcp::ServeArgs),
+}
+
+#[derive(Debug, Subcommand)]
 enum Commands {
     /// Vault lifecycle: create, resolve, inspect.
     Vault {
@@ -221,6 +227,11 @@ enum Commands {
     Mark {
         #[command(subcommand)]
         cmd: commands::mark::MarkCmd,
+    },
+    /// Streamable HTTP MCP server for external agents (loopback, no GUI).
+    Mcp {
+        #[command(subcommand)]
+        cmd: McpCmd,
     },
     /// Workspace / window management in the desktop App (open/focus/close).
     Ui {
@@ -388,6 +399,7 @@ fn command_label(cmd: &Commands) -> &'static str {
         Commands::Doctor { .. } => "cli.doctor",
         Commands::Layout { .. } => "cli.layout",
         Commands::Mark { .. } => "cli.mark",
+        Commands::Mcp { .. } => "cli.mcp",
         Commands::Ui { .. } => "cli.ui",
         Commands::Translate { .. } => "cli.translate",
         Commands::Open { .. } => "cli.open",
@@ -423,6 +435,9 @@ async fn run(command: Commands, globals: &GlobalOpts) -> Result<serde_json::Valu
         Commands::Doctor { cmd } => commands::doctor::run(cmd, globals),
         Commands::Layout { cmd } => commands::layout::run(cmd, globals),
         Commands::Mark { cmd } => commands::mark::run(cmd, globals).await,
+        Commands::Mcp { cmd } => match cmd {
+            McpCmd::Serve(args) => commands::mcp::serve(args, globals).await,
+        },
         Commands::Ui { cmd } => commands::ui::run(cmd, globals),
         Commands::Translate {
             text,
@@ -481,5 +496,14 @@ mod ops_contract {
                 op.id
             );
         }
+    }
+
+    #[test]
+    fn mcp_serve_is_registered() {
+        let root = Cli::command();
+        assert!(
+            clap_has_path(&root, &["mcp", "serve"]),
+            "agentero mcp serve is not registered"
+        );
     }
 }

@@ -64,7 +64,8 @@ parse 引擎同理：远端引擎（MinerU/Paddle/OpenAI-compatible，依赖 `la
 | `markdown/wiki`：`commands` | tauri State（`WikiIndexState` manage）、watcher 协同；`heading_rename` 事务体已随 `rename` 一起在 core |
 | `features/lifecycle` desktop 部分 | `job:completed/failed` 依赖 JobSnapshot |
 | `core/telemetry`、`core/usage::commands`、`app/open_request` desktop 部分 | posthog-rs、tauri command、fs scope/窗口聚焦 |
-| `integration/*`（connector、mcp、remote、bridge） | axum/rmcp/openssh/tauri runtime，全 desktop |
+| `integration/*`（connector、remote、bridge） | axum/openssh/tauri runtime，全 desktop |
+| `integration/mcp` 壳层（`commands`、`tunnel`、桌面 `McpHost`） | Tauri 命令、设置事件、ChatGPT 隧道、JobCenter / Wiki 索引钩子。监听与工具在 `crates/agentero-mcp`，CLI `mcp serve` 与桌面进程内启动共用 |
 | `integration/sync`（壳层：`commands`、`scheduler`、`SyncService`） | `tauri::AppHandle` 事件 emit、`tauri::async_runtime`；引擎本体已在 core `features::sync`（见 Phase 2 表） |
 | `app/*`（handlers、window、menu、finder_service…） | Tauri 装配 |
 

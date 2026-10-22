@@ -367,7 +367,7 @@ pub fn run() {
         #[cfg(not(target_os = "ios"))]
         {
             let mcp = app.state::<Arc<McpController>>();
-            mcp.set_app_handle(app.handle().clone());
+            crate::integration::mcp::attach_app(&mcp, app.handle().clone());
             mcp.set_translator_url(Some(settings.translator_base_url.clone()));
             mcp.set_paper_note_mode(settings.paper_note_mode.clone());
         }

@@ -37,7 +37,7 @@ pub const GITHUB_MIRROR_PRESETS: &[&str] = &[
 /// deserialize time; `features::connector` re-exports it.
 pub const DEFAULT_CONNECTOR_PORT: u16 = 23119;
 /// Default loopback port for the optional MCP HTTP server.
-pub const DEFAULT_MCP_PORT: u16 = 8765;
+pub use agentero_mcp::DEFAULT_MCP_PORT;
 
 /// Built-in provider id, re-exported so the Host never re-types the literal.
 pub use agentero_core::features::translate::BUILTIN_PROVIDER_ID;

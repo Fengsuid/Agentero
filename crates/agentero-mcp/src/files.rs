@@ -3,12 +3,14 @@
 //! Paper `NOTES.md` stays on `paper_notes_*` (frontmatter). This surface is for
 //! other vault text, such as a LaTeX draft that does not live under `papers/`.
 
-use crate::core::error::AppError;
-use crate::core::fs::{atomic_write, sanitize_vault_rel};
-use crate::features::paper::catalog::papers;
-use crate::features::vault::rename::{run_local_rename_transaction, WikiIndex, WikiRenameResult};
-use crate::features::vault::trash::{self, DeleteResult};
-use crate::features::vault::tree::should_ignore;
+use agentero_core::error::AppError;
+use agentero_core::features::paper::catalog::papers;
+use agentero_core::features::vault::rename::{
+    run_local_rename_transaction, WikiIndex, WikiRenameResult,
+};
+use agentero_core::features::vault::trash::{self, DeleteResult};
+use agentero_core::features::vault::tree::should_ignore;
+use agentero_core::fs::{atomic_write, sanitize_vault_rel};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -138,8 +140,8 @@ pub fn search(
     publication: Option<String>,
     doi: Option<String>,
     is_read: Option<bool>,
-) -> Result<crate::features::markdown::search::VaultSearchResult, AppError> {
-    use crate::features::markdown::search::{vault_search_filtered, VaultSearchArgs};
+) -> Result<agentero_core::features::markdown::search::VaultSearchResult, AppError> {
+    use agentero_core::features::markdown::search::{vault_search_filtered, VaultSearchArgs};
     let root = canonical_root(vault)?;
     vault_search_filtered(
         VaultSearchArgs {
@@ -622,8 +624,11 @@ mod tests {
         assert_eq!(out.count, 1);
         assert_eq!(out.paths, vec!["drafts/old.tex"]);
         assert!(!dir.path().join("drafts/old.tex").exists());
-        crate::features::vault::trash::restore_batch(dir.path(), out.batch_id.as_deref().unwrap())
-            .unwrap();
+        agentero_core::features::vault::trash::restore_batch(
+            dir.path(),
+            out.batch_id.as_deref().unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             read_text(dir.path(), "drafts/old.tex").unwrap().content,
             "old\n"

@@ -2,7 +2,7 @@
 
 设置里打开 **MCP server** 后，ChatGPT / Codex / MCP Inspector 可以调用本地 Vault 的论文库（列表、入库、写 NOTES、移动/删除文件），不必把 MCP 暴露到公网。默认操作打开的 Vault；先用 `vault_list` 可查看并切换到其它打开过的本地 Vault。
 
-应用必须开着。远端 Vault 不可用。应用内 Agent 面板走 ACP（[接入 Agent](agents.md)）；本篇是给 **外部** MCP 客户端用的。协议与工具表：[backend/mcp.md](../backend/mcp.md)。
+桌面路径下应用必须开着。远端 Vault 不可用。无桌面的服务器用 `agentero mcp serve`（见文末），不必开 App。应用内 Agent 面板走 ACP（[接入 Agent](agents.md)）；本篇是给 **外部** MCP 客户端用的。协议与工具表：[backend/mcp.md](../backend/mcp.md)。
 
 接到 ChatGPT 时，按设置页从上到下做，不要先装客户端：
 
@@ -160,3 +160,13 @@ tunnel-client run --profile agentero
 | Homebrew 装错包 | `openai/tools/tunnel-client`，不是 `tunnel` |
 
 官方帮助：`tunnel-client help oauth`、`help plugin`、`help troubleshooting`。
+
+## 无桌面服务器
+
+文献库已经在 Linux 服务器上时，不用开笔记本上的 App。在服务器上前台启动同一套 MCP，只绑本机：
+
+```sh
+agentero mcp serve --vault /path/to/vault --listen 127.0.0.1:8765
+```
+
+客户端和这个进程在同一台机器上时，直接连 `http://127.0.0.1:8765/mcp`。笔记本上的客户端经 SSH 本地转发再连。需要把 PDF 正文交给客户端时加上 `--expose-paper-text`。不要把端口绑到公网：这里没有鉴权。OpenAI 隧道仍然只在桌面设置里启动。

@@ -9,10 +9,10 @@ use super::resources::{
     self, INVARIANTS_NAME, INVARIANTS_URI, SKILL_NAME, SKILL_URI, VAULT_NAME, VAULT_URI,
 };
 use super::McpController;
-use crate::core::error::AppError;
-use crate::features::paper::catalog::{self, papers};
-use crate::features::paper::discovery::discover;
-use crate::features::paper::import::{self, LookupImportArgs, NoteShellMode};
+use agentero_core::error::AppError;
+use agentero_core::features::paper::catalog::{self, papers};
+use agentero_core::features::paper::discovery::discover;
+use agentero_core::features::paper::import::{self, LookupImportArgs, NoteShellMode};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{
@@ -25,7 +25,6 @@ use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tauri::Manager;
 
 #[derive(Clone)]
 pub struct AgenteroMcp {
@@ -533,7 +532,8 @@ impl AgenteroMcp {
     async fn vault_search(
         &self,
         Parameters(args): Parameters<VaultSearchArgs>,
-    ) -> Result<Json<crate::features::markdown::search::VaultSearchResult>, CallToolResult> {
+    ) -> Result<Json<agentero_core::features::markdown::search::VaultSearchResult>, CallToolResult>
+    {
         let ctrl = self.ctrl.clone();
         // Root resolution and the walk both do sync I/O; keep them off the MCP runtime.
         tokio::task::spawn_blocking(move || {
@@ -647,31 +647,17 @@ impl AgenteroMcp {
             task_id: None,
         };
         let note_mode = NoteShellMode::parse(&self.ctrl.paper_note_mode());
-        let desktop = self.ctrl.app_handle();
-        let result = if let Some(app) = desktop.as_ref() {
-            let cache = app.try_state::<catalog::CapsCache>();
-            let host_app = crate::features::host_hooks::wrap(app);
-            import::import_by_identifier_with_progress(
-                import_args,
-                Some(&host_app),
-                cache.as_ref().map(|s| s.inner()),
-                note_mode,
-            )
-            .await
-        } else {
-            import::import_by_identifier_with_progress(import_args, None, None, note_mode).await
-        };
+        let ctx = self.ctrl.host().import_context();
+        let result = import::import_by_identifier_with_progress(
+            import_args,
+            ctx.app.as_ref(),
+            ctx.caps.as_ref(),
+            note_mode,
+        )
+        .await;
         match result {
             Ok(r) => {
-                if let Some(app) = desktop.as_ref() {
-                    crate::features::host_hooks::enqueue_preparation_plan(
-                        app,
-                        &vault,
-                        &r.preparation,
-                    );
-                } else if let Some(line) = import::skipped_preparation_line(&r.preparation) {
-                    log::info!(target: "agentero::import", "{line}");
-                }
+                self.ctrl.host().after_import(&vault, &r.preparation);
                 Ok(Json(ImportIdOut::from(r)))
             }
             Err(e) => Err(tool_err(e)),
@@ -981,24 +967,15 @@ impl AgenteroMcp {
     /// Opt-in (#676): paper full text leaves the vault only when the user
     /// enables `mcpExposePaperText`; otherwise this tool errors.
     #[tool(
-        description = "Read page text of a paper's PDF (opt-in). Disabled unless the owner enables mcpExposePaperText in Settings. pages selects 1-based pages (omit for all); each page is truncated to maxChars (default 20000)."
+        description = "Read page text of a paper's PDF (opt-in). Disabled unless mcpExposePaperText is on in Settings or the server was started with --expose-paper-text. pages selects 1-based pages (omit for all); each page is truncated to maxChars (default 20000)."
     )]
     async fn paper_text_get(
         &self,
         Parameters(args): Parameters<PaperTextArgs>,
     ) -> Result<Json<paper::PaperTextOut>, CallToolResult> {
-        let app = match self.ctrl.app_handle() {
-            Some(app) => app,
-            None => return Err(tool_err(AppError::message("app handle unavailable"))),
-        };
-        let expose = app
-            .state::<crate::features::system::settings::AppSettingsStore>()
-            .get()
-            .map(|result| result.settings.mcp_expose_paper_text)
-            .unwrap_or(false);
-        if !expose {
+        if !self.ctrl.host().expose_paper_text() {
             return Err(tool_err(AppError::message(
-                "paper_text_get is disabled: enable mcpExposePaperText in Settings                  (opt-in — paper full text would be sent to external clients)",
+                "paper_text_get is disabled (opt-in — paper full text would be sent to external clients). Enable mcpExposePaperText in Settings, or start the server with --expose-paper-text",
             )));
         }
         let vault = match self.ctrl.resolve_vault(args.vault.as_deref()) {
@@ -1032,7 +1009,7 @@ impl AgenteroMcp {
     }
 
     #[tool(
-        description = "List every local vault the user has opened in Agentero (not just the open one). Pass a returned path as the optional `vault` argument on other tools; `open` marks the vault currently shown in the app."
+        description = "List the local vaults this server may use. On the desktop app that is every vault the user has opened; on `agentero mcp serve` it is --vault plus any --allow-vault. Pass a returned path as the optional `vault` argument on other tools; `open` marks the current vault."
     )]
     async fn vault_list(&self) -> Result<Json<super::VaultListOut>, CallToolResult> {
         Ok(Json(self.ctrl.vault_list()))
@@ -1046,19 +1023,16 @@ impl AgenteroMcp {
         Parameters(args): Parameters<FileMoveArgs>,
     ) -> Result<Json<FileMoveOut>, CallToolResult> {
         let ctrl = self.ctrl.clone();
-        let index = self.ctrl.app_handle().and_then(|app| {
-            app.try_state::<crate::features::markdown::wiki::WikiIndexState>()
-                .map(|state| state.handle())
-        });
+        let live_index = self.ctrl.host().open_wiki_index();
         tokio::task::spawn_blocking(move || {
             let vault = ctrl.resolve_vault(args.vault.as_deref())?;
-            let mut fallback = crate::features::vault::rename::WikiIndex::default();
+            let mut fallback = agentero_core::features::vault::rename::WikiIndex::default();
             // The Host index belongs to the open vault. Rebuilding it for a
             // different vault would make the desktop UI's index stale, so use a
             // local snapshot unless we are moving inside the open vault.
             let open = ctrl.local_vault().ok();
             let index_handle = if open.as_deref() == Some(vault.as_path()) {
-                index
+                live_index
             } else {
                 None
             };
@@ -1067,7 +1041,7 @@ impl AgenteroMcp {
                 .map(|handle| handle.lock().unwrap_or_else(|e| e.into_inner()));
             let wiki = guard.as_deref_mut().unwrap_or(&mut fallback);
             let result = files::move_entry(&vault, &args.from, &args.to, wiki)?;
-            crate::core::usage::rename_path_best_effort(
+            agentero_core::usage::rename_path_best_effort(
                 &vault.to_string_lossy(),
                 &args.from,
                 &args.to,
@@ -1115,7 +1089,7 @@ impl AgenteroMcp {
                     let moved = args
                         .paths
                         .iter()
-                        .map(|rel| crate::core::fs::normalize_rel_separators(rel))
+                        .map(|rel| agentero_core::fs::normalize_rel_separators(rel))
                         .filter(|rel| !vault.join(rel).exists())
                         .collect();
                     Ok((vault, None, moved, Some(err)))
@@ -1134,16 +1108,8 @@ impl AgenteroMcp {
         // Match the UI delete path: a removed paper must not keep running
         // background work (parse/download/layout) against its old path.
         // Catalog failure still moved the files, so those paths are cancelled too.
-        if let Some(app) = self.ctrl.app_handle() {
-            if let Some(center) = app.try_state::<crate::features::jobs::JobCenter>() {
-                for rel in &moved {
-                    for snapshot in center.cancel_for_paper(&vault, rel).await {
-                        crate::features::jobs::emit_job_changed(&app, snapshot);
-                    }
-                }
-                center.drain_and_spawn(&app).await;
-            }
-        }
+        // Headless servers have no job queue; the host hook is a no-op there.
+        self.ctrl.host().after_delete(&vault, &moved).await;
         if let Some(err) = catalog_err {
             return Err(tool_err(err));
         }
@@ -1224,7 +1190,7 @@ impl ServerHandler for AgenteroMcp {
                 .build(),
         )
         .with_instructions(concat!(
-            "Agentero research vault MCP (local vaults; App must be open). ",
+            "Agentero research vault MCP (local vaults only). ",
             "Read agentero://vault, then agentero://agent-invariants. ",
             "Call vault_list first when you may need a vault other than the open one; pass its path as `vault` on other tools. ",
             "paper_list defaults to id/path/title only — pass fields or full when needed. ",
@@ -1286,7 +1252,7 @@ impl ServerHandler for AgenteroMcp {
 #[cfg(test)]
 mod schema_tests {
     use super::AgenteroMcp;
-    use crate::integration::mcp::McpController;
+    use crate::McpController;
     use rmcp::ServerHandler;
 
     /// Stable ops that advertise MCP must use a name from `AgenteroMcp::tool_router`
@@ -1314,7 +1280,7 @@ mod schema_tests {
                 .unwrap_or_else(|| panic!("{} is MCP but has no tool name", op.id));
             assert!(
                 tools.iter().any(|t| t.name == tool),
-                "{} mcp tool `{tool}` is not registered in src-tauri/src/integration/mcp/tools.rs",
+                "{} mcp tool `{tool}` is not registered in crates/agentero-mcp/src/tools.rs",
                 op.id
             );
         }
@@ -1487,8 +1453,8 @@ mod schema_tests {
         let hits = out["hits"].as_array().unwrap();
         assert_eq!(hits.len(), 3);
         assert_eq!(out["truncated"], false);
-        let host = crate::features::markdown::search::vault_search(
-            crate::features::markdown::search::VaultSearchArgs {
+        let host = agentero_core::features::markdown::search::vault_search(
+            agentero_core::features::markdown::search::VaultSearchArgs {
                 vault_path: vault.path().to_string_lossy().into_owned(),
                 query: "TRANSFORMER attention".into(),
                 limit: None,
@@ -1734,7 +1700,7 @@ mod schema_tests {
 
     #[tokio::test]
     async fn page_read_protocol_round_trip_reads_a_physical_page() {
-        use crate::features::paper::catalog::papers::{self, PaperRecord};
+        use agentero_core::features::paper::catalog::papers::{self, PaperRecord};
         use rmcp::{model::CallToolRequestParams, ServiceExt};
         use serde_json::json;
         let vault = tempfile::tempdir().unwrap();
@@ -1825,7 +1791,7 @@ mod schema_tests {
 
     #[tokio::test]
     async fn vault_search_carries_physical_page_and_metadata_filter() {
-        use crate::features::paper::catalog::papers::{self, PaperRecord};
+        use agentero_core::features::paper::catalog::papers::{self, PaperRecord};
         use rmcp::{model::CallToolRequestParams, ServiceExt};
         use serde_json::json;
         let vault = tempfile::tempdir().unwrap();

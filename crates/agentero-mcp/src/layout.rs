@@ -1,10 +1,10 @@
 //! MCP layout_list / layout_get helpers + schemars DTOs.
 
-use crate::core::error::AppError;
-use crate::features::pdf::layout_index::{
+use crate::paper;
+use agentero_core::error::AppError;
+use agentero_core::features::pdf::layout_index::{
     self, LayoutGetResult, LayoutIndexItem, LayoutListResult,
 };
-use crate::integration::mcp::paper;
 use serde::Serialize;
 use std::path::Path;
 

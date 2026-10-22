@@ -65,7 +65,7 @@ ACP / SSH 子进程由 Rust 与 ACP SDK 启动，不注册 Tauri shell 插件。
 | `agent-client-protocol` | ACP Client stdio JSON-RPC |
 | `reqwest` + `tokio` | HTTP（Translator、arXiv、翻译等） |
 | `rusqlite`（bundled） | catalog.sqlite |
-| `rmcp` | 设置开关启停的 loopback Streamable HTTP MCP |
+| `rmcp` / `agentero-mcp` | loopback Streamable HTTP MCP。桌面设置开关与 CLI `mcp serve` 共用 |
 | `notify` | Vault 文件监听 |
 | `liteparse` | 无 TeX 时 PDF → `PAPER.md` |
 | `walkdir` / `regex` / `thiserror` | 遍历、解析、错误 |
@@ -136,3 +136,7 @@ ACP / SSH 子进程由 Rust 与 ACP SDK 启动，不注册 Tauri shell 插件。
 | 决策层 | [decision.md](decision.md) |
 | CLI | [cli.md](cli.md) |
 | API 全表 | [api.md](api.md) |
+
+## 开发插件
+
+[开发插件宿主（M0）](plugins.md)：桌面 debug 构建的显式目录加载、独立 QuickJS 进程、受限只读 API 与窗口/Vault 作用域清理。

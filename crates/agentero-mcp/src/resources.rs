@@ -1,7 +1,7 @@
 //! MCP resources: vault overview, agent invariants, bundled CLI skill.
 
 use super::McpController;
-use crate::features::paper::catalog::{self, papers};
+use agentero_core::features::paper::catalog::{self, papers};
 use agentero_core::features::vault;
 use agentero_core::ops;
 
@@ -63,7 +63,7 @@ pub fn vault_markdown(ctrl: &McpController) -> String {
             )
         }
         Err(_) => format!(
-            "# Agentero vault\n\nNo local vault is open. Open a vault in Agentero, then read this resource again.\n\n\
+            "# Agentero vault\n\nNo local vault is open. Open a vault in Agentero, or start `agentero mcp serve --vault <PATH>`.\n\n\
              ## Known vaults\n\n{known}\n\n\
              Pass a known path as `vault` to tools that accept it, or open the vault in Agentero.\n"
         ),
