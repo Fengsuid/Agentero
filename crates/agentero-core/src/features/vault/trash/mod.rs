@@ -1,39 +1,73 @@
-//! Vault-local recycle bin.
+//! Vault recycle bin, shared by the local filesystem and the remote `VaultFs`
+//! executor.
 //!
 //! Deleting an item moves it into `.agentero/.trash/<batchId>/` together with a
 //! `manifest.json` that records each item's original vault-relative path and a
 //! snapshot of the catalog rows removed for it. This makes a delete fully
 //! undoable — files move back and catalog rows are re-inserted — without
 //! depending on platform-specific OS trash restore.
+//!
+//! [`plan_trash`] decides eligibility, stored names, and catalog snapshots.
+//! Each executor performs its own move, manifest write, and catalog delete.
 
 use crate::error::AppError;
 use crate::features::catalog::papers::{self, PaperRecord};
+use crate::fs::normalize_rel_separators;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
 /// Vault-relative location of the recycle bin (hidden from the file tree,
-/// which skips dot-entries).
-const TRASH_REL: &str = ".agentero/.trash";
+/// which skips dot-entries). Components are `/`-separated for `VaultFs`.
+pub const TRASH_REL: &str = ".agentero/.trash";
 
-#[derive(Debug, Serialize, Deserialize)]
+/// One manifest entry. Field names stay camelCase so existing `manifest.json`
+/// files still deserialize.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TrashItem {
+pub struct TrashItem {
     /// Original vault-relative path the item lived at.
-    rel: String,
+    pub rel: String,
     /// Basename of the stored copy inside the batch directory.
-    stored: String,
+    pub stored: String,
     /// Catalog rows removed for this item (empty when not under `papers/`).
     #[serde(default)]
-    catalog_rows: Vec<PaperRecord>,
+    pub catalog_rows: Vec<PaperRecord>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Recycle-bin batch manifest (`manifest.json`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TrashManifest {
-    batch_id: String,
-    created_at: String,
-    items: Vec<TrashItem>,
+pub struct TrashManifest {
+    pub batch_id: String,
+    pub created_at: String,
+    pub items: Vec<TrashItem>,
+}
+
+/// One eligible path in a [`TrashPlan`], including the catalog snapshot taken
+/// before any file move or catalog delete.
+#[derive(Debug, Clone)]
+pub struct TrashPlanItem {
+    pub rel: String,
+    pub stored: String,
+    pub catalog_rows: Vec<PaperRecord>,
+}
+
+/// Pure trash decision: which rels to move, under which stored names.
+#[derive(Debug, Clone)]
+pub struct TrashPlan {
+    pub batch_id: String,
+    pub items: Vec<TrashPlanItem>,
+}
+
+impl From<TrashPlanItem> for TrashItem {
+    fn from(item: TrashPlanItem) -> Self {
+        Self {
+            rel: item.rel,
+            stored: item.stored,
+            catalog_rows: item.catalog_rows,
+        }
+    }
 }
 
 /// Result of a trash operation returned to the UI.
@@ -81,7 +115,9 @@ fn is_under_papers(rel: &str) -> bool {
     rel == "papers" || rel.starts_with("papers/")
 }
 
-fn validate_batch_id(batch_id: &str) -> Result<(), AppError> {
+/// Reject batch ids that would escape `.agentero/.trash/` or add path segments.
+/// Both `/` and `\` are rejected so a Windows join cannot split the id.
+pub fn validate_batch_id(batch_id: &str) -> Result<(), AppError> {
     if batch_id.is_empty()
         || batch_id.contains('/')
         || batch_id.contains('\\')
@@ -90,6 +126,140 @@ fn validate_batch_id(batch_id: &str) -> Result<(), AppError> {
         return Err(AppError::message("invalid batch id"));
     }
     Ok(())
+}
+
+/// Vault-relative batch directory (`.agentero/.trash/<batch_id>`), using `/`.
+/// `batch_id` must already have passed [`validate_batch_id`]. Local executors
+/// join [`TRASH_REL`] and the id with `Path::join` instead of concatenating an
+/// absolute vault path.
+pub fn trash_batch_rel(batch_id: &str) -> String {
+    format!("{TRASH_REL}/{batch_id}")
+}
+
+/// Shape check on an already separator-normalized rel, before the existence
+/// probe. Matches local trash: empty, the `papers` root, any rel containing
+/// `..`, and anything whose path starts with `.agentero` (including the
+/// directory itself).
+pub fn is_trash_candidate(rel: &str) -> bool {
+    !rel.is_empty() && rel != "papers" && !rel.contains("..") && !rel.starts_with(".agentero")
+}
+
+/// Manifest write failed after files were moved. The message includes the
+/// batch id so a later restore can find `.agentero/.trash/<batch_id>/`.
+/// Callers must not delete the moved files.
+pub fn manifest_write_failed(batch_id: &str, err: &impl std::fmt::Display) -> AppError {
+    AppError::message(format!(
+        "trash manifest write failed; moved files remain in .agentero/.trash/{batch_id}: {err}"
+    ))
+}
+
+/// Decide which rels are eligible and their stored names.
+///
+/// `present` reports whether a normalized rel exists. `rows_for` supplies the
+/// catalog snapshot for a rel under `papers/` (the caller loads it). Skips
+/// empty rels, the `papers` root, any rel containing `..`, anything under
+/// `.agentero`, and rels `present` says are missing. Stored names keep the
+/// request index (`{i}__{basename}`) so two items that share a basename stay
+/// distinct. Local and remote skip rules already matched; this does not drop
+/// a path the local command trashes.
+///
+/// Failure point for both executors (this function does not touch the
+/// filesystem): an invalid batch id returns here, before any move. After
+/// moves, a manifest write failure returns [`manifest_write_failed`] and
+/// leaves the files in the batch. Catalog `delete_under_path` runs only after
+/// that manifest is stored, via [`delete_trashed_catalog`]; a catalog error
+/// also returns `Err` and leaves the batch in place so restore can replay it.
+/// Both sides used to ignore per-item catalog delete errors (remote still
+/// aborted later if `cat.push` failed, without rolling files back). Remote
+/// catalog publish stays in the existing `trash_paths` `cat.push` call.
+pub fn plan_trash<P, R>(
+    rels: &[String],
+    batch_id: &str,
+    mut present: P,
+    mut rows_for: R,
+) -> Result<TrashPlan, AppError>
+where
+    P: FnMut(&str) -> bool,
+    R: FnMut(&str) -> Vec<PaperRecord>,
+{
+    validate_batch_id(batch_id)?;
+    let mut items = Vec::new();
+    for (i, raw) in rels.iter().enumerate() {
+        let rel = normalize_rel_separators(raw);
+        if !is_trash_candidate(&rel) || !present(&rel) {
+            continue;
+        }
+        let base = Path::new(&rel)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("item")
+            .to_string();
+        let catalog_rows = if is_under_papers(&rel) {
+            rows_for(&rel)
+        } else {
+            Vec::new()
+        };
+        items.push(TrashPlanItem {
+            rel,
+            stored: format!("{i}__{base}"),
+            catalog_rows,
+        });
+    }
+    // Snapshots are taken before any delete. A parent requested together with
+    // a child would otherwise keep the child's rows; give each row to the
+    // longest planned path that covers it.
+    retain_rows_for_deepest_item(&mut items);
+    Ok(TrashPlan {
+        batch_id: batch_id.to_string(),
+        items,
+    })
+}
+
+/// `row_path` is `rel` or a descendant (`rel/...`), not a sibling with a shared prefix.
+fn path_covers(rel: &str, row_path: &str) -> bool {
+    row_path == rel || row_path.starts_with(&format!("{rel}/"))
+}
+
+fn retain_rows_for_deepest_item(items: &mut [TrashPlanItem]) {
+    let rels: Vec<String> = items.iter().map(|item| item.rel.clone()).collect();
+    for item in items.iter_mut() {
+        item.catalog_rows.retain(|row| {
+            rels.iter()
+                .filter(|rel| path_covers(rel, &row.path))
+                .max_by_key(|rel| rel.len())
+                .is_some_and(|owner| owner == &item.rel)
+        });
+    }
+}
+
+/// Delete catalog rows for papers whose files are already in the trash batch.
+/// Runs only after the manifest is on disk. On failure the batch is left in
+/// place (no file rollback) and the error names `batch_id`.
+pub fn delete_trashed_catalog(
+    vault_root: &Path,
+    batch_id: &str,
+    items: &[TrashItem],
+) -> Result<(), AppError> {
+    let mut first_error = None;
+    for item in items {
+        if !is_under_papers(&item.rel) {
+            continue;
+        }
+        if let Err(err) = papers::delete_under_path(vault_root, &item.rel) {
+            if first_error.is_none() {
+                first_error = Some(AppError::domain(
+                    "trash_catalog",
+                    format!(
+                        "trash catalog update failed for batch {batch_id}; files remain in .agentero/.trash/{batch_id}: {err}"
+                    ),
+                ));
+            }
+        }
+    }
+    match first_error {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
 }
 
 fn read_manifest(batch_dir: &Path) -> Result<TrashManifest, AppError> {
@@ -107,9 +277,10 @@ fn write_manifest(batch_dir: &Path, manifest: &TrashManifest) -> Result<(), AppE
 
 /// Move the given vault-relative paths into a new recycle-bin batch.
 ///
-/// For anything under `papers/`, catalog rows are snapshotted then removed so
-/// the Library stays consistent; both are restored on [`restore_batch`].
-/// Skips empty / traversing / `.agentero` / `papers` root / missing paths.
+/// Eligibility and catalog snapshots come from [`plan_trash`]. For anything
+/// under `papers/`, catalog rows are removed only after the manifest is stored
+/// so a failed manifest write does not hide the paper while its files sit in
+/// an unrecorded batch. Both are restored on [`restore_batch`].
 pub fn trash_paths(vault_root: &Path, rels: &[String]) -> Result<TrashResult, AppError> {
     crate::fs::ensure_vault_dir(vault_root)?;
     let now = chrono::Utc::now();
@@ -118,51 +289,34 @@ pub fn trash_paths(vault_root: &Path, rels: &[String]) -> Result<TrashResult, Ap
         now.format("%Y%m%dT%H%M%S"),
         now.timestamp_subsec_nanos()
     );
-    let batch_dir = vault_root.join(TRASH_REL).join(&batch_id);
+    let plan = plan_trash(
+        rels,
+        &batch_id,
+        |rel| vault_root.join(rel).exists(),
+        |rel| papers::list_under_path(vault_root, rel).unwrap_or_default(),
+    )?;
+    if plan.items.is_empty() {
+        return Ok(TrashResult {
+            batch_id,
+            count: 0,
+            rels: Vec::new(),
+        });
+    }
 
+    // Join the trash root and the batch id as path components. The id has
+    // already rejected `/` and `\`, so it cannot add another segment.
+    let batch_dir = vault_root.join(TRASH_REL).join(&plan.batch_id);
     let mut items: Vec<TrashItem> = Vec::new();
-    for (i, raw) in rels.iter().enumerate() {
-        let rel = crate::fs::normalize_rel_separators(raw);
-        if rel.is_empty() || rel == "papers" || rel.contains("..") {
-            continue;
-        }
-        if rel.starts_with(".agentero") {
-            continue; // never trash the app's private dir
-        }
-        let abs = vault_root.join(&rel);
-        if !abs.exists() {
-            continue;
-        }
-        // Index prefix avoids basename collisions within one batch.
-        let base = Path::new(&rel)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("item")
-            .to_string();
-        let stored = format!("{i}__{base}");
-        // Snapshot catalog rows first (read-only), but keep them until the move
-        // succeeds — otherwise a failed rename (e.g. a file open on Windows)
-        // would orphan the catalog and hide the paper from the Library.
-        let catalog_rows = if is_under_papers(&rel) {
-            papers::list_under_path(vault_root, &rel).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+    for item in plan.items {
         if fs::create_dir_all(&batch_dir).is_err() {
             continue;
         }
-        if fs::rename(&abs, batch_dir.join(&stored)).is_err() {
+        let abs = vault_root.join(&item.rel);
+        if fs::rename(&abs, batch_dir.join(&item.stored)).is_err() {
             // Leave the item in place and the catalog untouched.
             continue;
         }
-        if is_under_papers(&rel) {
-            let _ = papers::delete_under_path(vault_root, &rel);
-        }
-        items.push(TrashItem {
-            rel,
-            stored,
-            catalog_rows,
-        });
+        items.push(item.into());
     }
 
     if items.is_empty() {
@@ -175,20 +329,20 @@ pub fn trash_paths(vault_root: &Path, rels: &[String]) -> Result<TrashResult, Ap
         });
     }
 
-    let rels: Vec<String> = items.iter().map(|item| item.rel.clone()).collect();
+    let rels_out: Vec<String> = items.iter().map(|item| item.rel.clone()).collect();
     let manifest = TrashManifest {
-        batch_id: batch_id.clone(),
+        batch_id: plan.batch_id.clone(),
         created_at: crate::time::now_rfc3339_millis(),
         items,
     };
-    let json =
-        serde_json::to_string_pretty(&manifest).map_err(|e| AppError::message(e.to_string()))?;
-    fs::write(batch_dir.join("manifest.json"), json)?;
+    write_manifest(&batch_dir, &manifest)
+        .map_err(|err| manifest_write_failed(&manifest.batch_id, &err))?;
+    delete_trashed_catalog(vault_root, &manifest.batch_id, &manifest.items)?;
 
     Ok(TrashResult {
         batch_id: manifest.batch_id,
         count: manifest.items.len(),
-        rels,
+        rels: rels_out,
     })
 }
 
@@ -467,6 +621,168 @@ mod tests {
             added_at: "t".into(),
             updated_at: "t".into(),
         }
+    }
+
+    #[test]
+    fn plan_trash_skips_and_disambiguates_stored_names() {
+        let rels = vec![
+            String::new(),
+            "papers".into(),
+            "papers/../secret".into(),
+            ".agentero/catalog.sqlite".into(),
+            ".agentero".into(),
+            "missing.md".into(),
+            "notes/a.md".into(),
+            "other/a.md".into(),
+            "papers/x".into(),
+            // `contains("..")` matches the local command, including this name.
+            "notes..md".into(),
+            r"papers\y".into(),
+            // Not a `.agentero` prefix, so the local command trashes it.
+            "notes/.agentero".into(),
+        ];
+        let present = [
+            "notes/a.md",
+            "other/a.md",
+            "papers/x",
+            "papers/y",
+            "notes..md",
+            "notes/.agentero",
+        ];
+        let mut present_calls = Vec::new();
+        let mut row_calls = Vec::new();
+        let plan = plan_trash(
+            &rels,
+            "batch-1",
+            |rel| {
+                present_calls.push(rel.to_string());
+                present.contains(&rel)
+            },
+            |rel| {
+                row_calls.push(rel.to_string());
+                vec![sample_record(rel, "id")]
+            },
+        )
+        .unwrap();
+
+        let got: Vec<_> = plan
+            .items
+            .iter()
+            .map(|item| {
+                (
+                    item.rel.as_str(),
+                    item.stored.as_str(),
+                    item.catalog_rows.len(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("notes/a.md", "6__a.md", 0),
+                ("other/a.md", "7__a.md", 0),
+                ("papers/x", "8__x", 1),
+                ("papers/y", "10__y", 1),
+                ("notes/.agentero", "11__.agentero", 0),
+            ]
+        );
+        assert_eq!(plan.batch_id, "batch-1");
+        // Skipped shapes are not probed; missing.md is probed and rejected.
+        assert!(present_calls.contains(&"missing.md".to_string()));
+        assert!(!present_calls.iter().any(|rel| rel.contains("..")));
+        assert!(!present_calls.iter().any(|rel| rel.starts_with(".agentero")));
+        assert_eq!(
+            row_calls,
+            vec!["papers/x".to_string(), "papers/y".to_string()]
+        );
+        assert_eq!(plan.items[2].catalog_rows[0].title, "T");
+    }
+
+    #[test]
+    fn plan_trash_assigns_nested_rows_to_the_deeper_item() {
+        let rels = vec!["papers/group/paperA".into(), "papers/group".into()];
+        let plan = plan_trash(
+            &rels,
+            "batch-1",
+            |_| true,
+            |rel| {
+                if rel == "papers/group" {
+                    vec![
+                        sample_record("papers/group/paperA", "a"),
+                        sample_record("papers/group/paperB", "b"),
+                    ]
+                } else {
+                    vec![sample_record("papers/group/paperA", "a")]
+                }
+            },
+        )
+        .unwrap();
+
+        let child = plan
+            .items
+            .iter()
+            .find(|item| item.rel == "papers/group/paperA")
+            .expect("child item");
+        assert_eq!(child.catalog_rows.len(), 1);
+        assert_eq!(child.catalog_rows[0].path, "papers/group/paperA");
+
+        let group = plan
+            .items
+            .iter()
+            .find(|item| item.rel == "papers/group")
+            .expect("group item");
+        let paths: Vec<_> = group
+            .catalog_rows
+            .iter()
+            .map(|row| row.path.as_str())
+            .collect();
+        assert_eq!(paths, vec!["papers/group/paperB"]);
+    }
+
+    #[test]
+    fn plan_trash_rejects_batch_id_before_callbacks() {
+        for bad in ["", "a/b", r"a\b", "..", "batch/../x", "foo..bar"] {
+            let called = std::cell::Cell::new(false);
+            let err = plan_trash(
+                &["notes/a.md".into()],
+                bad,
+                |_| {
+                    called.set(true);
+                    true
+                },
+                |_| {
+                    called.set(true);
+                    Vec::new()
+                },
+            )
+            .unwrap_err();
+            assert!(!called.get(), "callbacks ran for {bad}");
+            assert!(err.to_string().contains("invalid batch id"), "{bad}: {err}");
+        }
+        let empty = plan_trash(&[], "20261022T130000-1", |_| true, |_| Vec::new()).unwrap();
+        assert!(empty.items.is_empty());
+        assert!(validate_batch_id("ok-id").is_ok());
+    }
+
+    #[test]
+    fn manifest_roundtrips_camel_case() {
+        let raw = r#"{
+            "batchId": "20260101T000000-1",
+            "createdAt": "2026-01-01T00:00:00.000Z",
+            "items": [{ "rel": "notes/a.md", "stored": "0__a.md" }]
+        }"#;
+        let manifest: TrashManifest = serde_json::from_str(raw).unwrap();
+        assert_eq!(manifest.batch_id, "20260101T000000-1");
+        assert_eq!(manifest.created_at, "2026-01-01T00:00:00.000Z");
+        assert_eq!(manifest.items[0].rel, "notes/a.md");
+        assert_eq!(manifest.items[0].stored, "0__a.md");
+        assert!(manifest.items[0].catalog_rows.is_empty());
+
+        let json = serde_json::to_value(&manifest).unwrap();
+        assert!(json.get("batchId").is_some());
+        assert!(json.get("batch_id").is_none());
+        assert!(json["items"][0].get("catalogRows").is_some());
+        assert!(json["items"][0].get("catalog_rows").is_none());
     }
 
     #[test]

@@ -69,6 +69,25 @@ pub async fn path_trash(
                 Ok(ApiResult::ok(res))
             }
             Err(e) => {
+                // Files are already in the batch when catalog update fails.
+                // Cancel jobs for paths that actually left the vault; a rename
+                // that did not happen still exists on disk and keeps its jobs.
+                if e.code() == "trash_catalog" {
+                    let mut cancelled = 0usize;
+                    for raw in &args.rels {
+                        let rel = crate::core::fs::normalize_rel_separators(raw);
+                        if vault.join(&rel).exists() {
+                            continue;
+                        }
+                        for snapshot in center.cancel_for_paper(&vault, &rel).await {
+                            emit_job_changed(&app, snapshot);
+                            cancelled += 1;
+                        }
+                    }
+                    if cancelled > 0 {
+                        center.drain_and_spawn(&app).await;
+                    }
+                }
                 op.finish_err(&e);
                 Ok(map_err(e))
             }

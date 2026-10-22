@@ -11,7 +11,7 @@
 | Catalog | work mirror（本机查询，写回远端） |
 | PDF | blob 缓存（`remote_cache_*`） |
 | Agent | ACP over SSH：`remote_agent_probe` / scan / 与 `agent_run_once` 集成（命令实现属 agent 域 `features/agent/commands/remote.rs`，经反转 trait `agent::remote_host::{RemoteAgentHosts, RemoteAgentLaunch}` 复用 remote 域的 SSH session/exec） |
-| 入库 / 回收站 | 远端写路径与 trash bridge；features 命令经反转 trait `import::RemoteImportOps` / `trash::remote_ops::RemoteTrashOps` 调用（`integration::remote` 实现并在 app 启动时注册为 State） |
+| 入库 / 回收站 | 远端写路径与 trash bridge。回收站的资格、manifest 与 batch id 校验在 core `plan_trash`，bridge 只做 `VaultFs` 移动和既有 `cat.push`。features 命令经反转 trait `import::RemoteImportOps` / `trash::remote_ops::RemoteTrashOps` 调用（`integration::remote` 实现并在 app 启动时注册为 State） |
 | Connector | 可绑定 `remote:<sessionId>` |
 
 前端伪路径 `remote:<sessionId>`（解析在 `core/remote.rs`，纯字符串工具，features/integration 共用）。客户端：**macOS / Linux**（Windows 客户端暂不支持打开远程 Vault）。

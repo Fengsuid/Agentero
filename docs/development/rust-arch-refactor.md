@@ -1,6 +1,6 @@
 # Rust 端架构重构计划（2026-09）
 
-状态：**实施中：R1 WAL 一致快照、R2 字段原子更新、R3 sync 占用 RAII、R5 附件不作为主资产、A1 共享移动用例、A3 论文身份分类已完成；D2 已完成 MinerU 在途共享切片，其余按下文状态推进**。最后更新：2026-10-22。
+状态：**实施中：R1 WAL 一致快照、R2 字段原子更新、R3 sync 占用 RAII、R5 附件不作为主资产、A1 共享移动用例、A2 共享 trash 计划切片、A3 论文身份分类已完成；D2 已完成 MinerU 在途共享切片，其余按下文状态推进**。最后更新：2026-10-22。
 
 来源：2026-09-06 三轮架构审计；2026-09-08 由 3 个 sub-agent 分别复核应用边界、存储一致性、运行时与集成，主评审补充核实论文入库及解析链路。本次为静态代码评审，未运行行为测试。历史 V 编号保留，旧 P0–P6 执行顺序由本文新计划替代。
 
@@ -43,6 +43,9 @@
 - [ ] **A2 统一 trash/restore 操作计划**（依赖 A1 的用例边界；恢复策略与 B 协作）
   - 收敛本地与远端的校验、恢复 manifest、执行顺序和失败结果；IO 执行器保留能力差异。
   - 验收：移动后 manifest 写失败、Catalog 更新失败、远端发布失败均有明确可恢复结果；同表测试覆盖两种后端。
+  - 实施（2026-10-22，共享计划切片）：core `features/vault/trash` 的 `TrashItem` / `TrashManifest` / `validate_batch_id` 是唯一 manifest 模型（serde camelCase 不变，旧 `manifest.json` 仍可读）。`plan_trash` 决定可删 rel 与 `"{index}__{basename}"` 存储名；本地 `trash_paths` 与远端 `trash_bridge::trash_paths` 都先规划，再各自移动、写 manifest、删 catalog。跳过规则两边原本一致（空、`papers` 根、含 `..`、`.agentero` 前缀、不存在），没有改掉本机会回收的路径。失败点：非法 batch id（含 `/` 与 `\`）在任何移动前返回；manifest 写失败返回 `Err`，文案含 batch id，已移动文件留在 `.agentero/.trash/<batch_id>/`；`delete_under_path` 改到 manifest 落盘之后，失败也 `Err`，批次保留以便 restore。此前两边都忽略逐项 catalog 删除错误并继续（远端仅在之后的 `cat.push` 失败时 `Err`，且不回滚文件）；现在两边都在 manifest 之后因 catalog 更新失败中止。同一请求里的 catalog 快照改在任何删除之前一次取齐。远端发布仍是 `trash_paths` 末尾既有的 `cat.push`，不新做协调器。
+  - 未做：restore / purge 的执行顺序与失败补偿仍是两套 IO；远端 catalog 发布不经过 `commit_paper_write`（B2）。没有新的 SFTP 测试。
+  - 验证：`cargo test -p agentero-core --lib features::vault::trash -- --test-threads=8` 8 通过；`cargo test -p agentero --lib trash_bridge -- --test-threads=8` 1 通过（local-sim roundtrip）。
 - [x] **A3 收敛论文身份与 Vault 能力解析**（2026-10-22）
   - `PaperUnit` / `PaperLayout` 统一论文 marker、主 PDF、正文源、支撑材料分类，供 rescan、caps、Doctor、树与同步消费；`attachments/` 不是身份 marker。
   - 在适配边界解析本地/远端目标，共享服务只依赖所需能力；不让 core 持有 integration 的具体远端 session 类型。
@@ -168,13 +171,13 @@
 | 批次 | 工作 | 主要依赖 | 状态 |
 |---|---|---|---|
 | 前置修复 | R1–R6 | 各项独立；按影响优先处理 R1/R2/R3 | R1/R2/R3/R5 已完成，R4/R6 未开始 |
-| 第一批 | A1 移动用例，随后 A2/A3 | 复用已有 rename；A2 与 B3 明确恢复契约 | A1 与 A3 已完成，A2 未开始 |
+| 第一批 | A1 移动用例，随后 A2/A3 | 复用已有 rename；A2 与 B3 明确恢复契约 | A1 与 A3 已完成；A2 已落地共享 trash 计划，restore 顺序与远端发布未做 |
 | 第二批 | B1–B3、A4、C1/C2 | B 以前置数据修复为基础；A4/C 接入提交结果 | 未开始 |
 | 第三批 | D1/D2、E1 | D1 与 E1 先对齐计划接口；D2 可独立试点 | 未开始 |
 | 可独立推进 | E2/E3、F1–F3 | E2 从 R3 起步；F 内部按事件→执行→装配 | E2 的 sync lease 已完成，其余未开始 |
 | 后置 | S1–S6 | 主线边界稳定、或具体需求证明收益 | 未开始 |
 
-架构切片 **A1** 与 **A3** 已完成：A1 复用现有 rename，用 CLI/桌面对比证明本地移动语义收敛；A3 把论文身份收成 `identity.rs`，远端 rescan 与本地使用同一 marker，caps 不再把 `attachments/` 当主资产。后续继续 A2。R 中的数据与安全问题先行或穿插处理，不要求所有 R 完成后才能开始独立主线。
+架构切片 **A1** 与 **A3** 已完成：A1 复用现有 rename，用 CLI/桌面对比证明本地移动语义收敛；A3 把论文身份收成 `identity.rs`，远端 rescan 与本地使用同一 marker，caps 不再把 `attachments/` 当主资产。**A2** 已把 trash 的资格、manifest 与失败点收成 core `plan_trash`，restore 顺序和远端发布仍未统一。R 中的数据与安全问题先行或穿插处理，不要求所有 R 完成后才能开始独立主线。
 
 ## 旧任务归并索引
 
@@ -208,7 +211,7 @@
 | V3 | remote 分支共 **28 处 / 10 文件**（23 处 `parse_remote_handle` 调用 + 5 处裸 `"remote:"` 比较） | 分布：trash×5、import×4、connector×11、jobs×1、zotero×1、launch×1、mcp×1、sync×1 |
 | V4 | `remote_*` 命令 21 个（remote/commands.rs 18 + agent 3），其中**真孪生 5 个**：`remote_paper_{get,list,set_tags,set_is_read,rescan}` ↔ `paper_*`（2026-10 状态：命令名/参数/返回类型含 list 投影差异全部保留，实现体已收敛到共享入口 `features/paper/catalog/service.rs` + `RemoteSession::push_catalog`，见 [backend/remote.md](../backend/remote.md)） | `app/handlers.rs:155-175` |
 | V5 | 3 个 `Remote*Ops` trait 无本地实现，调用点 `if remote { ops } else { 直调 }` | `RemoteImportOps`（features/paper/import/remote_ops.rs:22）、`RemoteTrashOps`（features/vault/trash/remote_ops.rs:17）、`RemoteAgentHosts`（features/agent/remote_host.rs:57） |
-| V6 | trash 整体复制分叉：结构体、校验函数、5 个操作全部重写，仅共享结果类型与 catalog 行助手 | core `vault/trash/mod.rs` vs `remote/trash_bridge.rs`（自带头注释"Semantics match local"） |
+| V6 | trash 整体复制分叉：结构体、校验函数、5 个操作全部重写，仅共享结果类型与 catalog 行助手（2026-10-22：manifest 类型、batch id 校验与 `plan_trash` 已收到 core；移动 / 恢复 IO 与远端 `cat.push` 仍在 `trash_bridge`） | core `vault/trash/mod.rs` vs `remote/trash_bridge.rs` |
 | V7 | CLI move 只动文件与 SQL；桌面和 Connector 已共用包含双链更新的移动事务，但服务仍放在 `commands.rs`。09-08 确认：需要统一完整用例，不能把 Connector 本地移动报告为另一分叉 | `catalog/mod.rs:66`、`src-tauri/src/features/paper/catalog/commands.rs:550`、`integration/connector/state.rs:766`、`cli/src/commands/paper.rs:689` |
 | V8 | caps 误判 attachments：附件 PDF 可成主 PDF（read_dir 顺序不定，可能抢在 source/ 前）；附件 `.tex` 置 `has_tex` 压制 ParseBody。与 AGENTS.md attachments 约定冲突 | `core/paper/capabilities.rs:146,148` |
 | V9 | 本地/远端 rescan marker 不同：本地 `NOTES.md∨metadata.json`；远端另加 `highlights.md`/`PAPER.md`/`source\|assets\|marks` 目录 + 从 NOTES 刮标题 + 恒刷 `updated_at` | `catalog/papers.rs:811` vs `remote/commands.rs:581-613` |

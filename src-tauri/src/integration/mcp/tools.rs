@@ -1085,19 +1085,31 @@ impl AgenteroMcp {
         Parameters(args): Parameters<FileDeleteArgs>,
     ) -> Result<Json<FileDeleteOut>, CallToolResult> {
         let ctrl = self.ctrl.clone();
-        let (vault, out) = tokio::task::spawn_blocking(move || {
+        let (vault, out, moved, catalog_err) = tokio::task::spawn_blocking(move || {
             let vault = ctrl.resolve_vault(args.vault.as_deref())?;
-            let result = files::delete_paths(&vault, &args.paths, args.permanent)?;
-            Ok::<_, AppError>((
-                vault,
-                FileDeleteOut {
-                    permanent: result.permanent,
-                    batch_id: result.batch_id,
-                    count: result.count,
-                    paths: result.paths,
-                    removed_rows: result.removed_rows,
-                },
-            ))
+            match files::delete_paths(&vault, &args.paths, args.permanent) {
+                Ok(result) => {
+                    let moved = result.paths.clone();
+                    let out = FileDeleteOut {
+                        permanent: result.permanent,
+                        batch_id: result.batch_id,
+                        count: result.count,
+                        paths: result.paths,
+                        removed_rows: result.removed_rows,
+                    };
+                    Ok((vault, Some(out), moved, None))
+                }
+                Err(err) if err.code() == "trash_catalog" => {
+                    let moved = args
+                        .paths
+                        .iter()
+                        .map(|rel| crate::core::fs::normalize_rel_separators(rel))
+                        .filter(|rel| !vault.join(rel).exists())
+                        .collect();
+                    Ok((vault, None, moved, Some(err)))
+                }
+                Err(err) => Err(err),
+            }
         })
         .await
         .map_err(|e| {
@@ -1109,9 +1121,10 @@ impl AgenteroMcp {
 
         // Match the UI delete path: a removed paper must not keep running
         // background work (parse/download/layout) against its old path.
+        // Catalog failure still moved the files, so those paths are cancelled too.
         if let Some(app) = self.ctrl.app_handle() {
             if let Some(center) = app.try_state::<crate::features::jobs::JobCenter>() {
-                for rel in &out.paths {
+                for rel in &moved {
                     for snapshot in center.cancel_for_paper(&vault, rel).await {
                         crate::features::jobs::emit_job_changed(&app, snapshot);
                     }
@@ -1119,7 +1132,12 @@ impl AgenteroMcp {
                 center.drain_and_spawn(&app).await;
             }
         }
-        Ok(Json(out))
+        if let Some(err) = catalog_err {
+            return Err(tool_err(err));
+        }
+        Ok(Json(out.expect(
+            "file_delete out is set when catalog update succeeds",
+        )))
     }
 
     #[tool(

@@ -310,7 +310,7 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
 
 回收站浏览：中间栏 `RecycleBinView`（虚拟 tab `agentero:trash`）用这些命令列出 / 恢复 / 永久删除已删项。
 
-- **`path_list_trash`**（`{ vaultPath }` → `ApiResult<TrashEntry[]>`）：展平所有批次为逐项条目 `{ id, batchId, stored, rel, name, title, deletedAt, isDir }`，按删除时间倒序。`title` 来自删除时快照的 catalog 行（恰为一行论文记录时取其标题，供 UI 主行显示；普通文件 / 多论文文件夹为 `null`，回退 `name`），本地与远程（`trash_bridge`）共用 `snapshot_title`。
+- **`path_list_trash`**（`{ vaultPath }` → `ApiResult<TrashEntry[]>`）：展平所有批次为逐项条目 `{ id, batchId, stored, rel, name, title, deletedAt, isDir }`，按删除时间倒序。`title` 来自删除时快照的 catalog 行（恰为一行论文记录时取其标题，供 UI 主行显示；普通文件 / 多论文文件夹为 `null`，回退 `name`）。本地与远程共用 core 的 manifest 类型、`plan_trash` 和 `snapshot_title`；远端移动与 catalog 发布仍在 `trash_bridge`。
 - **`path_restore_item`**（`{ vaultPath, batchId, stored }` → `ApiResult<{ rel: string }>`）：把单项移回原位并 `upsert` 恢复其 catalog 行；原路径已占用则报错；批次清空后删除批次目录。
 - **`path_purge_item`**（`{ vaultPath, batchId, stored }` → `ApiResult<null>`）：永久删除单项（不可恢复）。
 - **`path_purge_trash`**（`{ vaultPath }` → `ApiResult<null>`）：清空整个回收站（不可恢复）。

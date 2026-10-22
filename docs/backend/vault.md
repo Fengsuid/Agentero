@@ -64,7 +64,7 @@
 | `path_restore_item` | 恢复 |
 | `path_purge_item` / `path_purge_trash` | 永久删除 / 清空 |
 
-本地 `path_trash` 成功后会取消被删论文的全部排队/运行中 JobCenter 任务（`JobCenter::cancel_for_paper`），避免已删论文继续下载 / 解析。
+本地与远端 `path_trash` 共用 core `plan_trash` 和同一 `manifest.json` 结构；文件移动仍各自执行，远端 catalog 发布仍在 trash bridge 末尾。本地 `path_trash` 成功后会取消被删论文的全部排队/运行中 JobCenter 任务（`JobCenter::cancel_for_paper`），避免已删论文继续下载 / 解析。
 
 ## 文件监听
 

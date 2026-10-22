@@ -1,51 +1,21 @@
 //! Recycle bin over remote `VaultFs` (SFTP / local-sim).
 //!
-//! Semantics match local `services/trash.rs`: `.agentero/.trash/<batchId>/` +
-//! `manifest.json` with catalog snapshots. Files move via rename (copy+remove
-//! fallback). Catalog mutations hit the session work mirror then PUT.
+//! Eligibility, stored names, manifest types, and batch-id checks come from
+//! core `plan_trash`. Files move via rename (copy+remove fallback). Catalog
+//! mutations hit the session work mirror, then the existing `cat.push`.
 
 use super::session::{RemoteRegistry, RemoteSession};
 use crate::core::error::AppError;
 use crate::core::fs::{normalize_rel_separators, VaultFs, WriteOpts};
-use crate::features::paper::catalog::papers::{self, PaperRecord};
+use crate::features::paper::catalog::papers;
 use crate::features::vault::trash::remote_ops::RemoteTrashOps;
-use crate::features::vault::trash::{snapshot_title, TrashEntry, TrashResult};
-use serde::{Deserialize, Serialize};
+use crate::features::vault::trash::{
+    delete_trashed_catalog, is_trash_candidate, manifest_write_failed, plan_trash, snapshot_title,
+    trash_batch_rel, validate_batch_id, TrashEntry, TrashItem, TrashManifest, TrashResult,
+    TRASH_REL,
+};
+use std::collections::HashMap;
 use std::path::Path;
-
-const TRASH_REL: &str = ".agentero/.trash";
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TrashItem {
-    rel: String,
-    stored: String,
-    #[serde(default)]
-    catalog_rows: Vec<PaperRecord>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TrashManifest {
-    batch_id: String,
-    created_at: String,
-    items: Vec<TrashItem>,
-}
-
-fn is_under_papers(rel: &str) -> bool {
-    rel == "papers" || rel.starts_with("papers/")
-}
-
-fn validate_batch_id(batch_id: &str) -> Result<(), AppError> {
-    if batch_id.is_empty()
-        || batch_id.contains('/')
-        || batch_id.contains('\\')
-        || batch_id.contains("..")
-    {
-        return Err(AppError::message("invalid batch id"));
-    }
-    Ok(())
-}
 
 /// Move vault-relative paths into a new remote recycle-bin batch.
 pub async fn trash_paths(
@@ -59,53 +29,45 @@ pub async fn trash_paths(
         now.format("%Y%m%dT%H%M%S"),
         now.timestamp_subsec_nanos()
     );
-    let batch_rel = format!("{TRASH_REL}/{batch_id}");
 
-    let mut items: Vec<TrashItem> = Vec::new();
-    for (i, raw) in rels.iter().enumerate() {
+    // Existence is async, so resolve it before the sync plan. An exists error
+    // still aborts before any move. Ineligible shapes are not probed.
+    let mut present_map = HashMap::new();
+    for raw in rels {
         let rel = normalize_rel_separators(raw);
-        if rel.is_empty() || rel == "papers" || rel.contains("..") {
+        if !is_trash_candidate(&rel) {
             continue;
         }
-        if rel.starts_with(".agentero") {
-            continue;
-        }
-        if !fs.exists(&rel).await? {
-            continue;
-        }
+        present_map.insert(rel.clone(), fs.exists(&rel).await?);
+    }
 
-        let base = Path::new(&rel)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("item")
-            .to_string();
-        let stored = format!("{i}__{base}");
-        let dest = format!("{batch_rel}/{stored}");
+    let work_root = session.work_root.clone();
+    let plan = plan_trash(
+        rels,
+        &batch_id,
+        |rel| present_map.get(rel).copied().unwrap_or(false),
+        |rel| papers::list_under_path(&work_root, rel).unwrap_or_default(),
+    )?;
+    if plan.items.is_empty() {
+        return Ok(TrashResult {
+            batch_id,
+            count: 0,
+            rels: Vec::new(),
+        });
+    }
 
-        // Snapshot catalog from work mirror before moving files.
-        let catalog_rows = if is_under_papers(&rel) {
-            papers::list_under_path(&session.work_root, &rel).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-
+    let batch_rel = trash_batch_rel(&plan.batch_id);
+    let mut items: Vec<TrashItem> = Vec::new();
+    for item in plan.items {
+        let dest = format!("{batch_rel}/{}", item.stored);
         let _ = fs.mkdir(TRASH_REL).await;
         let _ = fs.mkdir(&batch_rel).await;
-
-        if let Err(e) = move_path(fs.as_ref(), &rel, &dest).await {
+        if let Err(e) = move_path(fs.as_ref(), &item.rel, &dest).await {
             // Leave item in place; do not touch catalog for this path.
-            log::warn!("remote trash move {rel} → {dest}: {e}");
+            log::warn!("remote trash move {} → {dest}: {e}", item.rel);
             continue;
         }
-
-        if is_under_papers(&rel) {
-            let _ = papers::delete_under_path(&session.work_root, &rel);
-        }
-        items.push(TrashItem {
-            rel,
-            stored,
-            catalog_rows,
-        });
+        items.push(item.into());
     }
 
     if items.is_empty() {
@@ -117,30 +79,38 @@ pub async fn trash_paths(
         });
     }
 
-    let rels: Vec<String> = items.iter().map(|item| item.rel.clone()).collect();
+    let rels_out: Vec<String> = items.iter().map(|item| item.rel.clone()).collect();
     let manifest = TrashManifest {
-        batch_id: batch_id.clone(),
+        batch_id: plan.batch_id.clone(),
         created_at: crate::core::time::now_rfc3339_millis(),
         items,
     };
-    write_manifest(fs.as_ref(), &batch_rel, &manifest).await?;
+    write_manifest(fs.as_ref(), &batch_rel, &manifest)
+        .await
+        .map_err(|err| manifest_write_failed(&manifest.batch_id, &err))?;
+    let catalog_result =
+        delete_trashed_catalog(&session.work_root, &manifest.batch_id, &manifest.items);
 
+    // Publish even when a catalog delete failed, so the mirror does not keep
+    // a partial delete that the server has not seen. A push failure leaves
+    // the batch in place.
     {
         let mut cat = session.catalog.lock().await;
         cat.push(fs.clone()).await?;
     }
+    catalog_result?;
 
     Ok(TrashResult {
         batch_id: manifest.batch_id,
         count: manifest.items.len(),
-        rels,
+        rels: rels_out,
     })
 }
 
 pub async fn restore_batch(session: &RemoteSession, batch_id: &str) -> Result<usize, AppError> {
     validate_batch_id(batch_id)?;
     let fs = session.fs.clone();
-    let batch_rel = format!("{TRASH_REL}/{batch_id}");
+    let batch_rel = trash_batch_rel(batch_id);
     let manifest = read_manifest(fs.as_ref(), &batch_rel).await?;
 
     for item in &manifest.items {
@@ -186,7 +156,7 @@ pub async fn list_trash(session: &RemoteSession) -> Result<Vec<TrashEntry>, AppE
         if !batch.is_dir {
             continue;
         }
-        let batch_rel = format!("{TRASH_REL}/{}", batch.name);
+        let batch_rel = trash_batch_rel(&batch.name);
         let Ok(manifest) = read_manifest(fs, &batch_rel).await else {
             continue;
         };
@@ -225,7 +195,7 @@ pub async fn restore_item(
 ) -> Result<String, AppError> {
     validate_batch_id(batch_id)?;
     let fs = session.fs.clone();
-    let batch_rel = format!("{TRASH_REL}/{batch_id}");
+    let batch_rel = trash_batch_rel(batch_id);
     let mut manifest = read_manifest(fs.as_ref(), &batch_rel).await?;
     let idx = manifest
         .items
@@ -273,7 +243,7 @@ pub async fn purge_item(
 ) -> Result<(), AppError> {
     validate_batch_id(batch_id)?;
     let fs = session.fs.as_ref();
-    let batch_rel = format!("{TRASH_REL}/{batch_id}");
+    let batch_rel = trash_batch_rel(batch_id);
     let mut manifest = read_manifest(fs, &batch_rel).await?;
     let idx = manifest
         .items
@@ -414,6 +384,7 @@ impl RemoteTrashOps for RemoteRegistry {
 mod tests {
     use super::*;
     use crate::core::fs::WriteOpts;
+    use crate::features::paper::catalog::papers::PaperRecord;
     use crate::integration::remote::session::{RemoteRegistry, LOCAL_SIM_HOST};
     use std::env;
 
