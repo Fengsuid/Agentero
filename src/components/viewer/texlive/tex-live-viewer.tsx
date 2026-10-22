@@ -233,6 +233,7 @@ export function TexLiveViewer({
 	const observerRef = useRef<IntersectionObserver | null>(null);
 	const [pageCount, setPageCount] = useState(0);
 	const [status, setStatus] = useState<TexLiveStatus>("starting");
+	const statusOwner = useRef(Symbol("tex-live-viewer")).current;
 	const [error, setError] = useState<string | null>(null);
 	const [retryKey, setRetryKey] = useState(0);
 
@@ -802,15 +803,20 @@ export function TexLiveViewer({
 	}, [active]);
 
 	useEffect(() => {
-		useTexLiveStatusStore.getState().setStatus(rootPath, {
-			status,
-			error: status === "failed" ? error : null,
-		});
-	}, [rootPath, status, error]);
+		useTexLiveStatusStore.getState().setStatus(
+			rootPath,
+			{
+				status,
+				error: status === "failed" ? error : null,
+			},
+			statusOwner,
+		);
+	}, [rootPath, status, error, statusOwner]);
 
 	useEffect(
-		() => () => useTexLiveStatusStore.getState().clearStatus(rootPath),
-		[rootPath],
+		() => () =>
+			useTexLiveStatusStore.getState().clearStatus(rootPath, statusOwner),
+		[rootPath, statusOwner],
 	);
 
 	return (
