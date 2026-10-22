@@ -20,6 +20,7 @@ pub struct MenuLabels {
     pub toggle_sidebar: &'static str,
     pub split_pane: &'static str,
     pub toggle_chat: &'static str,
+    pub toggle_fullscreen: &'static str,
     pub app: &'static str,
     pub file: &'static str,
     pub edit: &'static str,
@@ -39,6 +40,7 @@ const EN: MenuLabels = MenuLabels {
     toggle_sidebar: "Toggle Sidebar",
     split_pane: "Split Pane Right",
     toggle_chat: "Toggle Chat",
+    toggle_fullscreen: "Toggle Full Screen",
     app: "Agentero",
     file: "File",
     edit: "Edit",
@@ -57,6 +59,7 @@ const ZH_CN: MenuLabels = MenuLabels {
     toggle_sidebar: "切换侧边栏",
     split_pane: "向右分栏",
     toggle_chat: "切换对话",
+    toggle_fullscreen: "切换全屏",
     app: "Agentero",
     file: "文件",
     edit: "编辑",
@@ -158,6 +161,8 @@ pub fn build_menu(
         .item(&toggle_sidebar)
         .item(&split_pane)
         .item(&toggle_chat)
+        .separator()
+        .fullscreen_with_text(labels.toggle_fullscreen)
         .build()?;
 
     let window_submenu = SubmenuBuilder::with_id(app, WINDOW_SUBMENU_ID, labels.window)

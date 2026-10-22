@@ -91,8 +91,9 @@
 | `⌘K` | 有划词工具栏时「快速对话」（页内 Ask） |
 | `⇧⌘A` | 固定当前选区为 Agent 上下文，打开 Agent 面板并聚焦输入框（无选区时只打开并聚焦） |
 | `F11` | **Windows only**：切换无边框（exclusive）全屏；再按一次退出。实现：`toggleBorderlessFullscreen`（`src/lib/shell/window-fullscreen.ts`） |
+| `⌃⌘F` | **macOS only**：通过「视图 → 切换全屏」原生菜单切换当前窗口的系统全屏；再按一次退出 |
 
-完整快捷键绑定：`src/lib/shell/shortcuts.ts`。文案 i18n 见 [settings.md](settings.md)。
+前端快捷键绑定：`src/lib/shell/shortcuts.ts`；macOS 原生全屏由 `src-tauri/src/app/menu.rs` 的预定义菜单项处理。PDF、Markdown 编辑器及查找替换栏共用 `isFindShortcut`，macOS 仅 `⌘F`（不含 Ctrl / Shift / Alt）触发搜索，避免 `⌃⌘F` 误打开搜索或抢走搜索栏焦点；Windows/Linux 保留 `Ctrl+F`。文案 i18n 见 [settings.md](settings.md)。
 
 桌面「设置 → 插件」管理本地安装、按 Vault 授权及配置。插件通过命令 registry 和三个菜单贡献位接入；菜单点击传入对象上下文，切换 Vault 时撤销注册和在途调用。开发版另提供临时只读目录加载。详见 [本地插件系统](../backend/plugins.md)。
 
