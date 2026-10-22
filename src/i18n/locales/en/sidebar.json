@@ -82,7 +82,7 @@
 		"cleanAuxFailed": "Failed to clean intermediates.",
 		"livePreviewUnavailable": "Live preview needs LuaLaTeX and realtime-tex support files",
 		"liveStarting": "Starting live preview…",
-		"liveReady": "Live",
+		"liveReady": "Live preview ready",
 		"liveWaiting": "Waiting for full compile",
 		"liveRestarting": "Restarting engine…",
 		"liveFailed": "Live preview failed",

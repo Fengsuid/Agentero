@@ -82,7 +82,7 @@
 		"cleanAuxFailed": "清除中间产物失败。",
 		"livePreviewUnavailable": "实时预览需要 LuaLaTeX 和 realtime-tex 支持文件",
 		"liveStarting": "正在启动实时预览…",
-		"liveReady": "实时",
+		"liveReady": "实时预览就绪",
 		"liveWaiting": "等待整篇编译",
 		"liveRestarting": "正在重启引擎…",
 		"liveFailed": "实时预览失败",

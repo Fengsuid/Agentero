@@ -15,6 +15,11 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { usePdfEngineContext } from "@/components/viewer/pdf/engine-provider";
 import type {
 	CompileStatus,
@@ -821,30 +826,37 @@ export function TexLiveViewer({
 				className,
 			)}
 		>
-			<div className="pointer-events-none absolute top-2 left-3 z-10 flex items-center gap-1.5 rounded-md bg-background/75 px-1.5 py-0.5 shadow-sm backdrop-blur-sm">
-				<span
-					className={cn(
-						"size-1.5 rounded-full",
-						status === "live"
-							? "bg-emerald-500"
-							: status === "failed"
-								? "bg-red-500"
-								: "bg-amber-500",
-					)}
-					aria-hidden
-				/>
-				<span
-					className="truncate text-[11px] text-muted-foreground"
-					title={error ?? statusLabel}
-				>
-					{statusLabel}
-				</span>
-			</div>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<button
+						type="button"
+						aria-label={statusLabel}
+						className="absolute top-2 right-3 z-10 flex size-6 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					>
+						<span
+							className={cn(
+								"size-2 rounded-full ring-2 ring-background/80",
+								status === "live"
+									? "bg-emerald-500"
+									: status === "failed"
+										? "bg-red-500"
+										: "bg-amber-500",
+							)}
+							aria-hidden
+						/>
+					</button>
+				</TooltipTrigger>
+				<TooltipContent side="bottom" align="end" sideOffset={4}>
+					<span className="whitespace-pre-wrap break-words">
+						{error ? `${statusLabel}\n${error}` : statusLabel}
+					</span>
+				</TooltipContent>
+			</Tooltip>
 
 			<div ref={viewportRef} className="relative min-h-0 flex-1 overflow-auto">
 				<div
 					ref={pagesRef}
-					className="mx-auto flex w-fit flex-col items-center pt-8 pb-4"
+					className="mx-auto flex w-fit flex-col items-center py-4"
 					style={{ gap: PAGE_GAP } as CSSProperties}
 				>
 					{Array.from({ length: pageCount }, (_, index) => {
