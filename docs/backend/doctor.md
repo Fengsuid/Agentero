@@ -97,6 +97,8 @@ Codex 登录状态不再放在主机运行环境；改由 Agent 卡片第三行�
 - **后台任务**：安装走与 Agent lifecycle 同一套进度/取消通道——调用方传入 `taskId` 后，Host 通过 `agent-lifecycle:progress` 事件报告进度，取消复用 `agent_lifecycle_cancel`（协作式取消，kill `kill_on_drop` 的安装子进程）。前端 `src/lib/doctor/install-node.ts` 把它包成后台任务行（`kind: nodeInstall`），多分钟的下载不再阻塞调用方 UI。
 - **安装后 PATH**：Windows 安装后合并注册表中的机器 + 用户 PATH 重新探测；`core::process::discover` 的 `WIN_ABS_BIN_DIRS` 额外列出 `C:\Program Files\nodejs`，使已运行的应用无需重启即可解析到新装的 npm。
 - **错误恢复**：Agent 安装/更新因 npm 不在 PATH 失败时（Windows `'npm' is not recognized...` / Unix `command not found` / Host 的 `npm is not available on PATH`），Toast 附带同一「安装 Node.js」动作按钮。
+- **Agent 页提醒**：Settings → Agent 打开时复用同一检测（`src/hooks/use-host-node-status.ts`，仅本地 Vault；SSH 远端不检查本机环境）。node/npm 不可用时页首显示紧凑提示，带「一键安装 Node.js」（同一后台任务）与跳转「问题诊断」的入口；安装成功后广播 `agentero:host-node-installed`，已挂载的 Agent 页重新探测并重扫目录，不做轮询。
+- **生命周期守卫**：`src/lib/doctor/node-guidance.ts` 判定动作是否真的经 npm/Node——`adapterDistinct`（Claude / Codex / Pi / ZCode 的独立 ACP 适配器由 npm 安装、由 Node 执行）、`acpBundled`（随包分发的 JS 适配器），以及 npm-only 的生命周期：`dsh` / `minimax-code` / `mimo-code`（所有平台都走 `npm i -g`）与 Windows 上的 `opencode`（无原生安装器）。node/npm 缺失时这些安装/升级不再启动注定失败的静默任务，改弹 Toast 引导先装 Node.js；卸载始终不拦（恢复路径），带平台原生安装器的 Agent（Hermes / Qoder / Kimi / Grok / Antigravity 等）保持原行为——它们的 npm 兜底失败仍走上面的 npm-missing 恢复。
 
 ### Agent ACP 连通性（`doctor_check_agents`）
 

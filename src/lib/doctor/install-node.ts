@@ -25,6 +25,18 @@ import { isTauri } from "@/lib/core/tauri";
 import { listenEventSafe } from "@/lib/core/tauri-events";
 import { doctorInstallNode, type NodeInstallResult } from "@/lib/doctor/api";
 
+/**
+ * Broadcast after a successful install so panes that mounted earlier (Agent
+ * settings notice, lifecycle guards) re-probe Node/npm and rescan the catalog
+ * instead of keeping a stale "Node.js required" state.
+ */
+export const HOST_NODE_INSTALLED_EVENT = "agentero:host-node-installed";
+
+function broadcastHostNodeInstalled(): void {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(new CustomEvent(HOST_NODE_INSTALLED_EVENT));
+}
+
 /** True while a Node install row is already queued or running. */
 function nodeInstallActive(): boolean {
 	return getBackgroundTasksSnapshot().tasks.some(
@@ -74,6 +86,7 @@ export async function installNodeInBackground(): Promise<NodeInstallResult | nul
 			failBackgroundTask(rowId, result.error);
 		} else {
 			completeBackgroundTask(rowId);
+			broadcastHostNodeInstalled();
 		}
 		return result;
 	} catch (error) {
