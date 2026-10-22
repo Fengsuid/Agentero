@@ -3,6 +3,7 @@ import {
 	LAYOUT_INDEX_FILE,
 	type LayoutIndexItem,
 	type LayoutIndexSidecar,
+	parseBbox,
 	parseLayoutIndexSidecar,
 } from "@/lib/pdf/layout/layout-index";
 import { mergeCaptionsIntoHosts } from "@/lib/pdf/layout/merge-captions";
@@ -64,20 +65,6 @@ function isFiniteNumber(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value);
 }
 
-function parseRect(value: unknown): PdfLayoutRegion["rect"] | null {
-	if (!isObject(value)) return null;
-	const { x, y, w, h } = value;
-	if (
-		!isFiniteNumber(x) ||
-		!isFiniteNumber(y) ||
-		!isFiniteNumber(w) ||
-		!isFiniteNumber(h)
-	) {
-		return null;
-	}
-	return { x, y, w, h };
-}
-
 function parseRegion(value: unknown): PdfLayoutRegion | null {
 	if (!isObject(value)) return null;
 	const { id, pageIndex, kind, label, score, readingOrder, rect, bbox } = value;
@@ -92,8 +79,8 @@ function parseRegion(value: unknown): PdfLayoutRegion | null {
 	) {
 		return null;
 	}
-	const parsedRect = parseRect(rect);
-	const parsedBbox = parseRect(bbox);
+	const parsedRect = parseBbox(rect);
+	const parsedBbox = parseBbox(bbox);
 	if (!parsedRect || !parsedBbox) return null;
 	const out: PdfLayoutRegion = {
 		id,
@@ -107,14 +94,14 @@ function parseRegion(value: unknown): PdfLayoutRegion | null {
 	};
 	if (typeof value.title === "string") out.title = value.title;
 	if (typeof value.text === "string") out.text = value.text;
-	const titleBbox = parseRect(value.titleBbox);
+	const titleBbox = parseBbox(value.titleBbox);
 	if (titleBbox) out.titleBbox = titleBbox;
 	if (
 		Number.isInteger(value.captionPageIndex) &&
 		(value.captionPageIndex as number) >= 0
 	) {
 		out.captionPageIndex = value.captionPageIndex as number;
-		const captionBbox = parseRect(value.captionBbox);
+		const captionBbox = parseBbox(value.captionBbox);
 		if (captionBbox) out.captionBbox = captionBbox;
 	}
 	if (

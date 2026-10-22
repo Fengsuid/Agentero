@@ -12,6 +12,7 @@ import {
 	isAlgorithmLayoutKind,
 	isLayoutTranslatableKind,
 } from "@/lib/pdf/layout/labels";
+import { parseBbox } from "@/lib/pdf/layout/layout-index";
 import {
 	draftChainSentences,
 	type LayoutSentenceDraft,
@@ -248,20 +249,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value);
-}
-
-function parseBbox(value: unknown): PdfLayoutRegion["bbox"] | null {
-	if (!isObject(value)) return null;
-	const { x, y, w, h } = value;
-	if (
-		!isFiniteNumber(x) ||
-		!isFiniteNumber(y) ||
-		!isFiniteNumber(w) ||
-		!isFiniteNumber(h)
-	) {
-		return null;
-	}
-	return { x, y, w, h };
 }
 
 /** FNV-1a 32-bit fingerprint of the custom translate prompt — cache-busting only. */

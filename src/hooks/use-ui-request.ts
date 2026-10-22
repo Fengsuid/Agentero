@@ -10,6 +10,7 @@
 import { useEffect } from "react";
 import { takePendingUiRequest } from "@/lib/cli/api";
 import { events, type UiRequestPayload } from "@/lib/core/bindings";
+import { errorText } from "@/lib/core/error";
 import { notifyError } from "@/lib/core/notify";
 import { isTauri } from "@/lib/core/tauri";
 import { listenEventSafe } from "@/lib/core/tauri-events";
@@ -152,7 +153,7 @@ export function useUiRequest(): void {
 				if (cancelled || gen !== generation) return;
 				await dispatch(payload);
 			} catch (error) {
-				notifyError(error instanceof Error ? error.message : String(error));
+				notifyError(errorText(error));
 			} finally {
 				if (gen === generation) {
 					inflight = null;

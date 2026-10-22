@@ -4,10 +4,10 @@ import { useTranslation } from "react-i18next";
 import {
 	chooseZoteroFolder,
 	loadStoredOpts,
+	Toggle,
 	useZoteroDirDetect,
 } from "@/components/dialogs/zotero-dialog-shared";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -364,33 +364,5 @@ export function ZoteroSyncDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
-	);
-}
-
-function Toggle({
-	id,
-	checked,
-	onChange,
-	disabled,
-	label,
-}: {
-	id: string;
-	checked: boolean;
-	onChange: (v: boolean) => void;
-	disabled?: boolean;
-	label: string;
-}) {
-	return (
-		<div className="flex items-center gap-2">
-			<Checkbox
-				id={id}
-				checked={checked}
-				onCheckedChange={(v) => onChange(v === true)}
-				disabled={disabled}
-			/>
-			<label htmlFor={id} className="cursor-pointer text-sm">
-				{label}
-			</label>
-		</div>
 	);
 }

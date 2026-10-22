@@ -41,6 +41,7 @@ import {
 } from "@/components/viewer/texlive/render/render";
 import { ResourceLoader } from "@/components/viewer/texlive/render/resources";
 import { commands } from "@/lib/core/bindings";
+import { errorText } from "@/lib/core/error";
 import { logger } from "@/lib/core/logger";
 import { cn } from "@/lib/core/utils";
 import {
@@ -720,10 +721,10 @@ export function TexLiveViewer({
 			} catch (cause) {
 				if (disposed) return;
 				logger.error("[rtex] session start failed", {
-					error: cause instanceof Error ? cause.message : String(cause),
+					error: errorText(cause),
 				});
 				setStatus("failed");
-				setError(cause instanceof Error ? cause.message : String(cause));
+				setError(errorText(cause));
 			}
 		})();
 

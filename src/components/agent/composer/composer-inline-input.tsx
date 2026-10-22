@@ -129,7 +129,7 @@ function appendPrefixLabel(
 }
 
 /** Strip trigger / "skill :" chrome — chip shows the bare skill name. */
-function cleanSkillDisplayName(name: string): string {
+export function cleanSkillDisplayName(name: string): string {
 	return name
 		.trim()
 		.replace(/^[/$]+/, "")

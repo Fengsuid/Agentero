@@ -7,7 +7,7 @@ import type {
 	PdfAskVisualKind,
 } from "@/lib/pdf/ask/types";
 import { sanitizeTranslatedRects } from "@/lib/pdf/highlight/translated-geometry";
-import { isRecord, isRect } from "@/lib/pdf/marks/schema";
+import { isRecord, isRect, shorten } from "@/lib/pdf/marks/schema";
 import { pinFromRects } from "@/lib/pdf/selection/pin";
 
 function isTrigger(v: unknown): v is PdfAskTrigger {
@@ -96,12 +96,6 @@ export function parsePdfAskThread(raw: unknown): PdfAskThread | null {
 		anchor,
 		messages,
 	};
-}
-
-function shorten(text: string, max: number): string {
-	const t = text.trim().replace(/\s+/g, " ");
-	if (!t) return "";
-	return t.length > max ? `${t.slice(0, Math.max(1, max - 1))}…` : t;
 }
 
 /** True once the user has sent at least one turn. */

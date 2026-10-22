@@ -6,6 +6,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import i18n from "@/i18n";
+import { errorText } from "@/lib/core/error";
 import { notifyError } from "@/lib/core/notify";
 import { basenameOf } from "@/lib/core/path";
 import { renderKatexToElement } from "@/lib/math/katex-cache";
@@ -263,7 +264,7 @@ async function goToDefinition(
 		);
 		if (target) navigateTexSource(target.path, target.line);
 	} catch (error) {
-		notifyError(error instanceof Error ? error.message : String(error));
+		notifyError(errorText(error));
 	}
 }
 

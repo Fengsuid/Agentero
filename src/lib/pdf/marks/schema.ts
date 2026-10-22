@@ -1,3 +1,10 @@
+/** Collapse whitespace, then truncate with an ellipsis. */
+export function shorten(text: string, max: number): string {
+	const t = text.trim().replace(/\s+/g, " ");
+	if (!t) return "";
+	return t.length > max ? `${t.slice(0, Math.max(1, max - 1))}…` : t;
+}
+
 export function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null && !Array.isArray(v);
 }

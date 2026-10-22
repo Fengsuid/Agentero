@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { readJsonStorage } from "@/lib/core/storage";
 import { isTauri } from "@/lib/core/tauri";
 import { pickZoteroDir } from "@/lib/paper/import/zotero-migrate";
@@ -65,4 +66,33 @@ export async function chooseZoteroFolder(
 /** Merge remembered dialog options (localStorage) over per-field defaults. */
 export function loadStoredOpts<T extends object>(key: string, defaults: T): T {
 	return { ...defaults, ...readJsonStorage<Partial<T>>(key, {}) };
+}
+
+/** A checkbox + label option row. */
+export function Toggle({
+	id,
+	checked,
+	onChange,
+	disabled,
+	label,
+}: {
+	id: string;
+	checked: boolean;
+	onChange: (v: boolean) => void;
+	disabled?: boolean;
+	label: string;
+}) {
+	return (
+		<div className="flex items-center gap-2">
+			<Checkbox
+				id={id}
+				checked={checked}
+				onCheckedChange={(v) => onChange(v === true)}
+				disabled={disabled}
+			/>
+			<label htmlFor={id} className="cursor-pointer text-sm">
+				{label}
+			</label>
+		</div>
+	);
 }

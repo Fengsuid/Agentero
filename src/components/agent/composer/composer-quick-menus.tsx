@@ -1,15 +1,9 @@
 import { Sparkles } from "lucide-react";
+import { cleanSkillDisplayName } from "@/components/agent/composer/composer-inline-input";
 import { PopoverContent } from "@/components/ui/popover";
 import type { AgentSkill } from "@/lib/agent";
 import type { AcpCommand } from "@/lib/agent/slash-commands";
 import { cn } from "@/lib/core/utils";
-
-function cleanSkillDisplayName(name: string): string {
-	return name
-		.trim()
-		.replace(/^[/$]+/, "")
-		.replace(/^skill\s*:\s*/i, "");
-}
 
 /** Both menus must render inside the composer `Popover` subtree — `PopoverContent` needs its context. */
 export function ComposerSkillMenu({

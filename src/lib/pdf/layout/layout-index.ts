@@ -215,7 +215,7 @@ function isFiniteNumber(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value);
 }
 
-function parseBbox(value: unknown): LayoutIndexBbox | null {
+export function parseBbox(value: unknown): LayoutIndexBbox | null {
 	if (!isObject(value)) return null;
 	const { x, y, w, h } = value;
 	if (

@@ -38,13 +38,6 @@ export async function listPlugins(vault: string): Promise<InstalledPlugin[]> {
 		commands.pluginList(vault),
 	)) as unknown as InstalledPlugin[];
 }
-export async function inspectPlugin(
-	directory: string,
-): Promise<PluginManifest> {
-	return (await callResult(() =>
-		commands.pluginInspect(directory),
-	)) as unknown as PluginManifest;
-}
 export const installPlugin = (directory: string) =>
 	callResult(() => commands.pluginInstall(directory));
 export const removePlugin = (id: string) =>

@@ -1,5 +1,6 @@
 import { Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
+import { agentLogoKeyForTemplate } from "@/components/agent/agent-logo";
 import type {
 	AgentDescriptor,
 	AgentTemplate,
@@ -146,27 +147,6 @@ export type DefaultAgentChoice = {
 	isDefault: boolean;
 };
 
-function catalogTemplateFromId(templateId: string): AgentTemplate {
-	switch (templateId) {
-		case "opencode":
-		case "hermes":
-		case "claude-acp":
-		case "codex-acp":
-		case "antigravity-acp":
-		case "qodercli":
-		case "grok-build":
-		case "pi":
-		case "dsh":
-		case "kimi-code":
-		case "zcode":
-		case "minimax-code":
-		case "mimo-code":
-			return templateId;
-		default:
-			return "custom";
-	}
-}
-
 export function buildDefaultAgentChoices(
 	scan: CatalogScanResponse | null | undefined,
 ): DefaultAgentChoice[] {
@@ -182,7 +162,7 @@ export function buildDefaultAgentChoices(
 		choices.push({
 			value: `catalog:${entry.templateId}`,
 			name: entry.name,
-			template: catalogTemplateFromId(entry.templateId),
+			template: agentLogoKeyForTemplate(entry.templateId),
 			source: "catalog",
 			templateId: entry.templateId,
 			agentId: entry.registeredId ?? undefined,

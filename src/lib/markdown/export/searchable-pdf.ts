@@ -23,6 +23,7 @@ import {
 	StandardFonts,
 } from "pdf-lib";
 import agenteroAppIconUrl from "@/assets/agentero-app-icon.svg";
+import { dataUrlToUint8Array, loadImage } from "@/lib/markdown/export/capture";
 import type { ExportTextLayer } from "@/lib/markdown/export/text-layer";
 
 /** A4 in PDF points (1/72"). */
@@ -45,26 +46,6 @@ export type SearchablePdfOptions = {
 	/** Theme muted-foreground for watermark. */
 	mutedRgb?: { r: number; g: number; b: number };
 };
-
-function dataUrlToUint8Array(dataUrl: string): Uint8Array {
-	const comma = dataUrl.indexOf(",");
-	const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-	const binary = atob(base64);
-	const bytes = new Uint8Array(binary.length);
-	for (let i = 0; i < binary.length; i++) {
-		bytes[i] = binary.charCodeAt(i);
-	}
-	return bytes;
-}
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-	return new Promise((resolve, reject) => {
-		const img = new Image();
-		img.onload = () => resolve(img);
-		img.onerror = () => reject(new Error("export-image-load-failed"));
-		img.src = src;
-	});
-}
 
 async function loadWatermarkLogoPng(sizePx = 64): Promise<Uint8Array | null> {
 	try {

@@ -12,7 +12,7 @@ import {
 	VISUAL_MARK_KIND,
 	visualMarkHasContent,
 } from "@/lib/pdf/agent-trace/types";
-import { isRecord, isRect } from "@/lib/pdf/marks/schema";
+import { isRecord, isRect, shorten } from "@/lib/pdf/marks/schema";
 import { pinFromRects } from "@/lib/pdf/selection/pin";
 import type { PdfVisualNormalizedRect } from "@/lib/pdf-visual/types";
 
@@ -309,12 +309,6 @@ export function traceMessagesForEmbed(
 		);
 	}
 	return messages;
-}
-
-function shorten(text: string, max: number): string {
-	const t = text.trim().replace(/\s+/g, " ");
-	if (!t) return "";
-	return t.length > max ? `${t.slice(0, Math.max(1, max - 1))}…` : t;
 }
 
 /** Tooltip / list preview for one mark. */
