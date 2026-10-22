@@ -230,6 +230,12 @@ pub fn attach_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<ta
             crate::features::compile::clean_latex_aux_files,
             crate::features::compile::chktex_lint,
             crate::features::compile::root::resolve_latex_root,
+            crate::features::compile::types::latex_build_artifacts,
+            crate::features::compile::project::latex_project_inspect,
+            crate::features::compile::tools::latex_synctex_forward,
+            crate::features::compile::tools::latex_synctex_backward,
+            crate::features::compile::tools::latex_format,
+            crate::features::compile::tools::latex_clean,
             // Real-time preview shells out to LuaLaTeX and is desktop-only
             // (see `features::rtex`'s cfg gate).
             #[cfg(not(any(target_os = "ios", target_os = "android")))]

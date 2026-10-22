@@ -128,6 +128,7 @@ ACP / SSH 子进程由 Rust 与 ACP SDK 启动，不注册 Tauri shell 插件。
 | 本地桌面应用检测 | [desktop-apps.md](desktop-apps.md) |
 | 翻译 | [translate.md](translate.md) |
 | 实时 TeX 预览（rtex） | [rtex.md](rtex.md) |
+| LaTeX 编译 / Recipe / SyncTeX | [latex.md](latex.md) |
 | 内置 Provider（构建期凭证） | [builtin-provider.md](builtin-provider.md) |
 | 日志 | [logging.md](logging.md) |
 | 遥测 | [telemetry.md](telemetry.md) |

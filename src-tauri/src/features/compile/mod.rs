@@ -1,21 +1,25 @@
 //! LaTeX compilation: engine detection plus the `LatexCompile` job runner
 //! (latexmk orchestration with live log streaming, progress and cancel).
 
+mod diagnostics;
+pub mod project;
 pub mod root;
+mod runner;
+pub mod tools;
+pub mod types;
+use runner::run_latexmk;
 
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::Emitter;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 
 use crate::core::error::ApiResult;
 use crate::core::error::AppError;
-use crate::features::jobs::emit_job_changed;
 use crate::features::jobs::JobCenter;
 use crate::features::jobs::JobKind;
 use crate::features::jobs::RunOutcome;
@@ -71,6 +75,12 @@ pub(crate) fn resolve_engine(command: &str) -> Option<PathBuf> {
     }
     for dir in tex_extra_paths() {
         let candidate = dir.join(command);
+        #[cfg(windows)]
+        let candidate = if candidate.extension().is_none() {
+            candidate.with_extension("exe")
+        } else {
+            candidate
+        };
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -171,13 +181,7 @@ pub async fn clean_latex_aux_files(tex_path: String) -> ApiResult<()> {
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    if let Some(bin_dir) = latexmk.parent() {
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
-        let mut path_env = std::ffi::OsString::from(bin_dir);
-        path_env.push(":");
-        path_env.push(inherited);
-        cmd.env("PATH", path_env);
-    }
+    tools::prepare_command(&mut cmd, &latexmk);
 
     let output = match cmd.output().await {
         Ok(output) => output,
@@ -192,8 +196,17 @@ pub async fn clean_latex_aux_files(tex_path: String) -> ApiResult<()> {
     if tail.is_empty() {
         tail = String::from_utf8_lossy(&output.stdout).trim().to_string();
     }
-    let tail = if tail.len() > 2000 {
-        format!("{}…", tail[tail.len() - 2000..].trim_start())
+    let tail = if tail.chars().count() > 2000 {
+        format!(
+            "…{}",
+            tail.chars()
+                .rev()
+                .take(2000)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect::<String>()
+        )
     } else {
         tail
     };
@@ -276,13 +289,7 @@ pub async fn chktex_lint(tex_path: String, content: String) -> ApiResult<Vec<Lat
         .kill_on_drop(true);
     // Same GUI-PATH fix as latexmk: prepend chktex's own bin dir (TeX Live
     // keeps kpsewhich etc. next to it, which chktex uses to find its rc file).
-    if let Some(bin_dir) = chktex.parent() {
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
-        let mut path_env = std::ffi::OsString::from(bin_dir);
-        path_env.push(":");
-        path_env.push(inherited);
-        cmd.env("PATH", path_env);
-    }
+    tools::prepare_command(&mut cmd, &chktex);
 
     let mut child = match cmd.spawn() {
         Ok(child) => child,
@@ -317,6 +324,8 @@ pub async fn chktex_lint(tex_path: String, content: String) -> ApiResult<Vec<Lat
 struct LatexCompileParams {
     tex_path: String,
     engine: String,
+    #[serde(default)]
+    build: Option<types::LatexBuildOptions>,
 }
 
 /// Register the `LatexCompile` runner with the JobCenter (app assembly).
@@ -401,169 +410,6 @@ where
             break;
         }
     }
-}
-
-async fn run_latexmk(
-    center: &JobCenter,
-    app: &tauri::AppHandle,
-    started: &StartedJob,
-    params: LatexCompileParams,
-) -> RunOutcome {
-    let tex_path = PathBuf::from(&params.tex_path);
-    if !tex_path.is_file() {
-        return RunOutcome::Failed(Some(format!("tex file not found: {}", tex_path.display())));
-    }
-    let Some(cwd) = tex_path.parent().map(Path::to_path_buf) else {
-        return RunOutcome::Failed(Some("cannot determine parent directory".into()));
-    };
-    let Some(basename) = tex_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(str::to_string)
-    else {
-        return RunOutcome::Failed(Some("invalid tex file name".into()));
-    };
-
-    log::info!(
-        "compiling tex: {} with engine {} in {}",
-        basename,
-        params.engine,
-        cwd.display()
-    );
-
-    let Some(engine_flag) = latexmk_engine_flag(&params.engine) else {
-        return RunOutcome::Failed(Some(format!("unknown latex engine: {}", params.engine)));
-    };
-    // GUI apps inherit launchd's minimal PATH (no /Library/TeX/texbin), so a
-    // bare latexmk would fail to spawn even though detection found it. Resolve
-    // the same way detect_latex_engines does and spawn the absolute path.
-    let Some(latexmk) = resolve_engine("latexmk") else {
-        return RunOutcome::Failed(Some("latexmk not found on this system".into()));
-    };
-
-    let mut cmd = tokio::process::Command::new(&latexmk);
-    cmd.current_dir(&cwd)
-        .arg(engine_flag)
-        .arg("-interaction=nonstopmode")
-        .arg("-halt-on-error")
-        // Manual triggers mean "rebuild now": -g skips latexmk's up-to-date
-        // check. Without it, a failed run followed by an unchanged source
-        // leaves latexmk reporting "Nothing to do" plus the previous error
-        // summary without ever rerunning pdflatex.
-        .arg("-g")
-        .arg(format!("-outdir={}", cwd.to_string_lossy()))
-        .arg(&basename)
-        .kill_on_drop(true)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    // latexmk locates the engine and bibtex via the child $PATH, which under a
-    // GUI app is launchd's minimal one. Put latexmk's own bin dir (TeX Live
-    // keeps every engine there) in front of the inherited PATH.
-    if let Some(bin_dir) = latexmk.parent() {
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
-        let mut path_env = std::ffi::OsString::from(bin_dir);
-        path_env.push(":");
-        path_env.push(inherited);
-        cmd.env("PATH", path_env);
-    }
-
-    let mut child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            return RunOutcome::Failed(Some(format!("failed to run {}: {}", params.engine, e)))
-        }
-    };
-
-    // Drain stdout and stderr concurrently into one line stream so neither
-    // pipe can wedge the child while the main loop consumes lines.
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    if let Some(stdout) = child.stdout.take() {
-        let tx = tx.clone();
-        tokio::spawn(forward_lines(stdout, tx));
-    }
-    if let Some(stderr) = child.stderr.take() {
-        let tx = tx.clone();
-        tokio::spawn(forward_lines(stderr, tx));
-    }
-    drop(tx);
-
-    let job_id = started.snapshot.id.clone();
-    let cancel_token = started.cancel_token.clone();
-    let mut progress = CompileProgress::default();
-    let mut tail: Vec<String> = Vec::new();
-    let mut cancelled = false;
-
-    loop {
-        tokio::select! {
-            biased;
-            _ = cancel_token.cancelled() => {
-                cancelled = true;
-                break;
-            }
-            line = rx.recv() => {
-                let Some(line) = line else { break };
-                let _ = app.emit("compile:log", serde_json::json!({ "line": line }));
-                if tail.len() == ERROR_TAIL_LINES {
-                    tail.remove(0);
-                }
-                tail.push(line.clone());
-                if let Some((progress_value, phase)) = line_milestone(&line)
-                    .and_then(|(p, phase)| progress.advance(p, phase))
-                {
-                    if let Some(snapshot) = center
-                        .job_report(&job_id, Some(progress_value), Some(phase), None, None)
-                        .await
-                    {
-                        emit_job_changed(app, snapshot);
-                    }
-                }
-            }
-        }
-    }
-
-    if cancelled {
-        let _ = child.kill().await;
-        return RunOutcome::Cancelled;
-    }
-
-    let status = match child.wait().await {
-        Ok(status) => status,
-        Err(e) => return RunOutcome::Failed(Some(format!("failed to run latexmk: {e}"))),
-    };
-
-    let pdf_path = tex_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(|stem| cwd.join(format!("{stem}.pdf")))
-        .unwrap_or_else(|| cwd.join("output.pdf"));
-
-    if status.success() && pdf_path.exists() {
-        return RunOutcome::Succeeded;
-    }
-
-    log::warn!(
-        "compile failed for {}: exit={:?}",
-        tex_path.display(),
-        status.code()
-    );
-    let errors: Vec<String> = tail
-        .iter()
-        .filter(|l| l.starts_with('!'))
-        .cloned()
-        .collect();
-    let detail = if errors.is_empty() {
-        tail.join("\n")
-    } else {
-        errors.join("\n")
-    };
-    let detail = if detail.len() > 2000 {
-        format!("{}…", detail[detail.len() - 2000..].trim_start())
-    } else if detail.is_empty() {
-        format!("latexmk exited with {status}")
-    } else {
-        detail
-    };
-    RunOutcome::Failed(Some(detail))
 }
 
 #[cfg(test)]

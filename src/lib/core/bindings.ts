@@ -650,6 +650,33 @@ export const commands = {
 	 */
 	chktexLint: (texPath: string, content: string) => __TAURI_INVOKE<ApiResult<LatexLintDiagnostic[]>>("chktex_lint", { texPath, content }),
 	resolveLatexRoot: (texPath: string, vaultPath: string) => __TAURI_INVOKE<ApiResult<LatexRoot>>("resolve_latex_root", { texPath, vaultPath }),
+	latexBuildArtifacts: (rootPath: string, build: {
+	recipe: LatexRecipe | null,
+	outDir: string | null,
+	auxDir: string | null,
+	jobname: string | null,
+	force?: boolean,
+	clean?: boolean,
+} | null) => __TAURI_INVOKE<ApiResult<LatexArtifacts>>("latex_build_artifacts", { rootPath, build }),
+	latexProjectInspect: (texPath: string, vaultPath: string, rootPath: string | null, build: {
+	recipe: LatexRecipe | null,
+	outDir: string | null,
+	auxDir: string | null,
+	jobname: string | null,
+	force?: boolean,
+	clean?: boolean,
+} | null) => __TAURI_INVOKE<ApiResult<LatexProjectInfo>>("latex_project_inspect", { texPath, vaultPath, rootPath, build }),
+	latexSynctexForward: (pdfPath: string, texPath: string, line: number, column: number) => __TAURI_INVOKE<ApiResult<SyncTexLocation[]>>("latex_synctex_forward", { pdfPath, texPath, line, column }),
+	latexSynctexBackward: (pdfPath: string, page: number, x: number | null, y: number | null) => __TAURI_INVOKE<ApiResult<SyncTexSource | null>>("latex_synctex_backward", { pdfPath, page, x, y }),
+	latexFormat: (path: string, content: string, formatter: string) => __TAURI_INVOKE<ApiResult<string>>("latex_format", { path, content, formatter }),
+	latexClean: (rootPath: string, build: {
+	recipe: LatexRecipe | null,
+	outDir: string | null,
+	auxDir: string | null,
+	jobname: string | null,
+	force?: boolean,
+	clean?: boolean,
+} | null) => __TAURI_INVOKE<ApiResult<null>>("latex_clean", { rootPath, build }),
 	jobLatexCompileEnqueue: (args: JobLatexCompileEnqueueArgs) => typedError<ApiResult<JobSnapshot>, string>(__TAURI_INVOKE("job_latex_compile_enqueue", { args })),
 	jobJevSmartHighlightsEnqueue: (args: JobEnqueueArgs) => typedError<ApiResult<JobSnapshot>, string>(__TAURI_INVOKE("job_jev_smart_highlights_enqueue", { args })),
 	jevProbeHealth: () => typedError<ApiResult<null>, string>(__TAURI_INVOKE("jev_probe_health")),
@@ -677,6 +704,7 @@ export const events = {
 	agentUsage: makeEvent<AgentUsageEvt>("agent:usage"),
 	bridgeHostStatus: makeEvent<BridgeHostStatusEvent>("bridge:host-status"),
 	bridgePairRequest: makeEvent<BridgePairRequestEvent>("bridge:pair-request"),
+	compileFinished: makeEvent<LatexCompileResult>("compile:finished"),
 	compileLog: makeEvent<CompileLogEvent>("compile:log"),
 	connectorError: makeEvent<ConnectorErrorEvent>("connector:error"),
 	connectorItemSaved: makeEvent<ConnectorItemSavedEvent>("connector:item-saved"),
@@ -2288,6 +2316,8 @@ export type CommitStatus =
 
 /**  Mirror of the inline `json!({ "line" })` in `features::compile::compile_tex`. */
 export type CompileLogEvent = {
+	jobId: string,
+	rootPath: string,
 	line: string,
 };
 
@@ -3084,6 +3114,7 @@ export type JobLatexCompileEnqueueArgs = {
 	engine: string,
 	lane?: JobLane | null,
 	force?: boolean,
+	build?: LatexBuildOptions | null,
 };
 
 export type JobListArgs = {
@@ -3249,6 +3280,44 @@ Json[] |
 /**  JSON object. */
 { [key in string]: Json };
 
+export type LatexArtifacts = {
+	pdfPath: string,
+	logPath: string,
+	synctexPath: string,
+	flsPath: string,
+	outDir: string,
+	auxDir: string,
+};
+
+export type LatexBuildOptions = {
+	recipe: LatexRecipe | null,
+	outDir: string | null,
+	auxDir: string | null,
+	jobname: string | null,
+	force?: boolean,
+	clean?: boolean,
+};
+
+export type LatexCompileResult = {
+	jobId: string,
+	rootPath: string,
+	success: boolean,
+	pdfPath: string,
+	logPath: string,
+	synctexPath: string,
+	dependencies: string[],
+	diagnostics: LatexDiagnostic[],
+};
+
+export type LatexDiagnostic = {
+	path: string,
+	line: number,
+	column: number,
+	severity: string,
+	message: string,
+	source: string,
+};
+
 /**  A detected LaTeX rendering engine. */
 export type LatexEngine = {
 	id: string,
@@ -3271,6 +3340,19 @@ export type LatexLintDiagnostic = {
 	message: string,
 };
 
+export type LatexProjectInfo = {
+	rootPath: string,
+	candidates: string[],
+	texFiles: string[],
+	bibFiles: string[],
+	dependencies: string[],
+};
+
+export type LatexRecipe = {
+	name: string,
+	tools: LatexTool[],
+};
+
 export type LatexRoot = {
 	rootPath: string,
 	source: LatexRootSource,
@@ -3288,7 +3370,14 @@ export type LatexRootSource =
 /**  Vault scan found a root whose input/include closure contains the file. */
 "vaultScan" | 
 /**  Nothing found — the file compiles itself. */
-"fallbackSelf";
+"fallbackSelf" | "subfileParent";
+
+export type LatexTool = {
+	command: string,
+	args?: string[],
+	env: { [key in string]: string } | null,
+	cwd: string | null,
+};
 
 export type LayoutModelStatus = {
 	ready: boolean,
@@ -4943,6 +5032,20 @@ export type SyncStatus_Serialize = {
 	running: boolean,
 	lastSyncAt?: string | null,
 	lastVersion: number,
+};
+
+export type SyncTexLocation = {
+	page: number,
+	x: number | null,
+	y: number | null,
+	width: number | null,
+	height: number | null,
+};
+
+export type SyncTexSource = {
+	path: string,
+	line: number,
+	column: number,
 };
 
 export type SyncVaultArgs = {

@@ -404,6 +404,8 @@ pub struct JobLatexCompileEnqueueArgs {
     pub lane: Option<JobLane>,
     #[serde(default)]
     pub force: bool,
+    #[serde(default)]
+    pub build: Option<crate::features::compile::types::LatexBuildOptions>,
 }
 
 #[tauri::command]
@@ -429,7 +431,8 @@ pub async fn job_latex_compile_enqueue(
         ))));
     }
     let tex_path = tex_path.to_string_lossy().to_string();
-    let params = serde_json::json!({ "texPath": tex_path, "engine": args.engine });
+    let params =
+        serde_json::json!({ "texPath": tex_path, "engine": args.engine, "build": args.build });
     Ok(start_enqueued(
         &app,
         &center,

@@ -316,6 +316,8 @@ pub struct PaperRenamedEventPayload {
 #[serde(rename_all = "camelCase")]
 #[tauri_specta(event_name = "compile:log")]
 pub struct CompileLogEvent {
+    pub job_id: String,
+    pub root_path: String,
     pub line: String,
 }
 
@@ -483,6 +485,7 @@ fn registered_event_names() -> BTreeSet<String> {
         PaperAssetsReadyEvent::NAME,
         PaperRenamedEventPayload::NAME,
         CompileLogEvent::NAME,
+        crate::features::compile::types::LatexCompileResult::NAME,
     ];
     names.push(RtexEventEvt::NAME);
     let set: BTreeSet<String> = names.iter().map(|n| n.to_string()).collect();

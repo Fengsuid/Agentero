@@ -1,0 +1,550 @@
+use super::{
+    diagnostics::{parse_diagnostics, read_fls},
+    forward_lines, latexmk_engine_flag, line_milestone, resolve_engine,
+    tools::prepare_command,
+    types::{
+        artifacts, compiler_kind, expand, is_latexmk, tool_directory, tool_option, CompilerKind,
+        LatexArtifacts, LatexBuildOptions, LatexCompileResult, LatexTool,
+    },
+    CompileProgress, LatexCompileParams, ERROR_TAIL_LINES,
+};
+use crate::features::jobs::{emit_job_changed, JobCenter, RunOutcome, StartedJob};
+use std::{
+    collections::BTreeMap,
+    io::Write,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
+use tauri::Emitter;
+
+fn executable_path(command: &str, cwd: &Path) -> Option<PathBuf> {
+    let path = Path::new(command);
+    if path.is_absolute() {
+        Some(path.to_path_buf())
+    } else if path.components().count() > 1 {
+        Some(super::root::normalize_lexical(&cwd.join(path)))
+    } else {
+        resolve_engine(command)
+    }
+}
+
+fn tool_arguments(
+    tool: &LatexTool,
+    root: &Path,
+    artifact: &LatexArtifacts,
+    options: &LatexBuildOptions,
+) -> Vec<String> {
+    let compiler = compiler_kind(&expand(&tool.command, root, artifact));
+    // Helpers may intentionally use their own output flags for intermediate
+    // artifacts. Only TeX compiler invocations inherit project output settings.
+    if compiler.is_none() {
+        return tool
+            .args
+            .iter()
+            .map(|value| expand(value, root, artifact))
+            .collect();
+    }
+    let mut args = Vec::new();
+    let mut skip = false;
+    for (index, arg) in tool.args.iter().enumerate() {
+        if skip {
+            skip = false;
+            continue;
+        }
+        let (flag, value) = arg
+            .split_once('=')
+            .map(|(a, b)| (a, Some(b)))
+            .unwrap_or((arg.as_str(), tool.args.get(index + 1).map(String::as_str)));
+        let replacement = match flag.trim_start_matches('-') {
+            "outdir" | "output-directory" => Some(artifact.out_dir.clone()),
+            "auxdir" | "aux-directory" => Some(artifact.aux_dir.clone()),
+            "jobname" => Some(
+                Path::new(&artifact.pdf_path)
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            _ => None,
+        };
+        if let (Some(replacement), Some(_)) = (replacement, value) {
+            if arg.contains('=') {
+                args.push(format!("{flag}={replacement}"));
+            } else {
+                args.push(flag.into());
+                args.push(replacement);
+                skip = true;
+            }
+        } else {
+            args.push(expand(arg, root, artifact));
+        }
+    }
+    if (options.force || options.clean)
+        && is_latexmk(&expand(&tool.command, root, artifact))
+        && !args
+            .iter()
+            .any(|arg| ["-g", "-gg", "--g", "--gg"].contains(&arg.as_str()))
+    {
+        args.retain(|arg| arg != "-g-");
+        args.insert(0, "-g".into());
+    }
+    let selected = |value: &Option<String>| {
+        value
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    let mut extra = Vec::new();
+    if selected(&options.out_dir) && tool_option(tool, &["outdir", "output-directory"]).is_none() {
+        let flag = match compiler {
+            Some(CompilerKind::Latexmk) => "-outdir",
+            Some(CompilerKind::Tectonic) => "--outdir",
+            _ => "-output-directory",
+        };
+        extra.push(format!("{flag}={}", artifact.out_dir));
+    }
+    if compiler == Some(CompilerKind::Latexmk)
+        && selected(&options.aux_dir)
+        && tool_option(tool, &["auxdir", "aux-directory"]).is_none()
+    {
+        extra.push(format!("-auxdir={}", artifact.aux_dir));
+    }
+    if matches!(compiler, Some(CompilerKind::Latexmk | CompilerKind::Tex))
+        && selected(&options.jobname)
+        && tool_option(tool, &["jobname"]).is_none()
+    {
+        let name = Path::new(&artifact.pdf_path)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy();
+        extra.push(format!("-jobname={name}"));
+    }
+    // TeX stops option parsing at the input file, so selected options precede
+    // the recipe argv rather than being appended after `%DOC%`.
+    extra.extend(args);
+    extra
+}
+
+async fn wait_or_cancel(
+    child: &mut tokio::process::Child,
+    token: &tokio_util::sync::CancellationToken,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    tokio::select! {
+        biased;
+        _=token.cancelled()=>{terminate(child).await;Ok(None)},
+        status=child.wait()=>status.map(Some),
+    }
+}
+
+fn clean_tool(root: &Path, artifact: &LatexArtifacts) -> LatexTool {
+    let name = Path::new(&artifact.pdf_path)
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+    LatexTool {
+        command: "latexmk".into(),
+        args: vec![
+            "-c".into(),
+            format!("-outdir={}", artifact.out_dir),
+            format!("-auxdir={}", artifact.aux_dir),
+            format!("-jobname={name}"),
+            root.to_string_lossy().into_owned(),
+        ],
+        env: None,
+        cwd: None,
+    }
+}
+
+async fn terminate(child: &mut tokio::process::Child) {
+    if let Some(pid) = child.id() {
+        #[cfg(unix)]
+        {
+            // Each tool has its own process group, including latexmk's engine
+            // and bibliography descendants that inherit the output pipes.
+            let _ = tokio::process::Command::new("/bin/kill")
+                .args(["-KILL", "--", &format!("-{pid}")])
+                .status()
+                .await;
+        }
+        #[cfg(windows)]
+        {
+            let mut command = tokio::process::Command::new("taskkill.exe");
+            command
+                .args(["/T", "/F", "/PID", &pid.to_string()])
+                .creation_flags(0x08000000);
+            let _ = command.status().await;
+        }
+    }
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
+pub(super) async fn run_latexmk(
+    center: &JobCenter,
+    app: &tauri::AppHandle,
+    started: &StartedJob,
+    params: LatexCompileParams,
+) -> RunOutcome {
+    let root = PathBuf::from(&params.tex_path);
+    let options = params.build.unwrap_or_default();
+    let artifact = match artifacts(&root, &options) {
+        Ok(value) => value,
+        Err(e) => return RunOutcome::Failed(Some(e)),
+    };
+    if !root.is_file() {
+        return RunOutcome::Failed(Some(format!("tex file not found: {}", root.display())));
+    }
+    let cwd = root.parent().unwrap_or(Path::new("."));
+    for dir in [&artifact.out_dir, &artifact.aux_dir] {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            return RunOutcome::Failed(Some(format!("cannot create build directory: {e}")));
+        }
+    }
+    let mut logfile = match std::fs::File::create(&artifact.log_path) {
+        Ok(value) => value,
+        Err(e) => return RunOutcome::Failed(Some(format!("cannot create build log: {e}"))),
+    };
+    let mut tools = Vec::new();
+    if options.clean {
+        tools.push(clean_tool(&root, &artifact));
+    }
+    if let Some(recipe) = &options.recipe {
+        if recipe.tools.is_empty() || recipe.tools.len() > 32 {
+            return RunOutcome::Failed(Some(
+                "a build recipe must contain between 1 and 32 tools".into(),
+            ));
+        }
+        tools.extend(recipe.tools.clone());
+    } else {
+        let Some(flag) = latexmk_engine_flag(&params.engine) else {
+            return RunOutcome::Failed(Some(format!("unknown latex engine: {}", params.engine)));
+        };
+        let mut args = vec![
+            flag.into(),
+            "-interaction=nonstopmode".into(),
+            "-halt-on-error".into(),
+            "-file-line-error".into(),
+            "-synctex=1".into(),
+            "-recorder".into(),
+            format!("-outdir={}", artifact.out_dir),
+        ];
+        if artifact.aux_dir != artifact.out_dir {
+            args.push(format!("-auxdir={}", artifact.aux_dir));
+        }
+        if options.force || options.clean {
+            args.push("-g".into());
+        }
+        if let Some(name) = &options.jobname {
+            args.push(format!("-jobname={name}"));
+        }
+        args.push(root.to_string_lossy().into_owned());
+        tools.push(LatexTool {
+            command: "latexmk".into(),
+            args,
+            env: None,
+            cwd: None,
+        });
+    }
+    let mut output = String::new();
+    let mut tail = std::collections::VecDeque::new();
+    let mut outcome = RunOutcome::Succeeded;
+    let mut progress = CompileProgress::default();
+    let total = tools.len();
+    for (index, tool) in tools.into_iter().enumerate() {
+        if started.cancel_token.is_cancelled() {
+            outcome = RunOutcome::Cancelled;
+            break;
+        }
+        let command_name = expand(&tool.command, &root, &artifact);
+        let tool_dir = tool_directory(&tool, &root, &artifact);
+        let Some(executable) = executable_path(&command_name, &tool_dir) else {
+            outcome = RunOutcome::Failed(Some(format!("{command_name} not found on this system")));
+            break;
+        };
+        let args = tool_arguments(&tool, &root, &artifact, &options);
+        let mut command = tokio::process::Command::new(&executable);
+        prepare_command(&mut command, &executable);
+        #[cfg(unix)]
+        command.process_group(0);
+        command
+            .args(&args)
+            .current_dir(tool_dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let environment: BTreeMap<String, String> = tool
+            .env
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(key, value)| (key, expand(&value, &root, &artifact)))
+            .collect();
+        command.envs(environment);
+        let description = format!(
+            "[{} / {total}] {command_name} {}",
+            index + 1,
+            args.join(" ")
+        );
+        let _ = writeln!(logfile, "{description}");
+        let _ = app.emit("compile:log",serde_json::json!({"jobId":started.snapshot.id,"rootPath":params.tex_path,"line":description}));
+        let mut child = match command.spawn() {
+            Ok(value) => value,
+            Err(e) => {
+                outcome = RunOutcome::Failed(Some(format!("failed to run {command_name}: {e}")));
+                break;
+            }
+        };
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        if let Some(stdout) = child.stdout.take() {
+            tokio::spawn(forward_lines(stdout, tx.clone()));
+        }
+        if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(forward_lines(stderr, tx.clone()));
+        }
+        drop(tx);
+        let mut cancelled = false;
+        loop {
+            tokio::select! {
+                biased;
+                _=started.cancel_token.cancelled()=>{cancelled=true;break;}
+                line=rx.recv()=>{
+                    let Some(line)=line else{break};
+                    let _ = writeln!(logfile,"{line}");
+                    output.push_str(&line);output.push('\n');
+                    if tail.len()==ERROR_TAIL_LINES {tail.pop_front();} tail.push_back(line.clone());
+                    let _=app.emit("compile:log",serde_json::json!({"jobId":started.snapshot.id,"rootPath":params.tex_path,"line":line}));
+                    if let Some((value,phase))=line_milestone(&line).and_then(|(value,phase)|progress.advance((index as f32+value)/total as f32,phase)) {
+                        if let Some(snapshot)=center.job_report(&started.snapshot.id,Some(value),Some(phase),None,None).await {emit_job_changed(app,snapshot);}
+                    }
+                }
+            }
+        }
+        if cancelled {
+            terminate(&mut child).await;
+            outcome = RunOutcome::Cancelled;
+            break;
+        }
+        match wait_or_cancel(&mut child, &started.cancel_token).await {
+            Ok(None) => {
+                outcome = RunOutcome::Cancelled;
+                break;
+            }
+            Ok(Some(status)) if status.success() => {}
+            Ok(Some(status)) => {
+                let detail = tail.iter().cloned().collect::<Vec<_>>().join("\n");
+                outcome = RunOutcome::Failed(Some(if detail.is_empty() {
+                    format!("{command_name} exited with {status}")
+                } else {
+                    detail
+                        .chars()
+                        .rev()
+                        .take(2000)
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect()
+                }));
+                break;
+            }
+            Err(e) => {
+                outcome = RunOutcome::Failed(Some(e.to_string()));
+                break;
+            }
+        }
+    }
+    let success =
+        matches!(outcome, RunOutcome::Succeeded) && Path::new(&artifact.pdf_path).is_file();
+    if matches!(outcome, RunOutcome::Succeeded) && !success {
+        outcome = RunOutcome::Failed(Some(format!("build did not produce {}", artifact.pdf_path)));
+    }
+    if let RunOutcome::Failed(Some(message)) = &outcome {
+        let _ = writeln!(logfile, "{message}");
+    }
+    let _ = logfile.flush();
+    // The engine log records useful diagnostics that do not always reach
+    // latexmk's console stream (especially nonfatal reference warnings).
+    let tex_log = Path::new(&artifact.fls_path).with_extension("log");
+    if let Ok(text) = std::fs::read_to_string(tex_log) {
+        output.push_str(&text);
+    }
+    let result = LatexCompileResult {
+        job_id: started.snapshot.id.clone(),
+        root_path: params.tex_path,
+        success,
+        pdf_path: artifact.pdf_path,
+        log_path: artifact.log_path,
+        synctex_path: artifact.synctex_path,
+        dependencies: read_fls(Path::new(&artifact.fls_path), cwd),
+        diagnostics: parse_diagnostics(&output, &root),
+    };
+    let _ = app.emit("compile:finished", result);
+    outcome
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn recipe_expansion_keeps_spaces_as_a_single_argument() {
+        let root = Path::new("/project with spaces/main.tex");
+        let artifact = artifacts(root, &Default::default()).unwrap();
+        assert_eq!(
+            expand("%DOC%", root, &artifact),
+            "/project with spaces/main.tex"
+        );
+        assert_eq!(
+            expand("%OUTDIR%/%JOBNAME%.pdf", root, &artifact),
+            "/project with spaces/main.pdf"
+        );
+    }
+
+    #[test]
+    fn custom_latexmk_honors_force_and_inferred_cleanup_jobname() {
+        let root = Path::new("/project/main.tex");
+        let tool = LatexTool {
+            command: "latexmk".into(),
+            args: vec!["-pdf".into(), "-jobname=draft".into(), "%DOC%".into()],
+            cwd: None,
+            env: None,
+        };
+        let options = LatexBuildOptions {
+            force: true,
+            recipe: Some(super::super::types::LatexRecipe {
+                name: "draft".into(),
+                tools: vec![tool.clone()],
+            }),
+            ..Default::default()
+        };
+        let artifact = artifacts(root, &options).unwrap();
+        assert!(tool_arguments(&tool, root, &artifact, &options).contains(&"-g".into()));
+        assert!(clean_tool(root, &artifact)
+            .args
+            .contains(&"-jobname=draft".into()));
+        let normal = LatexBuildOptions {
+            force: false,
+            ..options
+        };
+        assert!(!tool_arguments(&tool, root, &artifact, &normal).contains(&"-g".into()));
+    }
+
+    #[test]
+    fn relative_executable_and_output_flags_share_tool_cwd() {
+        let root = Path::new("/project/main.tex");
+        let tool = LatexTool {
+            command: "./scripts/build.sh".into(),
+            args: vec!["-output-directory".into(), "out".into(), "%DOC%".into()],
+            cwd: Some("build".into()),
+            env: None,
+        };
+        let options = LatexBuildOptions {
+            recipe: Some(super::super::types::LatexRecipe {
+                name: "custom".into(),
+                tools: vec![tool.clone()],
+            }),
+            ..Default::default()
+        };
+        let artifact = artifacts(root, &options).unwrap();
+        assert_eq!(artifact.pdf_path, "/project/build/out/main.pdf");
+        let cwd = tool_directory(&tool, root, &artifact);
+        assert_eq!(
+            executable_path(&tool.command, &cwd),
+            Some(PathBuf::from("/project/build/scripts/build.sh"))
+        );
+        assert_eq!(tool_arguments(&tool, root, &artifact, &options)[1], "out");
+    }
+
+    #[test]
+    fn project_output_settings_are_injected_into_example_and_minimal_recipes() {
+        let root = Path::new("/project/main.tex");
+        for input_args in [
+            vec!["-pdf", "-outdir=%OUTDIR%", "%DOC%"],
+            vec!["-pdf", "%DOC%"],
+        ] {
+            let tool = LatexTool {
+                command: "latexmk".into(),
+                args: input_args.into_iter().map(String::from).collect(),
+                env: None,
+                cwd: None,
+            };
+            let options = LatexBuildOptions {
+                out_dir: Some("build".into()),
+                aux_dir: Some("cache".into()),
+                jobname: Some("draft".into()),
+                recipe: Some(super::super::types::LatexRecipe {
+                    name: "example".into(),
+                    tools: vec![tool.clone()],
+                }),
+                ..Default::default()
+            };
+            let artifact = artifacts(root, &options).unwrap();
+            let args = tool_arguments(&tool, root, &artifact, &options);
+            assert!(args.contains(&"-outdir=/project/build".into()));
+            assert!(args.contains(&"-auxdir=/project/cache".into()));
+            assert!(args.contains(&"-jobname=draft".into()));
+            assert_eq!(args.last().unwrap(), "/project/main.tex");
+            assert_eq!(artifact.pdf_path, "/project/build/draft.pdf");
+        }
+    }
+
+    #[test]
+    fn helpers_keep_their_output_options_and_direct_engines_reject_separate_aux() {
+        let root = Path::new("/project/main.tex");
+        let helper = LatexTool {
+            command: "image-converter".into(),
+            args: vec!["-outdir=images".into()],
+            env: None,
+            cwd: None,
+        };
+        let options = LatexBuildOptions {
+            out_dir: Some("build".into()),
+            ..Default::default()
+        };
+        let artifact = artifacts(root, &options).unwrap();
+        assert_eq!(
+            tool_arguments(&helper, root, &artifact, &options),
+            vec!["-outdir=images"]
+        );
+        let tool = LatexTool {
+            command: "pdflatex".into(),
+            args: vec!["%DOC%".into()],
+            env: None,
+            cwd: None,
+        };
+        let options = LatexBuildOptions {
+            aux_dir: Some("cache".into()),
+            recipe: Some(super::super::types::LatexRecipe {
+                name: "direct".into(),
+                tools: vec![tool],
+            }),
+            ..options
+        };
+        assert!(artifacts(root, &options).is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellation_still_works_after_child_closes_output_pipes() {
+        use tokio::io::AsyncReadExt;
+        let mut command = tokio::process::Command::new("/bin/sh");
+        command
+            .args(["-c", "exec 1>&- 2>&-; sleep 30"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0)
+            .kill_on_drop(true);
+        let mut child = command.spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).await.unwrap();
+        stderr.read_to_end(&mut bytes).await.unwrap();
+        let token = tokio_util::sync::CancellationToken::new();
+        token.cancel();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            wait_or_cancel(&mut child, &token),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(result.is_none());
+    }
+}

@@ -10,7 +10,8 @@
 //!    (root → sub → … → target) contains this file,
 //! 4. fallback: compile the file itself (standalone docs, snippets).
 //!
-//! Subfiles (`\documentclass[..]{subfiles}`) are intentionally out of scope.
+//! Subfiles resolve to their declared parent; callers may explicitly select
+//! the subfile itself through the project root override for standalone builds.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
@@ -21,6 +22,7 @@ use serde::Serialize;
 
 use agentero_core::features::vault::tree::should_ignore;
 
+use super::project::subfile_parent;
 use crate::core::blocking::run_blocking;
 use crate::core::error::{ApiResult, AppError};
 
@@ -37,6 +39,7 @@ pub enum LatexRootSource {
     VaultScan,
     /// Nothing found — the file compiles itself.
     FallbackSelf,
+    SubfileParent,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -86,7 +89,7 @@ pub async fn resolve_latex_root(tex_path: String, vault_path: String) -> ApiResu
     .await
 }
 
-fn resolve_root(tex: &Path, vault: Option<&Path>) -> LatexRoot {
+pub(super) fn resolve_root(tex: &Path, vault: Option<&Path>) -> LatexRoot {
     let content = read_lossy(tex).unwrap_or_default();
     if let Some(root) = find_magic_root(tex, &content) {
         return LatexRoot {
@@ -94,7 +97,14 @@ fn resolve_root(tex: &Path, vault: Option<&Path>) -> LatexRoot {
             source: LatexRootSource::MagicComment,
         };
     }
-    if has_indicator(&strip_comments(&content)) {
+    let stripped = strip_comments(&content);
+    if let Some(parent) = subfile_parent(tex, &stripped) {
+        return LatexRoot {
+            root_path: parent.to_string_lossy().into_owned(),
+            source: LatexRootSource::SubfileParent,
+        };
+    }
+    if has_indicator(&stripped) {
         return LatexRoot {
             root_path: tex.to_string_lossy().into_owned(),
             source: LatexRootSource::SelfIndicator,
@@ -186,7 +196,7 @@ fn split_word(s: &str) -> Option<(&str, &str)> {
 /// `\documentclass` inside verbatim would read as an indicator; the fallout —
 /// compiling that file itself — is visible and recoverable, so the
 /// simplification is accepted).
-fn strip_comments(content: &str) -> String {
+pub(super) fn strip_comments(content: &str) -> String {
     content
         .lines()
         .map(truncate_at_comment)
@@ -217,7 +227,7 @@ fn truncate_at_comment(line: &str) -> &str {
 /// Root indicator on comment-stripped content: `\documentclass` or
 /// `\begin{document}` with a word boundary after the match (so
 /// `\documentclassfoo` does not count).
-fn has_indicator(stripped: &str) -> bool {
+pub(super) fn has_indicator(stripped: &str) -> bool {
     contains_word(stripped, "\\documentclass") || contains_word(stripped, "\\begin{document}")
 }
 
@@ -238,7 +248,7 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
 /// content. The command name must match exactly, which excludes
 /// `\includegraphics` / `\includeonly` / `\includepdf` / `\includesvg`. The
 /// bare form (`\input foo`) is not parsed, matching LaTeX Workshop's regex.
-fn parse_input_refs(stripped: &str) -> Vec<String> {
+pub(super) fn parse_input_refs(stripped: &str) -> Vec<String> {
     let bytes = stripped.as_bytes();
     let mut refs = Vec::new();
     let mut i = 0;
@@ -259,7 +269,7 @@ fn parse_input_refs(stripped: &str) -> Vec<String> {
         }
         let name = &stripped[name_start..j];
         i = j;
-        if name != "input" && name != "include" {
+        if name != "input" && name != "include" && name != "subfile" {
             continue;
         }
         if i < bytes.len() && bytes[i] == b'*' {
@@ -297,7 +307,7 @@ fn skip_ws(bytes: &[u8], mut i: usize) -> usize {
 /// Resolve an `\input`/`\include` argument relative to the declaring file's
 /// directory: the argument as written, then with `.tex` appended (the bare
 /// extension-less form), returning the candidate that exists on disk.
-fn resolve_input(dir: &Path, arg: &str) -> Option<PathBuf> {
+pub(super) fn resolve_input(dir: &Path, arg: &str) -> Option<PathBuf> {
     let arg = arg.trim();
     if arg.is_empty() {
         return None;
@@ -325,7 +335,7 @@ fn resolve_input(dir: &Path, arg: &str) -> Option<PathBuf> {
 /// paths keep the caller's prefix shape (never `canonicalize()` a return
 /// value — on Windows it grows a `\\?\` verbatim prefix that breaks the
 /// frontend's fs-scope matching).
-fn normalize_lexical(path: &Path) -> PathBuf {
+pub(super) fn normalize_lexical(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in path.components() {
         match comp {
@@ -348,7 +358,7 @@ fn canonical_key(p: &Path) -> PathBuf {
     fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
-fn read_lossy(path: &Path) -> Option<String> {
+pub(super) fn read_lossy(path: &Path) -> Option<String> {
     let file = fs::File::open(path).ok()?;
     let mut bytes = Vec::new();
     file.take(MAX_FILE_BYTES).read_to_end(&mut bytes).ok()?;
@@ -421,7 +431,7 @@ fn scan_for_root(scan_root: &Path, target: &Path) -> Option<PathBuf> {
     best.map(|(_, key)| display.get(key).cloned().unwrap_or_else(|| key.clone()))
 }
 
-fn collect_tex_files(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+pub(super) fn collect_tex_files(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     if depth > SCAN_MAX_DEPTH {
         return;
     }
