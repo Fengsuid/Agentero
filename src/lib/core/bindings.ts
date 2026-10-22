@@ -731,6 +731,8 @@ export const events = {
 	paperAssetsReady: makeEvent<PaperAssetsReadyEvent>("paper:assets-ready"),
 	paperImported: makeEvent<PaperImportedEvent>("paper:imported"),
 	paperRenamed: makeEvent<PaperRenamedEventPayload>("paper:renamed"),
+	pluginsChanged: makeEvent<PluginsChangedEvent>("plugins:changed"),
+	pluginsDataChanged: makeEvent<PluginsDataChangedEvent>("plugins:data-changed"),
 	rtexEvent: makeEvent<RtexEventEvt>("rtex:event"),
 	settingsChanged: makeEvent<SettingsChangedEvent_Deserialize>("settings:changed"),
 	syncProgress: makeEvent<SyncProgressEvent>("sync:progress"),
@@ -4348,6 +4350,10 @@ export type PlazaScratchEntry = {
 export type PlazaScratchPrepareArgs = {
 	arxivIds: string[],
 };
+
+export type PluginsChangedEvent = null;
+
+export type PluginsDataChangedEvent = string;
 
 export type ProbeEmbeddingArgs = {
 	/**  Override the stored base URL. Empty / missing keeps the stored value. */

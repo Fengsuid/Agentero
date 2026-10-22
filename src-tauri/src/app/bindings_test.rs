@@ -3,7 +3,7 @@
 //!
 //! Coverage: every command registered for desktop in `app::handlers`
 //! (`common_commands!` + the desktop-only extras) is collected here, and every
-//! event emitted on desktop is declared in `app::events_contract` (45 events;
+//! event emitted on desktop is declared in `app::events_contract`;
 //! `event_name` matches the emit literal, emit sites unchanged). The iOS-only
 //! bridge client commands (`integration::bridge::client_commands`) and client
 //! events (`bridge:status` / `bridge:progress` / `bridge:pair-pending`) are
@@ -305,6 +305,8 @@ pub(crate) fn export_typescript_bindings() {
             crate::app::events_contract::ConnectorErrorEvent,
             crate::app::events_contract::McpStatusEvent,
             crate::app::events_contract::McpTunnelStatusEvent,
+            crate::app::events_contract::PluginsChangedEvent,
+            crate::app::events_contract::PluginsDataChangedEvent,
             crate::app::events_contract::SyncStateEvent,
             crate::app::events_contract::SyncProgressEvent,
             crate::app::events_contract::PaperImportedEvent,

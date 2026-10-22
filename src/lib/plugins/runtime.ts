@@ -1,13 +1,17 @@
 /** Session registrations are projections of Host-owned packages and grants. */
 
-import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import i18n from "@/i18n";
-import { commands, type DevelopmentPluginInfo } from "@/lib/core/bindings";
+import {
+	commands,
+	type DevelopmentPluginInfo,
+	events,
+} from "@/lib/core/bindings";
 import { errorText } from "@/lib/core/error";
 import { callResult } from "@/lib/core/ipc";
 import { notifyError, notifySuccess } from "@/lib/core/notify";
 import { isMobileApp, isTauri } from "@/lib/core/tauri";
+import { listenEventSafe } from "@/lib/core/tauri-events";
 import { onPublic, type PublicLifecycleEvent } from "@/lib/lifecycle/public";
 import { refreshLibrary } from "@/lib/paper/library-store";
 import {
@@ -307,10 +311,10 @@ export function startDevelopmentPlugins(): () => void {
 		void commands.pluginEditorState(vault, paths).catch(reportError);
 	});
 	const listeners = [
-		listen("plugins:changed", () => {
+		listenEventSafe(events.pluginsChanged, () => {
 			if (!stopped) void restore().catch(reportError);
 		}),
-		listen<string>("plugins:data-changed", ({ payload }) => {
+		listenEventSafe(events.pluginsDataChanged, (payload) => {
 			if (!stopped && payload === getVaultPath()) void refreshLibrary();
 		}),
 	];
@@ -319,7 +323,7 @@ export function startDevelopmentPlugins(): () => void {
 		stopVault();
 		stopEditors();
 		stopOpened();
-		for (const listener of listeners) void listener.then((stop) => stop());
+		for (const stop of listeners) stop();
 		void unloadDevelopmentPlugins();
 	};
 }

@@ -251,6 +251,14 @@ pub struct McpStatusEvent(pub crate::integration::mcp::McpStatus);
 #[tauri_specta(event_name = "mcp:tunnel-status")]
 pub struct McpTunnelStatusEvent(pub crate::integration::mcp::tunnel::McpTunnelStatus);
 
+#[derive(specta::Type, tauri_specta::Event)]
+#[tauri_specta(event_name = "plugins:changed")]
+pub struct PluginsChangedEvent(pub ());
+
+#[derive(specta::Type, tauri_specta::Event)]
+#[tauri_specta(event_name = "plugins:data-changed")]
+pub struct PluginsDataChangedEvent(pub String);
+
 /// Owned mirror of the private borrowed `SyncStateEvent` in
 /// `integration::sync::commands`.
 #[derive(serde::Serialize, specta::Type, tauri_specta::Event)]
@@ -406,7 +414,8 @@ fn event_names_match_emit_literals() {
 //
 // `event_names_match_emit_literals` only covers the 13 events whose names live
 // in `const`s reachable from this crate. The scan below walks every `.rs` file
-// under `src-tauri/src` and `crates/agentero-core/src`, extracts the event name
+// under `src-tauri/src`, `crates/agentero-core/src`, and
+// `crates/agentero-mcp/src`, extracts the event name
 // of every Tauri emit call site and asserts the set equals the names
 // registered in this file. Scan rules (comments/strings are tokenized first):
 //
@@ -479,6 +488,8 @@ fn registered_event_names() -> BTreeSet<String> {
         ConnectorErrorEvent::NAME,
         McpStatusEvent::NAME,
         McpTunnelStatusEvent::NAME,
+        PluginsChangedEvent::NAME,
+        PluginsDataChangedEvent::NAME,
         SyncStateEvent::NAME,
         SyncProgressEvent::NAME,
         PaperImportedEvent::NAME,
@@ -847,7 +858,7 @@ fn scan_file_emits(
     out
 }
 
-/// Scan every Rust source of the desktop Host + shared core crate and return
+/// Scan every Rust source of the desktop Host + shared core/MCP crates and return
 /// the set of event names reaching the frontend through Tauri emits.
 fn scan_emit_event_names() -> BTreeSet<String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -857,14 +868,19 @@ fn scan_emit_event_names() -> BTreeSet<String> {
         .join("crates")
         .join("agentero-core")
         .join("src");
-    // Relative to `src-tauri/src` (the core root has no exclusions).
+    let mcp_root = manifest_dir
+        .join("..")
+        .join("crates")
+        .join("agentero-mcp")
+        .join("src");
+    // Relative to `src-tauri/src` (the shared crates have no exclusions).
     let excluded = [
         "integration/bridge/client.rs",
         "app/bindings_test.rs",
         "app/events_contract.rs",
     ];
     let mut files: Vec<PathBuf> = Vec::new();
-    for root in [&host_root, &core_root] {
+    for root in [&host_root, &core_root, &mcp_root] {
         for entry in walkdir::WalkDir::new(root)
             .into_iter()
             .filter_map(Result::ok)

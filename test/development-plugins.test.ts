@@ -23,6 +23,10 @@ vi.mock("@/i18n", () => ({
 	},
 }));
 vi.mock("@/lib/core/bindings", () => ({
+	events: {
+		pluginsChanged: { listen: async () => () => {} },
+		pluginsDataChanged: { listen: async () => () => {} },
+	},
 	commands: {
 		pluginDevLoad: state.load,
 		pluginEditorState: async () => undefined,
