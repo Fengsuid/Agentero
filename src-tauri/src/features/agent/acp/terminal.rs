@@ -567,12 +567,21 @@ mod tests {
 
         let response = manager.create(request).unwrap();
         let terminal = manager.get(&response.terminal_id).unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let output = timeout(Duration::from_millis(500), terminal.output())
-            .await
-            .expect("terminal/output must not wait for process exit");
-        assert!(output.output.contains("ready"));
+        // Process startup and the output reader may take longer under parallel
+        // test load. Wait for readiness while keeping each output call bounded.
+        let output = timeout(Duration::from_secs(3), async {
+            loop {
+                let output = timeout(Duration::from_millis(500), terminal.output())
+                    .await
+                    .expect("terminal/output must not wait for process exit");
+                if output.output.contains("ready") {
+                    break output;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("terminal must produce ready output before testing kill");
         assert!(output.exit_status.is_none());
 
         let waiter = {
