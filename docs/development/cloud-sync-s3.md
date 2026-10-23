@@ -1,6 +1,6 @@
 # 云同步（S3 / WebDAV / Git）设计草稿
 
-> 状态：Phase 0–2（自动同步部分）已落地（实现说明见 [../backend/sync.md](../backend/sync.md)），Phase 2+ 为草稿；Git 全量同步 v1 已落地（#781），按论文按需拉取仍为草稿。多设备间同步整个 Vault，存储后端为 S3 兼容对象存储（AWS S3 / Cloudflare R2 / 阿里 OSS / MinIO / B2）、WebDAV（坚果云 / Nextcloud / NAS 等）或 Git 远端，经 `store.rs` 的 `SyncStore` 枚举分发（Git 走独立的 `git.rs`），引擎不感知具体 S3/WebDAV 后端。同一套引擎同时服务两种模式：用户自带 bucket（BYO）与将来的官方托管服务。
+> 状态：Phase 0–2（自动同步部分）已落地（实现说明见 [../backend/sync.md](../backend/sync.md)），Phase 2+ 为草稿；Git 同步 v1 已落地（#781，同步范围经 `.gitignore` 排除），按论文按需拉取仍为草稿。多设备间同步整个 Vault，存储后端为 S3 兼容对象存储（AWS S3 / Cloudflare R2 / 阿里 OSS / MinIO / B2）、WebDAV（坚果云 / Nextcloud / NAS 等）或 Git 远端，经 `store.rs` 的 `SyncStore` 枚举分发（Git 走独立的 `git.rs`），引擎不感知具体 S3/WebDAV 后端。同一套引擎同时服务两种模式：用户自带 bucket（BYO）与将来的官方托管服务。
 
 ## 目标与非目标
 
@@ -160,8 +160,8 @@ Git 不套用 blob/manifest 协议：远端就是仓库，历史、认证与合�
 - work tree = Vault 根；远端 `origin` + `gitBranch`；系统 credential helper / SSH agent，不落 token。
 - `.git/info/exclude` 排除 `.agentero/` 等；本地或远端跟踪 `.agentero` 直接拒绝。
 - pass = commit → `ls-remote` → fetch → merge → push；冲突 abort 并报 `sync_conflict`；非 fast-forward 自动重试。
-- 设置页 Git 隐藏 scope（全量）；CLI `--backend git` 不支持 `--exclude`。
-- 限制：PDF/TeX 留在 Git 历史、未接 LFS、无按需拉取；退出 flush 跳过 Git。
+- 设置页与 CLI `--exclude` 对 Git 同样生效：排除项写进 `.gitignore` 标记区块，已跟踪文件 `git rm --cached`（工作区保留）。
+- 限制：已进入历史的 PDF/TeX 不会被清掉、未接 LFS、无按需拉取；退出 flush 跳过 Git。
 
 ### Phase 2：SQL / catalog 驱动的按论文按需拉取
 

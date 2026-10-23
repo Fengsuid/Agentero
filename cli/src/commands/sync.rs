@@ -290,14 +290,7 @@ fn assemble_config(
     if let Some(v) = env_non_empty(ENV_WEBDAV_PASSWORD) {
         cfg.webdav_password = v;
     }
-    if cfg.backend == SyncBackendKind::Git {
-        if !args.exclude.is_empty() {
-            return Err(CliError::usage(
-                "--exclude is not supported for git (it always syncs the full vault)",
-            ));
-        }
-        cfg.scope = SyncScope::all();
-    } else if !args.exclude.is_empty() {
+    if !args.exclude.is_empty() {
         cfg.scope = scope_from_excludes(&args.exclude)?;
     }
 

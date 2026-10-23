@@ -336,7 +336,7 @@ agentero sync now --vault ~/papers --json
 - **并发**：`sync now` 经 `.agentero/sync/lock` 跨进程文件锁与桌面端（及 cron）在同一 Vault 上互斥，冲突时返回 `sync_busy`（退出码 1）；进程崩溃锁自动释放。
 - **状态与错误码**：未配置 → `sync_not_configured`；配置非法（缺 secret 等，非交互下无法补提示时错误里附 secret 传入门径）→ `sync_config_invalid`；引擎错误透传 `AppError` 域码。`status` 输出 `configured` / `config`（掩码）/ `lastSyncAt` / `lastVersion` / `lastError`。
 - **进度**：`now` 的阶段进度（scan/pull/download/upload/finalize）打 stderr，stdout 始终纯 JSON；text 模式默认显示，`--progress` 在 `--json` 下开启。
-- **同步范围**：`configure --exclude pdf,source,attachments` 排除大体积可再生资产（与设置页「同步范围」一致）；笔记、sidecar、marks 永远同步。Git 是全量同步，不支持 `--exclude`。
+- **同步范围**：`configure --exclude pdf,source,attachments` 排除大体积可再生资产（与设置页「同步范围」一致）；笔记、sidecar、marks 永远同步。Git 把同一组排除项写进仓库 `.gitignore`，并取消跟踪。
 - **Git**：`--backend git --git-remote <url|path> [--git-branch main]`；不接收 secret flag、不做 TTY 提示，使用系统 Git 凭据。Vault 已有仓库时要求当前分支与 `--git-branch` 一致、`origin` 与配置一致，否则报错。冲突、`.agentero` 被跟踪、历史重写等分别返回 `sync_conflict` / `git_agentero_tracked` / `git_history_rewritten`；推送被非 fast-forward 拒绝会自动重试 fetch+merge+push。
 
 ## Doctor

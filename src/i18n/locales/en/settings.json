@@ -948,6 +948,7 @@
 		"intervalMinutes": "{{count}} min",
 		"scope": "Sync scope",
 		"scopeHint": "Notes, metadata and highlights always sync. Unselected content is neither uploaded nor downloaded — and is never deleted because of the filter. PDFs and LaTeX sources can be re-downloaded from their source at any time.",
+		"scopeHintGit": "Notes, metadata and highlights always sync. Unselected files are written to .gitignore and left out of new commits.",
 		"scopePdf": "PDFs",
 		"scopeSource": "LaTeX sources",
 		"scopeAttachments": "Attachments"

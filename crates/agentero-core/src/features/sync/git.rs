@@ -5,14 +5,17 @@
 //! fetches the configured branch, merges it (native Git merge; conflicts
 //! abort and surface), and pushes.
 //!
-//! v1 is a full-vault mirror: `.agentero/` is excluded, but there is no
-//! per-paper partial checkout. Phase 2 can build on this runner with partial
-//! clone / sparse-checkout driven by catalog paths.
+//! `.agentero/` stays out of the repository via `.git/info/exclude`. PDF,
+//! LaTeX source, and attachment categories follow the shared sync scope: a
+//! marked block in `.gitignore` plus `git rm --cached`, so local files stay
+//! on disk and later commits leave them out. There is no per-paper partial
+//! checkout.
 
 use crate::error::AppError;
 use crate::features::sync::config::SyncBackendConfig;
 use crate::features::sync::engine::{self, Progress, SyncOutcome};
 use crate::features::sync::local::{self, SyncMeta};
+use crate::features::sync::snapshot::{self, SyncScope};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
@@ -41,6 +44,9 @@ const EXCLUDE_LINES: &[&str] = &[
     "*.tmp",
     "node_modules/",
 ];
+
+const SYNC_IGNORE_START: &str = "# agentero-sync-start";
+const SYNC_IGNORE_END: &str = "# agentero-sync-end";
 
 struct Git {
     exe: PathBuf,
@@ -104,7 +110,7 @@ pub async fn sync_vault(
 
     progress("scan", 0, 0);
     git.ensure_repo(cfg).await?;
-    let committed = git.commit_local().await?;
+    let committed = git.commit_local(&cfg.scope).await?;
     let mut outcome = SyncOutcome::default();
     if let Some(counts) = &committed {
         outcome.uploaded = counts.changed;
@@ -547,7 +553,9 @@ impl Git {
         Ok(args)
     }
 
-    async fn commit_local(&self) -> Result<Option<DiffCounts>, AppError> {
+    async fn commit_local(&self, scope: &SyncScope) -> Result<Option<DiffCounts>, AppError> {
+        ensure_sync_gitignore(&self.vault, scope)?;
+        self.untrack_excluded(scope).await?;
         let status = checked(
             self.run(
                 ["-c", "core.autocrlf=false", "status", "--porcelain", "-z"],
@@ -599,6 +607,34 @@ impl Git {
             .diff_counts(before.as_deref(), after.as_deref())
             .await?;
         Ok(Some(counts))
+    }
+
+    /// Drop tracked files the scope excludes. `--cached` leaves the worktree
+    /// copy in place; `.gitignore` then keeps `git add -A` from staging it.
+    async fn untrack_excluded(&self, scope: &SyncScope) -> Result<(), AppError> {
+        if scope.is_all() {
+            return Ok(());
+        }
+        let listed = checked(
+            self.run(["ls-files", "-z"], LOCAL_TIMEOUT).await?,
+            "git ls-files",
+        )?;
+        let paths: Vec<String> = listed
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|field| !field.is_empty())
+            .filter_map(|field| String::from_utf8(field.to_vec()).ok())
+            .filter(|rel| snapshot::is_scope_excluded(scope, &rel.replace('\\', "/")))
+            .collect();
+        for chunk in paths.chunks(200) {
+            let mut args: Vec<std::ffi::OsString> = ["rm", "--cached", "--ignore-unmatch", "--"]
+                .into_iter()
+                .map(std::ffi::OsString::from)
+                .collect();
+            args.extend(chunk.iter().map(std::ffi::OsString::from));
+            checked(self.run(args, LOCAL_TIMEOUT).await?, "git rm")?;
+        }
+        Ok(())
     }
 
     async fn diff_counts(
@@ -836,6 +872,88 @@ impl Git {
         outcome.version = version;
         Ok(outcome)
     }
+}
+
+fn scope_ignore_patterns(scope: &SyncScope) -> Vec<&'static str> {
+    let mut lines = Vec::new();
+    if !scope.pdf {
+        lines.push("papers/*/*.pdf");
+    }
+    if !scope.source {
+        lines.push("papers/*/source/");
+    }
+    if !scope.attachments {
+        lines.push("papers/*/attachments/");
+    }
+    lines
+}
+
+/// Rewrite the managed block in `.gitignore`. User rules outside the markers
+/// are kept. An empty scope removes the block; an empty file is deleted.
+fn ensure_sync_gitignore(vault: &Path, scope: &SyncScope) -> Result<(), AppError> {
+    let path = vault.join(".gitignore");
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
+    let next = sync_gitignore(&existing, scope);
+    if next == existing {
+        return Ok(());
+    }
+    if next.is_empty() {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        return Ok(());
+    }
+    std::fs::write(&path, next)?;
+    Ok(())
+}
+
+fn sync_gitignore(existing: &str, scope: &SyncScope) -> String {
+    let mut kept: Vec<&str> = Vec::new();
+    let mut skipping = false;
+    for line in existing.lines() {
+        let trimmed = line.trim();
+        if trimmed == SYNC_IGNORE_START {
+            skipping = true;
+            continue;
+        }
+        if skipping {
+            if trimmed == SYNC_IGNORE_END {
+                skipping = false;
+            }
+            continue;
+        }
+        kept.push(line.trim_end_matches('\r'));
+    }
+    while kept.last().is_some_and(|line| line.is_empty()) {
+        kept.pop();
+    }
+    let patterns = scope_ignore_patterns(scope);
+    if patterns.is_empty() {
+        if kept.is_empty() {
+            return String::new();
+        }
+        let mut body = kept.join("\n");
+        body.push('\n');
+        return body;
+    }
+    let mut body = String::new();
+    if !kept.is_empty() {
+        body.push_str(&kept.join("\n"));
+        body.push_str("\n\n");
+    }
+    body.push_str(SYNC_IGNORE_START);
+    body.push('\n');
+    for pattern in patterns {
+        body.push_str(pattern);
+        body.push('\n');
+    }
+    body.push_str(SYNC_IGNORE_END);
+    body.push('\n');
+    body
 }
 
 fn stdout_text(output: &Output) -> String {
@@ -1088,6 +1206,81 @@ mod tests {
         assert_eq!(idle.downloaded, 0);
         assert_eq!(run_git_ok(&a, &["rev-parse", "HEAD"]), head);
         assert_eq!(remote_count(&remote), commits, "idle pass published");
+    }
+
+    #[test]
+    fn sync_gitignore_block_is_idempotent_and_preserves_user_rules() {
+        let mut scope = SyncScope::all();
+        scope.pdf = false;
+        scope.source = false;
+        let once = sync_gitignore("*.log\n", &scope);
+        assert_eq!(sync_gitignore(&once, &scope), once);
+        assert!(once.starts_with("*.log\n\n# agentero-sync-start\n"));
+        assert!(once.contains("papers/*/*.pdf\n"));
+        assert!(once.contains("papers/*/source/\n"));
+        assert!(!once.contains("attachments"));
+        assert_eq!(sync_gitignore(&once, &SyncScope::all()), "*.log\n");
+        assert_eq!(sync_gitignore("", &SyncScope::all()), "");
+    }
+
+    #[tokio::test]
+    async fn git_sync_leaves_excluded_pdf_out_of_the_repository() {
+        if git_exe().is_none() {
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let remote = init_bare(tmp.path());
+        let mut cfg = git_cfg(&remote);
+        cfg.scope.pdf = false;
+        let a = tmp.path().join("a");
+        fs::create_dir_all(a.join("papers/x/source")).unwrap();
+        write_paper(&a, "# x\n");
+        fs::write(a.join("papers/x/x.pdf"), b"%PDF-local").unwrap();
+        fs::write(a.join("papers/x/source/main.tex"), b"tex").unwrap();
+
+        sync_vault(&a, &cfg, noop_progress()).await.unwrap();
+
+        let tree = run_git_ok(
+            tmp.path(),
+            &[
+                "--git-dir",
+                remote.to_str().expect("utf8 remote"),
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "main",
+            ],
+        );
+        assert!(tree.contains("papers/x/NOTES.md"), "{tree}");
+        assert!(tree.contains("papers/x/source/main.tex"), "{tree}");
+        assert!(tree.contains(".gitignore"), "{tree}");
+        assert!(!tree.contains("papers/x/x.pdf"), "{tree}");
+        assert_eq!(fs::read(a.join("papers/x/x.pdf")).unwrap(), b"%PDF-local");
+
+        fs::write(a.join("papers/x/x.pdf"), b"%PDF-edited").unwrap();
+        fs::write(a.join("papers/x/NOTES.md"), "# x\nrevised\n").unwrap();
+        sync_vault(&a, &cfg, noop_progress()).await.unwrap();
+        let tree = run_git_ok(
+            tmp.path(),
+            &[
+                "--git-dir",
+                remote.to_str().expect("utf8 remote"),
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "main",
+            ],
+        );
+        assert!(!tree.contains("papers/x/x.pdf"), "{tree}");
+        assert_eq!(fs::read(a.join("papers/x/x.pdf")).unwrap(), b"%PDF-edited");
+
+        let b = tmp.path().join("b");
+        fs::create_dir_all(&b).unwrap();
+        sync_vault(&b, &cfg, noop_progress()).await.unwrap();
+        assert!(!b.join("papers/x/x.pdf").exists());
+        assert!(fs::read_to_string(b.join("papers/x/NOTES.md"))
+            .unwrap()
+            .contains("revised"));
     }
 
     #[tokio::test]

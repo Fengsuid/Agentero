@@ -229,7 +229,7 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 	}, [localVault, refresh, t]);
 
 	useEffect(() => {
-		if (!localVault || form.backend === "git") return;
+		if (!localVault) return;
 		let cancelled = false;
 		syncScopeSizes(localVault)
 			.then((sizes) => {
@@ -239,7 +239,7 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [form.backend, localVault]);
+	}, [localVault]);
 
 	if (!localVault) {
 		return (
@@ -571,65 +571,59 @@ export function SyncPane({ vaultPath }: { vaultPath: string | null }) {
 				) : null}
 			</SettingsGroup>
 
-			{!isGit ? (
-				<>
-					<SettingsSectionLabel className="mt-4">
-						<HelpLabel label={t("sync.scope")} help={t("sync.scopeHint")} />
-					</SettingsSectionLabel>
-					<SettingsGroup>
-						<SettingsRow label={t("sync.scopePdf")} htmlFor="sync-scope-pdf">
-							<span className="flex items-center gap-2">
-								{scopeSizes ? (
-									<span className="text-muted-foreground text-xs tabular-nums">
-										{formatBytes(scopeSizes.pdf)}
-									</span>
-								) : null}
-								<Switch
-									id="sync-scope-pdf"
-									checked={scope.pdf}
-									onCheckedChange={(checked) => patchScope("pdf", checked)}
-								/>
+			<SettingsSectionLabel className="mt-4">
+				<HelpLabel
+					label={t("sync.scope")}
+					help={t(isGit ? "sync.scopeHintGit" : "sync.scopeHint")}
+				/>
+			</SettingsSectionLabel>
+			<SettingsGroup>
+				<SettingsRow label={t("sync.scopePdf")} htmlFor="sync-scope-pdf">
+					<span className="flex items-center gap-2">
+						{scopeSizes ? (
+							<span className="text-muted-foreground text-xs tabular-nums">
+								{formatBytes(scopeSizes.pdf)}
 							</span>
-						</SettingsRow>
-						<SettingsRow
-							label={t("sync.scopeSource")}
-							htmlFor="sync-scope-source"
-						>
-							<span className="flex items-center gap-2">
-								{scopeSizes ? (
-									<span className="text-muted-foreground text-xs tabular-nums">
-										{formatBytes(scopeSizes.source)}
-									</span>
-								) : null}
-								<Switch
-									id="sync-scope-source"
-									checked={scope.source}
-									onCheckedChange={(checked) => patchScope("source", checked)}
-								/>
+						) : null}
+						<Switch
+							id="sync-scope-pdf"
+							checked={scope.pdf}
+							onCheckedChange={(checked) => patchScope("pdf", checked)}
+						/>
+					</span>
+				</SettingsRow>
+				<SettingsRow label={t("sync.scopeSource")} htmlFor="sync-scope-source">
+					<span className="flex items-center gap-2">
+						{scopeSizes ? (
+							<span className="text-muted-foreground text-xs tabular-nums">
+								{formatBytes(scopeSizes.source)}
 							</span>
-						</SettingsRow>
-						<SettingsRow
-							label={t("sync.scopeAttachments")}
-							htmlFor="sync-scope-attachments"
-						>
-							<span className="flex items-center gap-2">
-								{scopeSizes ? (
-									<span className="text-muted-foreground text-xs tabular-nums">
-										{formatBytes(scopeSizes.attachments)}
-									</span>
-								) : null}
-								<Switch
-									id="sync-scope-attachments"
-									checked={scope.attachments}
-									onCheckedChange={(checked) =>
-										patchScope("attachments", checked)
-									}
-								/>
+						) : null}
+						<Switch
+							id="sync-scope-source"
+							checked={scope.source}
+							onCheckedChange={(checked) => patchScope("source", checked)}
+						/>
+					</span>
+				</SettingsRow>
+				<SettingsRow
+					label={t("sync.scopeAttachments")}
+					htmlFor="sync-scope-attachments"
+				>
+					<span className="flex items-center gap-2">
+						{scopeSizes ? (
+							<span className="text-muted-foreground text-xs tabular-nums">
+								{formatBytes(scopeSizes.attachments)}
 							</span>
-						</SettingsRow>
-					</SettingsGroup>
-				</>
-			) : null}
+						) : null}
+						<Switch
+							id="sync-scope-attachments"
+							checked={scope.attachments}
+							onCheckedChange={(checked) => patchScope("attachments", checked)}
+						/>
+					</span>
+				</SettingsRow>
+			</SettingsGroup>
 
 			{!isWebdav && !isGit ? (
 				<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>

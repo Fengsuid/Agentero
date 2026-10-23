@@ -1,6 +1,6 @@
 # 云同步（S3 / WebDAV / Git）
 
-多设备间同步整个 Vault 到 S3 兼容对象存储（AWS S3 / R2 / MinIO / OSS / BOS 等）、任意 WebDAV 服务器（坚果云 / Nextcloud / ownCloud / NAS 等），或 Git 远端。设计草稿与分期：[../development/cloud-sync-s3.md](../development/cloud-sync-s3.md)。当前已落地 Phase 0–1 与 Phase 2 的自动同步（状态栏指示、GC、multipart 除外），以及 Git 全量同步 v1（#781）。
+多设备间同步整个 Vault 到 S3 兼容对象存储（AWS S3 / R2 / MinIO / OSS / BOS 等）、任意 WebDAV 服务器（坚果云 / Nextcloud / ownCloud / NAS 等），或 Git 远端。设计草稿与分期：[../development/cloud-sync-s3.md](../development/cloud-sync-s3.md)。当前已落地 Phase 0–1 与 Phase 2 的自动同步（状态栏指示、GC、multipart 除外），以及 Git 同步（#781；同步范围经 `.gitignore` 排除）。
 
 引擎位于 `crates/agentero-core/src/features/sync/`（Tauri 无关），桌面端与 headless CLI 共用同一份实现——冲突处理、失败恢复与请求预算语义完全一致；CLI 侧见 `agentero sync`（[cli.md](cli.md)）。桌面端仅在 `src-tauri/src/integration/sync/` 叠加 IPC 命令与调度。
 
@@ -12,7 +12,7 @@ S3 / WebDAV 共用同一套状态化同步协议（内容寻址 blob + 不可变
 
 | 文件 | 职责 |
 |---|---|
-| `config.rs` | `SyncBackendConfig`（`backend: s3 \| webdav \| git` 判别字段，旧 `sync.json` 缺省即 S3）与凭据持久化：XDG `agentero/sync.json`（按 Vault 路径分键，0600）；`secretKey` / `webdavPassword` 出站掩码 / 回传掩码保留旧值（同 translate API key 先例）；`conditionalWrites` 持久化连接测试的条件写探测结果；`webdavUrl` 归一化（trim 尾斜杠 + 坚果云根地址展开，见 WebDAV 节）；Git 的 `gitRemote` / `gitBranch`（Git 不存密钥）；`scope` 同步范围（见下，Git 固定全量）；`remoteIdentity()` 给出远端 store 标识（后端 + 地址/bucket/prefix + 账号名 + Git 分支，不含密钥），供本地状态在换 store 后判失效 |
+| `config.rs` | `SyncBackendConfig`（`backend: s3 \| webdav \| git` 判别字段，旧 `sync.json` 缺省即 S3）与凭据持久化：XDG `agentero/sync.json`（按 Vault 路径分键，0600）；`secretKey` / `webdavPassword` 出站掩码 / 回传掩码保留旧值（同 translate API key 先例）；`conditionalWrites` 持久化连接测试的条件写探测结果；`webdavUrl` 归一化（trim 尾斜杠 + 坚果云根地址展开，见 WebDAV 节）；Git 的 `gitRemote` / `gitBranch`（Git 不存密钥）；`scope` 同步范围（见下；Git 把排除项写进 `.gitignore`）；`remoteIdentity()` 给出远端 store 标识（后端 + 地址/bucket/prefix + 账号名 + Git 分支，不含密钥），供本地状态在换 store 后判失效 |
 | `store.rs` | 后端无关抽象（Strategy）：`RemoteStore` trait 定义后端契约（`ensure_root` / `get` / 条件 `put` / `probe_conditional_writes`，futures 均为 `Send`），`SyncStore` 枚举是唯一的组合点（从配置选择具体客户端并转发）；engine 只依赖 trait，可用内存实现做引擎测试。另含两个客户端共享的 HTTP 工具：`send_with_retries`（幂等操作传输层 3 次重试）、`check` / `etag_of` / `error_chain` |
 | `s3.rs` | 最小 S3 客户端：GET / 条件 PUT（`If-Match` / `If-None-Match`）/ DELETE / ListObjectsV2，reqwest + 手写 SigV4（HMAC-SHA256 自实现，RFC 4231 向量测试）；条件写探测与降级（见下） |
 | `webdav.rs` | 最小 WebDAV 客户端：Basic Auth + GET / 条件 PUT / DELETE / MKCOL / PROPFIND（仅取状态码，无 XML 解析），见下节 |
@@ -20,7 +20,7 @@ S3 / WebDAV 共用同一套状态化同步协议（内容寻址 blob + 不可变
 | `local.rs` | `.agentero/vault.json`（Vault UUID）、`.agentero/sync/{base,state}.json`（`state.json` 含 `lastError`，上次失败原因，成功即清除）、`.agentero/sync/pushed.jsonl`（已上传未发布的 blob，见「请求预算」）；watcher 忽略 `.agentero/`，无事件回环 |
 | `lock.rs` | 跨进程 pass 锁：`.agentero/sync/lock` 上的 advisory 文件锁（flock / LockFileEx），桌面端、CLI 与 cron 在同一 Vault 上串行化；锁随文件句柄释放，进程崩溃不残留 |
 | `engine.rs` | 三方合并 + 应用 + 发布 + 空转短路 / 断点续传（见下）；`sync_vault_locked` 在进入 pass 前取跨进程锁（冲突时报 `sync_busy` 域码）并把失败写入 `state.json` 的 `lastError`；按 backend 把 Git 分派到 `git.rs`；`test_connection` 同时接受 Vault 路径供 Git 检查仓库状态 |
-| `git.rs` | Git 全量同步（见「Git 后端」）：系统 `git` 子进程、仓库/分支/origin 校验、`.git/info/exclude`、commit → fetch → merge → push、原生冲突 abort、差异计数与 catalog 刷新 |
+| `git.rs` | Git 同步（见「Git 后端」）：系统 `git` 子进程、仓库/分支/origin 校验、`.git/info/exclude`、按 scope 写 `.gitignore` 并 `git rm --cached`、commit → fetch → merge → push、原生冲突 abort、差异计数与 catalog 刷新 |
 
 `src-tauri/src/integration/sync/`（desktop-only 壳层）：
 
@@ -55,7 +55,7 @@ S3 / WebDAV 共用同一套状态化同步协议（内容寻址 blob + 不可变
 
 ## 同步范围（Sync Scope）
 
-论文库中体积大且**可再生**的附件可以按设备排除，节省云端空间；笔记、`metadata.json` sidecar、`marks/`、`assets/` 永远同步（小且不可再生）。该分类过滤只适用于 S3 / WebDAV；**Git 后端固定全量同步**（设置页在 Git 下隐藏 scope 区块），按论文按需拉取留到后续 Phase。
+论文库中体积大且**可再生**的附件可以按设备排除，节省云端空间；笔记、`metadata.json` sidecar、`marks/`、`assets/` 永远同步（小且不可再生）。S3 / WebDAV 在清单合并时对排除路径双向失明。Git 使用同一套开关，但做法是在仓库 `.gitignore` 里维护一段 `# agentero-sync-start` / `# agentero-sync-end` 标记区块，并 `git rm --cached` 取消跟踪（工作区文件保留）。规则随仓库同步，所以是整库一份策略，不是每台设备各看各的。
 
 - **分类**（`snapshot.rs` `scope_category`，仅识别约定论文布局）：
   - `pdf` — `papers/<id>/<id>.pdf`（论文根级 PDF；`source/`、`attachments/` 内的 PDF 跟随所在分类）
@@ -84,12 +84,12 @@ S3 / WebDAV 共用同一套状态化同步协议（内容寻址 blob + 不可变
 
 - **形态**：Vault 根目录就是 Git work tree；远端名固定 `origin`，分支由 `gitBranch` 指定（默认 `main`）。不经过 blob/manifest 引擎，Git 自己保存历史与合并。
 - **要求**：本机安装 Git 并可通过 PATH 找到（桌面 GUI 也走 `resolve_command` 的补充路径）。Vault 不能位于另一个 work tree 内、不能是 bare repo / detached HEAD；已有仓库的当前分支必须与配置一致、已有 `origin` 必须与配置 URL 一致，否则同步报错而不静默改仓库。
-- **忽略**：Vault 内 `.agentero/`、`.DS_Store`、`*.tmp`、`node_modules/` 通过 `.git/info/exclude` 排除，不修改用户 `.gitignore`；本地或远端已跟踪 `.agentero` 直接报 `git_agentero_tracked`。`catalog.sqlite` 仍可由 sidecar 重建。
-- **一次 pass**：`git status` → 有改动则 `git add -A` + commit（`agentero sync: <RFC3339>`）→ `ls-remote` → 需要时 fetch → `merge origin/<branch>`（允许 unrelated histories）→ push。远端无分支时直接推送；空 Vault 加入已有远端时 `reset --hard` 采纳远端。push 被非 fast-forward 拒绝时重试 fetch/merge/push（最多 3 次）。
+- **忽略**：`.agentero/`、`.DS_Store`、`*.tmp`、`node_modules/` 通过 `.git/info/exclude` 排除，不写进 `.gitignore`；本地或远端已跟踪 `.agentero` 直接报 `git_agentero_tracked`。`catalog.sqlite` 仍可由 sidecar 重建。同步范围关闭的 PDF / `source/` / `attachments/` 写在 `.gitignore` 的标记区块里，已跟踪的用 `git rm --cached` 移出索引，磁盘文件保留。
+- **一次 pass**：按 scope 更新 `.gitignore` 并取消跟踪 → `git status` → 有改动则 `git add -A` + commit（`agentero sync: <RFC3339>`）→ `ls-remote` → 需要时 fetch → `merge origin/<branch>`（允许 unrelated histories）→ push。远端无分支时直接推送；空 Vault 加入已有远端时 `reset --hard` 采纳远端。push 被非 fast-forward 拒绝时重试 fetch/merge/push（最多 3 次）。
 - **冲突**：使用 Git 原生三方合并；有冲突时收集 `--diff-filter=U` 路径、`git merge --abort` 并返回 `sync_conflict`，**不 push、不 auto-resolve**。本地提交保留，用户用 Git/编辑器解决后再同步。
 - **认证**：不把 token 写入 `sync.json`；使用系统 credential helper / SSH agent。子进程设置 `GIT_TERMINAL_PROMPT=0`、`GCM_INTERACTIVE=never`、`SSH_ASKPASS_REQUIRE=never`（Unix 未自定义 `GIT_SSH_COMMAND` 时加 `ssh -o BatchMode=yes`），非交互环境失败而不是挂起。HTTPS URL 内嵌凭据、`ext::`、`git://` 一律拒绝。
 - **触发**：复用自动同步调度（打开 Vault、静置 30s、定时间隔）。退出 flush 跳过 Git——5s 预算可能中断 commit/push 并留下 `index.lock`，下次启动补推。`.git` 与 `.agentero` 已被 watcher 忽略，不会事件回环。
-- **限制**：v1 是全量镜像，PDF/TeX 会永久留在 Git 历史里（未接 Git LFS）；仓库体积与宿主配额由用户承担。没有按论文按需拉取；该能力依赖 partial clone + sparse-checkout（按 catalog `path`）或给现有 store 加 `sync_fetch_papers`，见 [../development/cloud-sync-s3.md](../development/cloud-sync-s3.md) 的 Git Phase 2。
+- **限制**：关掉的类别不再进入新提交；已经在 Git 历史里的 PDF/TeX 不会被清掉（未接 Git LFS）。没有按论文按需拉取；该能力依赖 partial clone + sparse-checkout，见 [../development/cloud-sync-s3.md](../development/cloud-sync-s3.md) 的 Git Phase 2。
 
 ## 条件写降级（OSS 等后端）
 
@@ -107,7 +107,7 @@ S3 / WebDAV 共用同一套状态化同步协议（内容寻址 blob + 不可变
 
 ## 前端
 
-设置窗口「同步」pane：`src/components/settings/panes/sync-pane.tsx`；命令封装 `src/lib/sync/api.ts`。仅本地 Vault 可配置（`remote:` 句柄显示提示）。标题旁用小色点展示连接状态（灰=未连接，绿=已连接，蓝=同步中，红=最近一次同步/连接失败）。后端选择为与服务商 logo 同行的下拉框（对象存储 / WebDAV / Git；已配置时禁用并提示先解绑），随后按后端渲染表单（S3：endpoint/bucket/AK/SK + 高级项；WebDAV：服务器地址/用户名/密码；Git：仓库地址/分支 + 系统凭据提示）。服务商 logo 按钮按后端分组（S3：AWS/R2/MinIO/OSS/BOS；WebDAV：坚果云/Nextcloud；Git：GitHub/GitLab），打开官方配置指南，不会通过外链自动创建或回填凭据。同步范围（见上）在同一 pane：小标题 + 逐类开关（行内显示本地体积，默认全开）；Git 后端隐藏该区块（全量同步）。
+设置窗口「同步」pane：`src/components/settings/panes/sync-pane.tsx`；命令封装 `src/lib/sync/api.ts`。仅本地 Vault 可配置（`remote:` 句柄显示提示）。标题旁用小色点展示连接状态（灰=未连接，绿=已连接，蓝=同步中，红=最近一次同步/连接失败）。后端选择为与服务商 logo 同行的下拉框（对象存储 / WebDAV / Git；已配置时禁用并提示先解绑），随后按后端渲染表单（S3：endpoint/bucket/AK/SK + 高级项；WebDAV：服务器地址/用户名/密码；Git：仓库地址/分支 + 系统凭据提示）。服务商 logo 按钮按后端分组（S3：AWS/R2/MinIO/OSS/BOS；WebDAV：坚果云/Nextcloud；Git：GitHub/GitLab），打开官方配置指南，不会通过外链自动创建或回填凭据。同步范围（见上）在同一 pane：小标题 + 逐类开关（行内显示本地体积，默认全开）。Git 下说明改为写入 `.gitignore`。
 
 ## 自动同步
 
@@ -144,7 +144,7 @@ agentero sync configure --vault ~/papers \
 agentero sync now --vault ~/papers --json
 ```
 
-凭据安全：secret 不进 argv（flag 只收 endpoint/bucket 等非敏感字段），来源为 `AGENTERO_SYNC_*` 环境变量、TTY 交互（`--json` 下绝不提示）或 `--stdin` JSON；所有输出经 `masked()` 掩码，`remoteIdentity()` 与日志均不含密钥。Git 不接收 secret flag，也不做 TTY 提示；使用系统 Git 凭据。`--exclude` 只适用于 S3/WebDAV，Git 全量同步会报 usage 错误。
+凭据安全：secret 不进 argv（flag 只收 endpoint/bucket 等非敏感字段），来源为 `AGENTERO_SYNC_*` 环境变量、TTY 交互（`--json` 下绝不提示）或 `--stdin` JSON；所有输出经 `masked()` 掩码，`remoteIdentity()` 与日志均不含密钥。Git 不接收 secret flag，也不做 TTY 提示；使用系统 Git 凭据。`--exclude` 对三种后端通用；Git 把排除项写进仓库 `.gitignore`。
 
 ## 安全约束
 
@@ -157,4 +157,4 @@ agentero sync now --vault ~/papers --json
 
 ## 边界（后续分期）
 
-状态栏指示、孤儿 blob GC、E2EE、官方托管凭据 provider 均未实现，见设计草稿分期表。Git 后端的 LFS、按论文按需拉取（partial clone / sparse-checkout 或 `sync_fetch_papers`）同样属于后续 Phase；v1 只完成全量同步（#781 暂不关闭）。
+状态栏指示、孤儿 blob GC、E2EE、官方托管凭据 provider 均未实现，见设计草稿分期表。Git 后端的 LFS、按论文按需拉取（partial clone / sparse-checkout 或 `sync_fetch_papers`）同样属于后续 Phase（#781 暂不关闭）。同步范围已通过 `.gitignore` 排除，不清理已有历史。
