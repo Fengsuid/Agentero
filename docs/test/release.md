@@ -10,7 +10,7 @@
 
 推荐流程：
 
-1. 执行 `/bump <version>`，同步检查 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`crates/agentero-core/Cargo.toml`、`cli/Cargo.toml`、`src-tauri/ios-project.yml` 和 `Cargo.lock`。
+1. 执行 `/bump <version>`，同步检查 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`crates/agentero-core/Cargo.toml`、`crates/agentero-mcp/Cargo.toml`、`cli/Cargo.toml`、`src-tauri/ios-project.yml` 和 `Cargo.lock`。
 2. 执行 `/commit`，将版本 bump 作为独立的 `chore(release): bump version to <version>` commit。
 3. 确认 tag `v<version>` 指向该版本 bump commit，且 tag 去掉 `v` 后与所有版本字段一致。
 4. 推送 tag，等待 `.github/workflows/release.yml` 构建 Tauri installers 和 CLI artifacts。构建前确认 repository secret 已配齐：updater 签名（见下）与内置 provider 的 `AGENTERO_BUILTIN_API_KEY`（见 §内置 Provider 构建期注入）。
