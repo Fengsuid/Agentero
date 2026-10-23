@@ -26,6 +26,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useDebouncedValue } from "@/hooks/use-debounce";
+import { isFindShortcut } from "@/lib/shell/shortcuts";
 
 /**
  * `findSearchMatches` returns a fresh array each run, so the default reference
@@ -199,7 +200,7 @@ export function FindReplaceBar({
 	};
 
 	const handleBarKeyDown = (event: React.KeyboardEvent) => {
-		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+		if (isFindShortcut(event)) {
 			event.preventDefault();
 			searchInputRef.current?.focus();
 			searchInputRef.current?.select();

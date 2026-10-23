@@ -86,7 +86,7 @@ import {
 } from "@/lib/markdown/scroll-memory";
 import { resolveSelectionSourceLines } from "@/lib/markdown/selection-source-lines";
 import { useUiScale } from "@/lib/settings";
-import { formatModShortcut } from "@/lib/shell/shortcuts";
+import { formatModShortcut, isFindShortcut } from "@/lib/shell/shortcuts";
 import type { LinkFragment, WikiRenameHeadingRequest } from "@/lib/wiki";
 import { useWikiNav } from "@/lib/wiki/nav-context";
 import {
@@ -609,12 +609,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 			}
 			// Mermaid preview and other non-editable islands stay out of find/save.
 			if (inNonEditable) return;
-			if (
-				(event.metaKey || event.ctrlKey) &&
-				!event.shiftKey &&
-				!event.altKey &&
-				event.key.toLowerCase() === "f"
-			) {
+			if (isFindShortcut(event)) {
 				event.preventDefault();
 				event.stopPropagation();
 				setFindOpen(true);

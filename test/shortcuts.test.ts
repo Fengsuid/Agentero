@@ -11,6 +11,7 @@ vi.mock("@/lib/core/tauri", async (importOriginal) => {
 import { getPlatformOS } from "@/lib/core/tauri";
 import {
 	formatShortcut,
+	isFindShortcut,
 	resolveShortcutId,
 	shortcutBelongsToTextField,
 } from "@/lib/shell/shortcuts";
@@ -160,5 +161,37 @@ describe("shell shortcuts", () => {
 		expect(
 			resolveShortcutId(keyEvent({ key: "F11" }), { settingsOpen: false }),
 		).toBeNull();
+	});
+
+	it("keeps macOS native fullscreen out of local find and shell actions", () => {
+		const fullscreen = keyEvent({ key: "f", metaKey: true, ctrlKey: true });
+		expect(isFindShortcut(fullscreen)).toBe(false);
+		expect(resolveShortcutId(fullscreen, { settingsOpen: false })).toBeNull();
+		expect(resolveShortcutId(fullscreen, { settingsOpen: true })).toBeNull();
+		expect(isFindShortcut(keyEvent({ key: "f", metaKey: true }))).toBe(true);
+	});
+
+	it.each([
+		{ key: "f" },
+		{ key: "f", ctrlKey: true },
+		{ key: "f", metaKey: true, shiftKey: true },
+		{ key: "f", metaKey: true, altKey: true },
+		{ key: "g", metaKey: true },
+	])("does not treat other macOS chords as find: %j", (init) => {
+		expect(isFindShortcut(keyEvent(init))).toBe(false);
+	});
+
+	it.each([
+		"windows",
+		"linux",
+	] as const)("preserves Ctrl+F on %s without Shift or Alt", (platform) => {
+		vi.mocked(getPlatformOS).mockReturnValue(platform);
+		expect(isFindShortcut(keyEvent({ key: "f", ctrlKey: true }))).toBe(true);
+		expect(
+			isFindShortcut(keyEvent({ key: "f", ctrlKey: true, shiftKey: true })),
+		).toBe(false);
+		expect(
+			isFindShortcut(keyEvent({ key: "f", ctrlKey: true, altKey: true })),
+		).toBe(false);
 	});
 });

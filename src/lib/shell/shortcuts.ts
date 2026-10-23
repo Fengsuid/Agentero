@@ -469,7 +469,20 @@ export function formatShortcutById(id: ShortcutId): string {
 	return def ? formatShortcut(def) : "";
 }
 
-export function matchShortcut(event: KeyboardEvent, def: ShortcutDef): boolean {
+type ShortcutKeyEvent = Pick<
+	KeyboardEvent,
+	"key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey"
+>;
+
+/** Local find handlers share the shell's exact macOS modifier matching. */
+export function isFindShortcut(event: ShortcutKeyEvent): boolean {
+	return matchShortcut(event, { key: "f", meta: true });
+}
+
+export function matchShortcut(
+	event: ShortcutKeyEvent,
+	def: Pick<ShortcutDef, "key" | "meta" | "ctrl" | "alt" | "shift">,
+): boolean {
 	const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
 	const defKey = def.key.length === 1 ? def.key.toLowerCase() : def.key;
 	// macOS composes ⌥+letter into a single character (⌥A → "å"), so event.key

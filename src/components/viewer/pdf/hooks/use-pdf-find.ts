@@ -24,6 +24,7 @@ import {
 	useState,
 } from "react";
 import { useDebouncedCallback } from "@/hooks/use-debounce";
+import { isFindShortcut } from "@/lib/shell/shortcuts";
 
 /** How long the query rests before a full-document search is issued. */
 const FIND_DEBOUNCE_MS = 250;
@@ -81,7 +82,7 @@ export function usePdfFind({
 		const host = hostRef.current;
 		if (!host) return;
 		const onKey = (e: KeyboardEvent) => {
-			if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "f") return;
+			if (!isFindShortcut(e)) return;
 			if (!host.matches(":hover") && !host.contains(document.activeElement))
 				return;
 			e.preventDefault();
