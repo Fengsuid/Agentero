@@ -115,6 +115,8 @@ Skill 语法由 Host 按 provider 分流（Claude `/id`，其它注入 `SKILL.md
 
 Streamdown 的 `mode` 由 `isAnimating` 派生：流式中 `"streaming"`（跑 remend 补全未闭合标签），消息落定后 `"static"` 跳过 remend——否则公式里 `x_{<n}` 的 `<n…` 会被当成未闭合 HTML 标签截掉，KaTeX 报 `Expected '}', got 'EOF'`（#584，复盘见 [bug_fix/agent-message-math-less-than](../bug_fix/agent-message-math-less-than.md)）。
 
+**复制**：消息悬停的复制按钮复制该轮原始 Markdown（Agent 返回的就是 Markdown 文本，公式保持原样）；正文划词复制时，若选区包含渲染出来的公式，会先把 KaTeX 还原为 `$…$` / `$$…$$` 再写入剪贴板（否则浏览器只能拷到 KaTeX 字形、丢失 TeX）。不含公式的划词仍是默认纯文本复制。实现：`src/lib/markdown/rendered-math-copy.ts`，`MessageContent` 用 `data-markdown-copy` 标记作用域。
+
 ## 代码
 
 - UI：`src/components/agent/`（`agent-panel.tsx` / `agent-composer.tsx` / `agent-config-bar.tsx` 外壳、`hooks/` 面板与 composer 状态、`composer/` 输入区子件：附件 / 队列 / context chip / @ 与 $ 与 / 菜单 / 模型选择 / 工具条）
