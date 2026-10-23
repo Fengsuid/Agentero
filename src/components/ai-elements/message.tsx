@@ -6,7 +6,7 @@ import { createMathPlugin } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
 import type { ComponentProps, HTMLAttributes } from "react";
-import { memo } from "react";
+import { memo, useEffect } from "react";
 import { Streamdown } from "streamdown";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/tooltip";
 import { prepareAgentMessageMarkdown } from "@/lib/agent/message-markdown";
 import { cn } from "@/lib/core/utils";
+import { installRenderedMathCopy } from "@/lib/markdown/rendered-math-copy";
 
 import { AgentCitationLink } from "./agent-citation-link";
 import { PlainCodeBlock } from "./plain-code-block";
@@ -43,19 +44,28 @@ export const MessageContent = ({
 	children,
 	className,
 	...props
-}: MessageContentProps) => (
-	<div
-		className={cn(
-			"flex w-fit min-w-0 max-w-full select-text flex-col gap-2 overflow-hidden text-sm",
-			"group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-black/5 group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground dark:group-[.is-user]:bg-white/10",
-			"group-[.is-assistant]:text-foreground",
-			className,
-		)}
-		{...props}
-	>
-		{children}
-	</div>
-);
+}: MessageContentProps) => {
+	// Copying a text selection from a rendered AI reply should keep formulas as
+	// `$…$` Markdown instead of KaTeX glyph soup. One document listener covers
+	// every message; the `data-markdown-copy` marker scopes it to chat surfaces.
+	useEffect(() => {
+		installRenderedMathCopy();
+	}, []);
+	return (
+		<div
+			data-markdown-copy
+			className={cn(
+				"flex w-fit min-w-0 max-w-full select-text flex-col gap-2 overflow-hidden text-sm",
+				"group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-black/5 group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground dark:group-[.is-user]:bg-white/10",
+				"group-[.is-assistant]:text-foreground",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+		</div>
+	);
+};
 
 export type MessageActionsProps = ComponentProps<"div">;
 
