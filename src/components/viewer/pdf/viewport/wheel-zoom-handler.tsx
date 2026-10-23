@@ -47,7 +47,13 @@ type PageAnchor = {
  * viewport, then hands the horizontal anchor smoothly to the gesture point as
  * the page overflows.
  */
-export function WheelZoomHandler({ docId }: { docId: string }) {
+export function WheelZoomHandler({
+	docId,
+	rightGutter = 0,
+}: {
+	docId: string;
+	rightGutter?: number;
+}) {
 	const viewportRef = useViewportElement();
 	const { provides: viewportCapability } = useViewportCapability();
 	const viewportCapabilityRef = useRef(viewportCapability);
@@ -257,8 +263,8 @@ export function WheelZoomHandler({ docId }: { docId: string }) {
 				previewScale = 1;
 				previewElementWidth = previewElementRef.current?.offsetWidth ?? 0;
 				previewViewportWidth =
-					viewportCapabilityRef.current?.forDocument(docId).getMetrics()
-						.clientWidth ?? container.clientWidth;
+					(viewportCapabilityRef.current?.forDocument(docId).getMetrics()
+						.clientWidth ?? container.clientWidth) - rightGutter;
 				running = true;
 				const element = previewElementRef.current;
 				if (element) {
@@ -305,7 +311,7 @@ export function WheelZoomHandler({ docId }: { docId: string }) {
 			pendingAnchorRef.current = null;
 			resetPreview();
 		};
-	}, [docId, viewportRef]);
+	}, [docId, viewportRef, rightGutter]);
 
 	return null;
 }

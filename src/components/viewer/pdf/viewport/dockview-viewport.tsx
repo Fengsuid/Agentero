@@ -104,14 +104,12 @@ export function DockviewViewport({
 			},
 		);
 		const commitResize = () => {
-			// Report a reduced width so EmbedPDF's fitWidth zoom leaves room for the
-			// comment rail that overflows into the reserved right gutter.
-			const width = Math.max(1, viewport.offsetWidth - rightGutter);
-			const clientWidth = Math.max(1, viewport.clientWidth - rightGutter);
+			// Visibility and tiling need the entire scrollport, including any area
+			// a zoomed page occupies beside the rail. Zoom reserves its own gutter.
 			viewportPlugin.setViewportResizeMetrics(documentId, {
-				width,
+				width: viewport.offsetWidth,
 				height: viewport.offsetHeight,
-				clientWidth,
+				clientWidth: viewport.clientWidth,
 				clientHeight: viewport.clientHeight,
 				scrollTop: viewport.scrollTop,
 				scrollLeft: viewport.scrollLeft,
@@ -206,7 +204,7 @@ export function DockviewViewport({
 			unregisterScrollSyncElement();
 			viewportPlugin.unregisterViewport(documentId);
 		};
-	}, [documentId, viewportPlugin, rightGutter]);
+	}, [documentId, viewportPlugin]);
 
 	const { style, ...restProps } = props;
 

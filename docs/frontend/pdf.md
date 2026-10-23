@@ -13,6 +13,8 @@
 
 阅读光栅采用 [EmbedPDF 官方推荐的低清底图 + 高清瓦片](https://www.embedpdf.com/docs/react/headless/plugins/plugin-tiling)。整页底图固定 `scale: 1`、`dpr: 1`，不随缩放重渲染；保留最近 24 页的 pinned 底图缓存，遮住缩放与回滚时的瓦片空档。高清 `TilingLayer` 按 `min(devicePixelRatio, 2)`（`pdfTileDpr`）出图，使用上游默认 `tileSize: 768`、`extraRings: 0`，只请求当前视口的瓦片，减少单 PDFium worker 上的预渲染竞争。
 
+viewport 始终上报滚动容器的真实尺寸，使放大或与笔记分屏时，右侧可见区域也有高清瓦片（#827）。评论列的 `rightGutter` 只通过 zoom 补丁的 `viewportPaddingRight` 从缩放计算中扣除，保留适应宽度与缩放锚点所需的页外留白；手势预览使用同一阅读宽度。纯 PDF 与译文栏传 0，不预留评论空间。
+
 `RenderPluginPackage` 配置 `defaultImageType: "image/bmp"`，让不透明的整页底图与阅读瓦片复用 2.14.4 已有的 BMP 快速路径（[上游 #557](https://github.com/embedpdf/embed-pdf-viewer/pull/557)），跳过 PNG 的 Canvas 编码。BMP 未压缩，单张 Blob 更大；瓦片由上游负责加载、取消和 URL 释放，不再在应用里额外缓存 32 张瓦片或协调双栏共享任务。Agent 区域裁剪显式指定 PNG，保持原格式。版本不变，也不修改引擎队列。
 
 带 `/Rotate` 的页面：Document Manager 以 `normalizeRotation: true` 打开时，PDFium 返回的 `page.size` 是**未旋转内容空间**（MediaBox）的尺寸，`page.rotation` 保留 `/Rotate` 元数据——滚动布局、瓦片与底图光栅都按上游公式 `((page.rotation ?? 0) + coreDoc.rotation) % 4` 计算有效旋转，光栅只有叠加该旋转后才是正立显示。`renderPage` 内层 `PdfPageLayers` 使用 `PageLayout.rotatedWidth` / `rotatedHeight`（含 `/Rotate` 与手动旋转后的显示尺寸），第 90°/270° 页按横版页框呈现正立内容。该引擎语义由 `test/pdf-page-rotation.test.ts` 固化，改动旋转接线前先读它。`TilingLayer` 的 `dpr` 属性与瓦片旋转接线由 `@embedpdf/plugin-tiling` patch 提供：`renderTile` 把有效旋转传给引擎（否则 `/Rotate` 页瓦片内容侧躺），`TileImg` 用 `transformRect` 把未旋转空间的 `screenRect` 变换到旋转后容器再摆放（否则竖版瓦片几何溢出横版页框，视觉上两页重叠）。scroll / tiling 的 React 入口正常参与 Vite 预构建；lockfile 中的 patch hash 会使缓存失效，更新 patch 与安装后需重启长驻 dev 进程。WASM / worker 包仍单独排除预构建。
@@ -122,7 +124,7 @@ guard 也会取消首帧默认放大。未按实体 Ctrl 的细粒度像素事�
 | `src/components/viewer/pdf/layers/` | 页内绘制层：`page-layers`（memo 单页栈）/ `citation-links` / `layout-translate-overlay` / `region-select-layer` / `selection-gutter` / `comment-cards-layer`（批注评论列：页右缘常驻卡片 + `layoutCommentCards` 纵向避让；选区竖向评论入口 hover 展开；点击就地编辑；hover 卡片或原文命中区时页内高亮叠半透明强调层，并用 `commentConnectorPath` 画页缘直角连接细线（多段高亮锚到离卡片最近的段落，而非整段竖直中点）；线色与视觉选框相同，用默认主题中性色（浅色近黑、深色近白），不跟随外观配色） |
 | `src/components/viewer/pdf/chrome/` | 纯展示 chrome：`pdf-toolbar`（右上：框选 / 全文翻译，常显）/ `pdf-left-toolbar` / `pdf-find-bar` / `pdf-outline-panel`（+`outline-tree`）/ `pdf-references-panel` / `pdf-figures-panel` / `pdf-bottom-bar`（页码 + 缩放滑动条 + 纸色）/ `pdf-card-stack`（portal 卡片栈）。共享材质见 `pdf-chrome-surface.ts`（小芯片轻玻璃、侧栏厚材质、划词菜单玻璃、长文卡片近实色；`data-pdf-chrome` 供 `prefers-reduced-transparency` 实色回退）。左上工具栏自动显隐（`use-pdf-chrome-visibility`）：滚动中或指针靠近顶部区域时显示，静读时以 opacity + 轻微上移/缩放 materialize（`prefers-reduced-motion` 仅淡入淡出）；面板打开 / ⌘F 时保持可见；左侧大纲/引用/图表面板自左滑入；⌘F 查找栏自右上角 zoom-in；底部页码条按页数位数扩展输入宽度，并限制在视口内以适配窄面板。阅读区底色 `bg-muted/40`，与纸面 tone 分层 |
 | `src/components/viewer/pdf/cards/` | 划词与 mark 卡片：`selection-menu` / `highlight-color-stack`（高亮色点叠放与向左展开）/ `selection-card`（共用壳）/ `ask-popover` / `translate-card` / `visual-trace-card` / `visual-annotation-editor` / `formula-annotation-card` / `citation-preview` |
-| `src/components/viewer/pdf/viewport/` | 宿主接线：`dockview-viewport`（resize 门控 + 滚动指标按帧提交；`rightGutter` 为评论列预留页外空间，并向 EmbedPDF 报告缩减后的 width/clientWidth 使 fitWidth 页面让出该空间）/ `wheel-zoom-handler` / `pan-handler`（中键 / 空格拖拽平移的空格归属判定与光标 class）/ `active-card-scroll-sync` |
+| `src/components/viewer/pdf/viewport/` | 宿主接线：`dockview-viewport`（resize 门控 + 滚动指标按帧提交；上报真实可视尺寸，`rightGutter` 为评论列预留页外空间，zoom 单独扣除该空间）/ `wheel-zoom-handler` / `pan-handler`（中键 / 空格拖拽平移的空格归属判定与光标 class）/ `active-card-scroll-sync` |
 | `src/lib/pdf/scroll-sync.ts` + `hooks/use-pdf-scroll-sync.ts` | 双栏翻译跨 EmbedPDF 实例的滚动/缩放同步。手指下的那一栏由浏览器自己滚动，滚动过程中另一栏不动。滚动停稳（`scrollend`，没有该事件时在最后一次滚动约 180ms 后）后，另一栏直接跳到同一内容位置，不播放滚动动画，并取消它尚未落地的程序化跳转。纵向滚动不改对方的横向位置。滚轮监听保持 passive，只认领正在滚的那一栏。缩放由 source 侧在手势停稳后镜像 |
 | `src/components/viewer/pdf/floating-hover.ts` | 浮动卡 sticky hover 共用：hide 延迟常量、`isFloatingDialogActive` |
 | `src/components/viewer/pdf/hooks/use-sticky-hover-hide.ts` | 浮动卡 sticky hover 状态机（hoverSurface ref + 延迟 hide + 浮动 dialog re-arm + 可选 hold 否决），`use-pdf-cards` / `use-pdf-citations` / `use-pdf-crossref-preview` 共用 |
@@ -212,4 +214,4 @@ Host 下载/解析：[../backend/paper-import.md](../backend/paper-import.md)。
 - #798：低清底图、BMP 编码及移除重复瓦片缓存 / 占位能减少已确认的出图与生命周期开销；Linux / WebKitGTK 的实际帧率与合成耗时仍需在报告者环境复测，不能仅凭 worker 排队判定滚动线程阻塞。
 - 选区几何目前按可见时间 / 指针意图加载，附近文字矩形按页码延迟；如性能记录显示仍与滚动争用 worker，再单独评估真实 scroll-idle 调度，不追加引擎补丁。
 
-- EmbedPDF 升级时继续核对 engines 原生内存 / 坐标 / refcount、tiling 旋转与 DPR、AI 按 backend 选择 ORT 入口的补丁；2.15.1 对应实现仍与 2.14.4 相同，不能仅凭升版删掉。待上游修复 annotation 同 uid 在途变更被旧 commit 清 pending 的问题后，移除删除协调器。
+- EmbedPDF 升级时继续核对 engines 原生内存 / 坐标 / refcount、tiling 旋转与 DPR、AI 按 backend 选择 ORT 入口的补丁；2.15.1 对应实现仍与 2.14.4 相同，不能仅凭升版删掉。zoom 评论列留白补丁也需核对上游是否已有等价配置。待上游修复 annotation 同 uid 在途变更被旧 commit 清 pending 的问题后，移除删除协调器。
