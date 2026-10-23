@@ -738,8 +738,9 @@ mod tests {
     async fn by_identifiers_repairs_incomplete_existing_entry() {
         let vault = tmp_vault("repair-existing");
 
-        let existing = papers::PaperRecord::local_pdf("1706.03762".into(), "".into())
+        let mut existing = papers::PaperRecord::local_pdf("1706.03762".into(), "".into())
             .at_path("papers/1706.03762");
+        existing.openreview_url = Some("https://openreview.net/forum?id=keep".into());
         papers::upsert_paper(&vault, &existing).unwrap();
 
         let mut incoming =
@@ -785,6 +786,10 @@ mod tests {
             Some("The dominant sequence transduction models.")
         );
         assert_eq!(row.arxiv_id.as_deref(), Some("1706.03762"));
+        assert_eq!(
+            row.openreview_url.as_deref(),
+            Some("https://openreview.net/forum?id=keep")
+        );
 
         let _ = fs::remove_dir_all(&vault);
     }

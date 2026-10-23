@@ -3,6 +3,7 @@ import {
 	Calendar,
 	ChevronRight,
 	ExternalLink,
+	FileText,
 	Library,
 	Pencil,
 	Tag,
@@ -367,6 +368,21 @@ function repoHref(value: string) {
 	return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 }
 
+function openreviewHref(value: string | null | undefined): string | null {
+	const trimmed = value?.trim();
+	if (!trimmed) return null;
+	try {
+		const url = new URL(
+			/^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`,
+		);
+		return url.protocol === "https:" || url.protocol === "http:"
+			? url.href
+			: null;
+	} catch {
+		return null;
+	}
+}
+
 const HEIGHT_STORAGE_KEY = "agentero.paperInfoHeight";
 const MIN_CONTENT_HEIGHT = 120;
 const DEFAULT_CONTENT_HEIGHT = 320;
@@ -473,6 +489,7 @@ export function PaperInfoPanel({
 		? `https://www.alphaxiv.org/abs/${arxivId}`
 		: null;
 	const codeRepo = meta?.code_repo?.trim() || null;
+	const openreviewUrl = openreviewHref(meta?.openreview_url);
 	const venue = meta ? venueInfo(meta) : null;
 
 	const copyField = async (text: string | null | undefined, label: string) => {
@@ -654,7 +671,8 @@ export function PaperInfoPanel({
 							meta.arxiv_id ||
 							modelScopeUrl ||
 							alphaXivUrl ||
-							codeRepo ? (
+							codeRepo ||
+							openreviewUrl ? (
 								<div className="@container/paper-links flex flex-nowrap items-center gap-1.5 overflow-hidden px-3 pt-1.5">
 									{meta.pdf_url || meta.arxiv_id ? (
 										<LinkChip
@@ -697,6 +715,15 @@ export function PaperInfoPanel({
 											label={t("paperInfo.codeRepo")}
 											icon={
 												<SiGithub className="size-3.5 shrink-0" aria-hidden />
+											}
+										/>
+									) : null}
+									{openreviewUrl ? (
+										<ServiceLinkChip
+											href={openreviewUrl}
+											label={t("paperInfo.openreview")}
+											icon={
+												<FileText className="size-3.5 shrink-0" aria-hidden />
 											}
 										/>
 									) : null}

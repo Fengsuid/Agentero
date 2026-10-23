@@ -343,7 +343,7 @@ fn list(
 }
 
 /// JSON field names of `PaperRecord` valid for `paper list --fields`.
-const PAPER_LIST_FIELDS: [&str; 40] = [
+const PAPER_LIST_FIELDS: [&str; 41] = [
     "path",
     "id",
     "type",
@@ -370,6 +370,7 @@ const PAPER_LIST_FIELDS: [&str; 40] = [
     "pdf_url",
     "html_url",
     "source_url",
+    "openreview_url",
     "body_source",
     "body_quality",
     "bibtex_key",

@@ -982,7 +982,7 @@ export async function syncRenamedPaperTabs(
 export function syncUpdatedPaperTabs(
 	vaultPath: string,
 	relPath: string,
-	updated: Partial<PaperMetadata>,
+	updated: PaperMetadata,
 	fallbackId?: string,
 ): void {
 	const normRel = relPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
@@ -1014,20 +1014,16 @@ export function syncUpdatedPaperTabs(
 				return tab;
 			}
 
-			const nextMeta: PaperMetadata = {
-				...(tab.paperMeta ?? ({} as PaperMetadata)),
-				...updated,
-			};
-
 			const nextTitle =
 				tab.kind === "paper"
-					? nextMeta.title?.trim() || basenameOf(tab.path)
+					? updated.title?.trim() || basenameOf(tab.path)
 					: tab.title;
 
 			return {
 				...tab,
 				title: nextTitle,
-				paperMeta: nextMeta,
+				// A full catalog record omits cleared optional fields.
+				paperMeta: updated,
 			};
 		}),
 	);

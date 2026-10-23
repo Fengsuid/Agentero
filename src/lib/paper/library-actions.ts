@@ -425,14 +425,15 @@ export async function paperMetaChange(
 			path,
 			extra: { fields: Object.keys(patch) },
 		});
+		// Host returns the full record; omitted optional fields were cleared.
 		setLibraryPapers((prev) =>
 			prev.map((p) => {
 				const key = p.path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-				return key === path ? { ...p, ...updated } : p;
+				return key === path ? { ...updated, has_pdf: p.has_pdf } : p;
 			}),
 		);
 		syncUpdatedPaperTabs(vaultPath, path, updated, paperMeta.id);
-		return { ...paperMeta, ...updated };
+		return updated;
 	} catch (e) {
 		notifyError(errorText(e));
 		return null;

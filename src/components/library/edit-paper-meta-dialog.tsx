@@ -40,6 +40,7 @@ type Draft = {
 	pdfUrl: string;
 	htmlUrl: string;
 	codeRepo: string;
+	openreviewUrl: string;
 };
 
 function draftFromPaper(paper: PaperMetadata): Draft {
@@ -58,6 +59,7 @@ function draftFromPaper(paper: PaperMetadata): Draft {
 		pdfUrl: paper.pdf_url ?? "",
 		htmlUrl: paper.html_url ?? "",
 		codeRepo: paper.code_repo ?? "",
+		openreviewUrl: paper.openreview_url ?? "",
 	};
 }
 
@@ -85,6 +87,8 @@ function diffDraft(initial: Draft, current: Draft): PaperMetaPatch {
 	if (current.pdfUrl !== initial.pdfUrl) patch.pdfUrl = current.pdfUrl;
 	if (current.htmlUrl !== initial.htmlUrl) patch.htmlUrl = current.htmlUrl;
 	if (current.codeRepo !== initial.codeRepo) patch.codeRepo = current.codeRepo;
+	if (current.openreviewUrl !== initial.openreviewUrl)
+		patch.openreviewUrl = current.openreviewUrl;
 	return patch;
 }
 
@@ -329,6 +333,15 @@ export function EditPaperMetaDialog({
 								inputMode: "url",
 								placeholder: "https://github.com/owner/repo",
 							})}
+							{field(
+								"openreviewUrl",
+								t("paperInfo.editMeta.fieldOpenreviewUrl"),
+								{
+									className: "font-mono text-xs",
+									inputMode: "url",
+									placeholder: "https://openreview.net/forum?id=…",
+								},
+							)}
 						</CollapsibleContent>
 					</Collapsible>
 				</div>

@@ -416,6 +416,7 @@ export type PaperMetaPatch = {
 	pdfUrl?: string;
 	htmlUrl?: string;
 	codeRepo?: string;
+	openreviewUrl?: string;
 };
 
 /**
@@ -453,6 +454,7 @@ export async function updatePaperMeta(
 		pdfUrl: patch.pdfUrl ?? null,
 		htmlUrl: patch.htmlUrl ?? null,
 		codeRepo: patch.codeRepo ?? null,
+		openreviewUrl: patch.openreviewUrl ?? null,
 	};
 	const paper = await callApi(
 		() => commands.paperUpdateMeta({ vaultPath, path, patch: wirePatch }),

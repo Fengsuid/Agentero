@@ -238,6 +238,7 @@ mod tests {
             html_url: None,
             source_url: None,
             code_repo: None,
+            openreview_url: Some("https://openreview.net/forum?id=keep".into()),
             body_source: None,
             body_quality: None,
             bibtex_key: None,
@@ -262,10 +263,15 @@ mod tests {
         meta.doi = Some("10.1/new".into());
         meta.publication = Some("Nature".into());
         meta.zotero_item_type = Some("journalArticle".into());
+        meta.openreview_url = Some("https://openreview.net/forum?id=other".into());
         assert!(fill_metadata(&mut record, &meta));
         // Existing values are never overwritten.
         assert_eq!(record.year, Some(2020));
         assert_eq!(record.doi.as_deref(), Some("10.1/keep"));
+        assert_eq!(
+            record.openreview_url.as_deref(),
+            Some("https://openreview.net/forum?id=keep")
+        );
         // Empty fields are filled.
         assert_eq!(record.arxiv_id.as_deref(), Some("1706.03762"));
         assert_eq!(record.abstract_text.as_deref(), Some("abstract"));

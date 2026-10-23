@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as tauri from "@/lib/core/tauri";
+import * as paperApi from "@/lib/paper/api";
 import { LIBRARY_VIRTUAL_PATH } from "@/lib/paper/api";
+import { paperMetaChange } from "@/lib/paper/library-actions";
+import { libraryStore, setLibraryPapers } from "@/lib/paper/library-store";
+import type { PaperMetadata } from "@/lib/paper/types";
 import { vaultStore } from "@/lib/vault/store";
 import {
 	closeTab,
@@ -848,9 +852,10 @@ describe("flat workspace helpers", () => {
 			vault,
 			"papers/test-paper",
 			{
+				...paperTab.paperMeta,
 				title: "Brand New Paper Title",
 				year: 2026,
-			},
+			} as PaperMetadata,
 			"paper-1",
 		);
 
@@ -868,6 +873,60 @@ describe("flat workspace helpers", () => {
 		expect(updatedNotes?.paperMeta?.year).toBe(2026);
 
 		expect(updatedOther?.title).toBe("todo.md");
+	});
+
+	it("clears omitted metadata fields from the library and open paper/notes tabs after saving", async () => {
+		const updated: PaperMetadata = {
+			id: "paper-1",
+			path: "papers/test-paper",
+			type: "pdf",
+			title: "Paper",
+			authors: [],
+			tags: [],
+			status: "completed",
+			is_read: false,
+			added_at: "2026-10-23T00:00:00.000Z",
+			updated_at: "2026-10-23T00:01:00.000Z",
+		};
+		const previous = {
+			...updated,
+			updated_at: updated.added_at,
+			openreview_url: "https://openreview.net/forum?id=old",
+			code_repo: "https://github.com/old/repo",
+		};
+		vaultStore.setState({ vaultPath: "/vault" });
+		setLibraryPapers([{ ...previous, has_pdf: true }]);
+		const paper = makeTab("/vault/papers/test-paper", {
+			kind: "paper",
+			mode: "pdf",
+			paperMeta: previous,
+			notesPath: "/vault/papers/test-paper/NOTES.md",
+		});
+		const notes = createNotesSplitPane(paper);
+		if (!notes) throw new Error("Missing notes fixture");
+		setTabs([paper, notes]);
+		const save = vi
+			.spyOn(paperApi, "updatePaperMeta")
+			.mockResolvedValue(updated);
+		try {
+			const result = await paperMetaChange(previous, {
+				openreviewUrl: "",
+				codeRepo: "",
+			});
+			expect(result).toEqual(updated);
+			expect(libraryStore.getState().papers).toEqual([
+				{ ...updated, has_pdf: true },
+			]);
+			expect(
+				libraryStore.getState().paperMetaByRelPath.get(updated.path)
+					?.openreview_url,
+			).toBeUndefined();
+			for (const tab of getTabs()) {
+				expect(tab.paperMeta).toEqual(updated);
+			}
+		} finally {
+			save.mockRestore();
+		}
 	});
 });
 

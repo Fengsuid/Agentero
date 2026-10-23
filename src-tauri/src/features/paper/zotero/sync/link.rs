@@ -162,6 +162,7 @@ mod tests {
             html_url: None,
             source_url: None,
             code_repo: None,
+            openreview_url: None,
             body_source: None,
             body_quality: None,
             bibtex_key: None,

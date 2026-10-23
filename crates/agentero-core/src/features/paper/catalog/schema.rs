@@ -12,6 +12,7 @@
 //!   source/model/categories/top_n, superseding the single-row
 //!   `arxiv_rec_state` (kept for old DBs; no longer written)
 //! - v9: manually maintained `code_repo` link (no auto resolution yet)
+//! - v10: manually maintained `openreview_url` link
 
 use crate::error::AppError;
 use crate::sqlite::MigrationStep;
@@ -22,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Current catalog schema version written to `schema_meta`.
-pub const SCHEMA_VERSION: i32 = 9;
+pub const SCHEMA_VERSION: i32 = 10;
 
 const DDL_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -154,6 +155,11 @@ const MIGRATE_V8_TO_V9: &str = r#"
 ALTER TABLE papers ADD COLUMN code_repo TEXT;
 "#;
 
+/// Schema v10: manually maintained OpenReview link.
+const MIGRATE_V9_TO_V10: &str = r#"
+ALTER TABLE papers ADD COLUMN openreview_url TEXT;
+"#;
+
 /// Absolute path to `{vault}/.agentero/catalog.sqlite`.
 pub fn catalog_db_path(vault_root: &Path) -> std::path::PathBuf {
     vault_root.join(".agentero").join("catalog.sqlite")
@@ -264,7 +270,7 @@ pub fn with_catalog<T>(
 
 /// Migration ladder, applied by [`crate::sqlite::run_migrations`] (per-step
 /// version re-read, stamping, `newer than app` guard).
-const MIGRATION_STEPS: [MigrationStep; 9] = [
+const MIGRATION_STEPS: [MigrationStep; 10] = [
     MigrationStep::batch(1, DDL_V1),
     // SQLite ADD COLUMN is not fully batch-safe across existing cols; the
     // v2–v4 entries run one-by-one and ignore duplicate-column errors.
@@ -276,6 +282,7 @@ const MIGRATION_STEPS: [MigrationStep; 9] = [
     MigrationStep::custom(7, migrate_v7),
     MigrationStep::script(8, MIGRATE_V7_TO_V8),
     MigrationStep::script_tolerant(9, MIGRATE_V8_TO_V9),
+    MigrationStep::script_tolerant(10, MIGRATE_V9_TO_V10),
 ];
 
 fn migrate(conn: &Connection) -> Result<(), AppError> {
@@ -407,11 +414,42 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn migrates_v9_without_changing_manual_metadata() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::sqlite::run_migrations(
+            &conn,
+            crate::sqlite::DbMsgs::CATALOG,
+            9,
+            &MIGRATION_STEPS[..9],
+            set_schema_version,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO papers (path, id, type, title, code_repo, added_at, updated_at)
+             VALUES ('papers/x', 'x', 'pdf', 'Title', 'https://github.com/foo/bar', 't', 't')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+        assert_eq!(schema_version(&conn).unwrap(), SCHEMA_VERSION);
+        let links: (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT code_repo, openreview_url FROM papers WHERE path = 'papers/x'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(links, (Some("https://github.com/foo/bar".into()), None));
+        migrate(&conn).unwrap();
+    }
+
     /// v1 databases predate the whole migration ladder: build one by hand
     /// (v1 DDL + version stamp + legacy-shaped row) and walk it through every
-    /// step — v2…v9 must all land.
+    /// step — v2…v10 must all land.
     #[test]
-    fn migrates_v1_to_v9_through_full_ladder() {
+    fn migrates_v1_to_current_through_full_ladder() {
         let dir = env::temp_dir().join(format!(
             "agentero-catalog-v1-{}-{}",
             std::process::id(),
@@ -440,7 +478,7 @@ mod tests {
             .unwrap();
         }
 
-        let conn = ensure_catalog(&dir).expect("migrate v1 to v9");
+        let conn = ensure_catalog(&dir).expect("migrate v1 to current");
         assert_eq!(schema_version(&conn).unwrap(), SCHEMA_VERSION);
 
         // v2 Translator columns exist (spot-check a few of the 16).
@@ -453,16 +491,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_v2, 4);
-        // v3 read flag + v4 Zotero linkage + v9 manual code-repo link.
-        let has_v3_v4_v9: i64 = conn
+        // v3 read flag + v4 Zotero linkage + v9/v10 manually maintained links.
+        let has_later_columns: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('papers')
-                 WHERE name IN ('is_read', 'zotero_item_id', 'zotero_last_synced', 'code_repo')",
+                 WHERE name IN ('is_read', 'zotero_item_id', 'zotero_last_synced', 'code_repo', 'openreview_url')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(has_v3_v4_v9, 4);
+        assert_eq!(has_later_columns, 5);
         // v5 page-count cache + v6 recommendation caches + v8 discovery runs.
         let tables: i64 = conn
             .query_row(
