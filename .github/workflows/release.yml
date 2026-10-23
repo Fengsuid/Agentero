@@ -111,7 +111,7 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      # macOS: Developer ID signing + notarytool (see docs/development/macos-signing.md).
+      # macOS: Developer ID signing + notarytool (see docs/test/macos-signing.md).
       # Without APPLE_CERTIFICATE the build still runs unsigned (existing behavior).
       # Do NOT pass empty APPLE_TEAM_ID/APPLE_ID via the build env — empty strings make
       # Tauri/notarytool fail with "Team ID must be at least 3 characters".

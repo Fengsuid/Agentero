@@ -32,7 +32,7 @@
 | [A2A.md](A2A.md) | 本机桌面与远端 headless 之间的薄 A2A 任务层：Agent Card + Task，把算力和数据留在服务器。设计草稿，实施未开始 |
 | [translate-sentence-anchor.md](translate-sentence-anchor.md) | 全文译文划选按句锚回英文。**已落地**（见 [../frontend/translate.md](../frontend/translate.md)、[../frontend/wiki.md](../frontend/wiki.md)），保留为设计记录。侧栏译文面板不给英文高亮加淡底 |
 
-macOS 签名与公证（已实现流程说明）在 [`../bug_fix/macos-signing.md`](../bug_fix/macos-signing.md)。
+macOS 签名与公证（已实现流程说明）在 [`../test/macos-signing.md`](../test/macos-signing.md)。
 
 LaTeX 写作与构建能力已落地，项目设置、依赖自动编译、统一底部问题列表、侧栏日志 modal、SyncTeX、项目补全与大纲见 [`../frontend/latex.md`](../frontend/latex.md)；本机工具链及边界见 [`../backend/latex.md`](../backend/latex.md)。
 

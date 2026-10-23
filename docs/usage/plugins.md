@@ -6,11 +6,7 @@
 
 打开 **设置 → 插件 → 从文件夹安装…**，选择包含 `manifest.json` 和 `main.js` 的插件目录。
 
-![插件管理页](../assets/plugins-settings.png)
-
 安装后默认停用。打开插件开关，选择授予当前 Vault 的权限，调整设置，再点击 **保存并启用**。插件行的配置按钮可再次修改权限与设置。
-
-![插件权限与设置](../assets/plugins-permissions.png)
 
 | 权限 | 可执行的操作 |
 |---|---|

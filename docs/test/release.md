@@ -133,7 +133,7 @@ pnpm tauri signer generate --password '<strong password>' --write-keys /secure/p
 
 GitHub Release 上的 macOS 安装包应使用 **Developer ID Application** 签名，并由 **notarytool** 公证 + staple，避免用户下载后出现「已损坏 / 无法打开」。
 
-- 完整步骤与 secrets 列表：[`../bug_fix/macos-signing.md`](../bug_fix/macos-signing.md)
+- 完整步骤与 secrets 列表：[`macos-signing.md`](macos-signing.md)
 - CI：`release.yml` 的 macOS job 读取 `APPLE_CERTIFICATE*` 与公证凭据；未配置 secrets 时仍构建**未签名**包（并打 warning）
 - 本地验证：导出 `APPLE_SIGNING_IDENTITY` 与公证变量后执行 `pnpm tauri build`（见文档第六步）
 

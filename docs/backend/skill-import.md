@@ -38,13 +38,13 @@
 
 1. GitHub repo 根：ref 缺省时先经 `api.github.com/repos/{owner}/{repo}` 拿默认分支；候选发现阶段不下载仓库 tarball，而是 `GET /repos/{owner}/{repo}/git/trees/{ref}?recursive=1` 列路径，只读取匹配的 `SKILL.md` blob 来展示名称/描述。用户确认后才下载选中的 Skill 目录内容。
    - 已走 Host 网络代理（`networkProxy*`）。
-   - GitHub REST API 请求优先走本机已登录的 GitHub CLI：`gh api --hostname github.com ...`。Windows 下 `gh api` 与 `gh auth token` 子进程统一经 `core::process::hide_console_window*` 带 `CREATE_NO_WINDOW` 启动，避免 GUI 版每次调用闪出控制台窗口（[#741](../bug_fix/windows-skill-import-gh-console-flash.md)）。没有 `gh`、未登录或 `gh api` 失败时，回退到 Host 自己的直连 `api.github.com` 请求（可复用 `GH_TOKEN` / `GITHUB_TOKEN` 或 `gh auth token`）；token 只发给 `api.github.com`，不会发给第三方 URL 前缀镜像。
+   - GitHub REST API 请求优先走本机已登录的 GitHub CLI：`gh api --hostname github.com ...`。Windows 下 `gh api` 与 `gh auth token` 子进程统一经 `core::process::hide_console_window*` 带 `CREATE_NO_WINDOW` 启动，避免 GUI 版每次调用闪出控制台窗口（#741）。没有 `gh`、未登录或 `gh api` 失败时，回退到 Host 自己的直连 `api.github.com` 请求（可复用 `GH_TOKEN` / `GITHUB_TOKEN` 或 `gh auth token`）；token 只发给 `api.github.com`，不会发给第三方 URL 前缀镜像。
    - Settings → 通用 → **GitHub 镜像**（`githubMirrorEnabled` / `githubMirrorBaseUrl`）：从内置预设列表中选择一个 URL 前缀镜像；直连失败（超时/连接错误/5xx/429/403）时回退 `{base}/https://api|codeload.github.com/...`（如 `https://gh.llkk.cc`）。GitHub `403` 常见于未认证 API 配额、出口 IP 或区域网络拦截，按可恢复网络问题处理；**其它 4xx（如 404）不回退**。与网络代理正交。
 2. GitHub tree 子目录：先经 `api.github.com/repos/{owner}/{repo}/contents/{subpath}?ref={ref}` 递归列目录，只读取候选目录里的 `SKILL.md` blob 来展示候选；不下载 `assets/`、`references/`、`scripts/` 等 payload。这样 monorepo 中的单个 Skill 不需要下载整仓 tarball，且发现阶段很轻。
 3. 解压或列目录后，递归扫描 `**/SKILL.md`：
    - 有子目录约束（tree URL / `--skill`）→ 只取匹配项；
    - repo 根或指定路径发现 Skill → 返回候选列表，前端弹选择（见 §4）。
-4. 校验 frontmatter：`name` 合法且与目录名一致；不一致时以 `name` 为准命名目标目录。frontmatter 解析统一走 `crates/agentero-core/src/frontmatter.rs`（`frontmatter_block` + `scalar_field`，支持引号、`>` / `|` 折叠块、多行续行、CRLF，只读顶层键）。`description` 超过 1024 **字符**时按字符截断展示，不再拒绝安装；单个 `SKILL.md` 解析失败只跳过该候选，整个来源没有可用 Skill 才报错。见 [bug_fix/skill-import-description-length.md](../bug_fix/skill-import-description-length.md)。
+4. 校验 frontmatter：`name` 合法且与目录名一致；不一致时以 `name` 为准命名目标目录。frontmatter 解析统一走 `crates/agentero-core/src/frontmatter.rs`（`frontmatter_block` + `scalar_field`，支持引号、`>` / `|` 折叠块、多行续行、CRLF，只读顶层键）。`description` 超过 1024 **字符**时按字符截断展示，不再拒绝安装；单个 `SKILL.md` 解析失败只跳过该候选，整个来源没有可用 Skill 才报错。
 5. 将 sparse 候选 metadata 暂存为一次性 discovery，并返回前端选择；此阶段不写入 Vault，也不下载非 `SKILL.md` payload。
 6. 用户确认后才落盘 `vault/.agents/skills/<name>/`（整目录拷贝，含 `references/` 等）。这一步只下载被选中的 Skill 目录；文件内容走 GitHub Blob API（`api.github.com/repos/{owner}/{repo}/git/blobs/{sha}`），不依赖 `raw.githubusercontent.com`：
    - 目标已存在 → 默认**不覆盖**，报「已存在，是否更新」（沿用 `ensure_vault` 不覆盖用户文件的原则）；

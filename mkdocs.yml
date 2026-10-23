@@ -109,6 +109,7 @@ nav:
   - 测试:
       - 概览: test/index.md
       - 发布流程: test/release.md
+      - macOS 签名与公证: test/macos-signing.md
       - iOS TestFlight: test/ios-testflight.md
       - 发布前 Checklist: test/release-checklist.md
 
@@ -125,32 +126,16 @@ nav:
       - PDF 切换视觉截图与后台 ONNX: bug_fix/pdf-switch-visual-crop-layout-onnx.md
       - 远端 ACP PATH / SSH: bug_fix/remote-acp-path-ssh.md
       - 远程 Vault 文件树懒加载: bug_fix/remote-vault-tree-lazy.md
-      - macOS 签名与公证: bug_fix/macos-signing.md
-      - Gemini 登录弹窗循环: bug_fix/gemini-login-browser-loop.md
       - 导入 NOTES 摘要 MT 超时: bug_fix/import-abstract-mt-timeout.md
-      - CLI 导入后论文标题不刷新: bug_fix/cli-import-library-refresh.md
       - Codex 历史恢复误用 session id: bug_fix/codex-history-runtime-session-id.md
       - 导入 PDF 无法生成 PAPER.md: bug_fix/local-pdf-parse-missing-pdfium.md
       - 组织目录被识别成单篇论文: bug_fix/paper-folder-marker-conflict.md
-      - 论文导入超时: bug_fix/paper-import-timeout.md
-      - 远程 Vault 无法新建文件: bug_fix/remote-create-folder-exists.md
-      - 远程删除后 list 报 NoSuchFile: bug_fix/remote-delete-list-nosuchfile.md
-      - 缩放时待办 checkbox 错位: bug_fix/todo-checkbox-scale-align.md
       - Agent 引用来源外部链接在应用内弹出空标签页: bug_fix/agent-external-source-blank-window.md
-      - Cool Papers decode_entities 切中文 panic + 广场每次新建连接: bug_fix/coolpapers-entity-utf8-panic.md
-      - 版面解析任务一直排队（JobCenter 槽位泄漏）: bug_fix/layout-analyze-job-slot-leak.md
-      - 期刊 / venue 取不全（#399）: bug_fix/publication-venue-api.md
-      - 导入第三方 Skill 报「description is too long」（#355）: bug_fix/skill-import-description-length.md
       - Windows 启动与问题诊断弹出黑色控制台窗口: bug_fix/windows-console-window-flash.md
-      - "Windows 安装 Skill 反复弹出 gh.exe 控制台窗口（#741）": bug_fix/windows-skill-import-gh-console-flash.md
       - "笔记正文 < 比较符截断后续内容（#533）": bug_fix/note-markdown-stray-less-than.md
       - "笔记正文花括号截断后续内容（MDX 表达式）": bug_fix/note-markdown-mdx-brace-truncation.md
       - "macOS 首次精读弹出 Music / iCloud / 文件夹权限（#570）": bug_fix/macos-tcc-folder-prompts.md
-      - "ACP 历史回放被 No response requested 占位": bug_fix/acp-replay-no-response-requested.md
-      - Agent Composer 首次语音输入被吞: bug_fix/agent-composer-voice-input-first-token.md
-      - Agent 历史会话恢复加载反馈: bug_fix/agent-history-session-shimmer.md
       - "Agent 消息公式 < 被截断（#584）": bug_fix/agent-message-math-less-than.md
-      - CLI 导入修复残缺论文单元: bug_fix/cli-import-repairs-incomplete-paper.md
       - Windows ACP 终端 Hermes MSYS2 挂死: bug_fix/hermes-terminal-pending-msys2-hang.md
       - 任务 runner panic 导致并发槽泄漏: bug_fix/job-runner-panic-slot-leak.md
       - macOS 主窗口可无限缩小: bug_fix/macos-window-min-size-config-merge.md
@@ -161,7 +146,6 @@ nav:
       - "Windows PDF 翻页随机跳到首尾页（#539）": bug_fix/pdf-windows-scroll-endpoint-jump.md
       - "Windows PDF 滚动跳回已保存位置（#427）": bug_fix/pdf-windows-scroll-restore-jump.md
       - Pi ACP 未使用 Vault 工作目录: bug_fix/pi-acp-vault-cwd.md
-      - "Settings 切换语言不立即生效（#437）": bug_fix/settings-locale-no-immediate-switch.md
       - 左侧文件树偶发黑屏: bug_fix/vault-sidebar-blank-until-scroll.md
       - 左侧栏收起后文件树跳回顶部: bug_fix/vault-sidebar-jump-to-top.md
 

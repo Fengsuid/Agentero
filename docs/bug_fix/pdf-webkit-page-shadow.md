@@ -45,14 +45,6 @@ document.head.append(paperShadowProbe);
 
 上述性能结果来自 0.12.0 及其页面阴影单因素对照，**不是**对 main 新增 BMP / 底图 / 瓦片优化的性能复测。main 在准备本修复时仍保留两个页面壳的 `shadow-sm`。阴影修改与栅格优化涉及不同层，但它们组合后的 Linux 性能仍需实际验证，不能直接相加各项收益，也不据此关闭 #798 的其他排查。
 
-## 页面边缘对比
-
-以下截图为浏览器中的页面壳外观复现，使用公开 GG-CNN PDF 首页的静态栅格和安装版真实 CSS。它们用于核对去掉模糊阴影后的边缘外观；不是完整阅读器截图，也不用于证明 WebKitGTK 滚动性能。
-
-| 原模糊阴影 | 保留细边框 |
-|---|---|
-| ![原页面边缘](assets/pdf-webkit-page-shadow-before.png) | ![移除阴影后的页面边缘](assets/pdf-webkit-page-shadow-after.png) |
-
 ## 后续版本回归检查
 
 单元测试无法证明 WebKit 的绘制性能，本次没有增加只检查 class 字符串的测试。后续调整纸张外观或阅读器渲染时，应在 Linux 原生 WebKitGTK 中检查：

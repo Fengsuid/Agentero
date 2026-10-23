@@ -113,10 +113,7 @@ manifest 内容本就相同，合并无副作用；GNU 工具链排除）。
 - 前端 vitest 34/34；`tsc --noEmit` 干净。
 - 真机端到端（安装版，自定义 ACP Agent / Hermes）：`terminal: pwd` 与
   `terminal: echo "AGENTERO_SMOKE"` 均"已完成"、输出正确（覆盖 PowerShell
-  兜底路径）：
-
-  ![E2E pwd](assets/e2e-custom-t1-pwd.png)
-  ![E2E smoke](assets/e2e-custom-t2-smoke.png)
+  兜底路径）。
 
 ## 5. 教训与后续
 

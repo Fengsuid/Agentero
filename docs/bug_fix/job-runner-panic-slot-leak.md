@@ -4,7 +4,7 @@
 
 ## 问题
 
-潜在缺陷（架构审查发现，与 layout-analyze-job-slot-leak.md 同族但根因不同）：
+潜在缺陷（架构审查发现；根因是 runner panic 跳过收尾，而不是正常路径漏调 `finish()`）：
 
 1. job runner 内任何 panic（TeX 解析、sidecar IO 等）都会让 `finish()` 永不执行，该 kind 的并发槽 `running_by_kind`（如 layoutAnalyze cap=1）与去重键 `active_keys` 永久泄漏，后续同类任务全部卡「排队」；重新入队还会被去重逻辑返回幽灵快照。
 2. 取消状态存于全局 `CANCELLED: Mutex<HashSet<String>>`，条目仅靠 `finish()` 清除。任务崩溃后条目泄漏，且**污染复用同一 task id 的下一个任务**（新任务一出生就处于「已取消」状态）。

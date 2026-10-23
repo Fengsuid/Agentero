@@ -17,7 +17,6 @@ Agentero 作为 **ACP Client**，stdio JSON-RPC 连接用户本机或远端 Agen
   cancelled 表示宿主请求 future 被丢弃，不保证适配器已终止内部恢复工作。
   Host 无法区分 Pi RPC 启动至就绪、读取历史、回放历史的内部阶段；这些耗时需在
   使用的 `pi-acp` 适配器中输出（stderr，避免污染 ACP stdout）。
-  验证与后续见 [历史恢复超时复盘](../bug_fix/acp-session-load-timeout.md)。
 - 会话 `cwd` = 当前 Vault 根（远程则为远端 Vault 根）。run / warm / list / load
   统一由 `agent_spawn_cwd()` 选择路径，并在内部调用 `core::process::windows_shell_path` 归一；history
   不再二次归一。Windows 把 canonicalize 出的 `\\?\D:\...` 还原为 `D:\...`，避免 Agent
@@ -215,8 +214,7 @@ Agentero 作为 **ACP Client**，stdio JSON-RPC 连接用户本机或远端 Agen
   （注册 Agent 合并 env / login-shell PATH，#686）。
 - 后台熔断（`AgentWarmGate`）：`agent_warm` / `agent_list_sessions` 失败后进入
   120s 冷却，冷却期内直接返回上次错误、不再 spawn；成功或用户消息
-  （`agent_run_once`）成功后清除。详见
-  [bug_fix/gemini-login-browser-loop.md](../bug_fix/gemini-login-browser-loop.md)。
+  （`agent_run_once`）成功后清除。
 
 ```text
 spawn 用户配置的 agent
