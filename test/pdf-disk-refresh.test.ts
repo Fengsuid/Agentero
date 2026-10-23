@@ -137,4 +137,20 @@ describe("applyDiskChange pdf panes", () => {
 		expect(localFileToArrayBufferMock).not.toHaveBeenCalled();
 		expect(sink.updateTabs).not.toHaveBeenCalled();
 	});
+
+	it("bumps a local html preview without reading the file as text", async () => {
+		const htmlPath = "/vault/notes/logic.html";
+		const tab = {
+			...createPlaceholderTab(htmlPath, "html"),
+			loaded: true,
+			htmlKey: 2,
+		};
+		const sink = makeSink([tab]);
+
+		await applyDiskChange(htmlPath, sink);
+
+		expect(sink.getTabs()[0]?.htmlKey).toBe(3);
+		expect(readVaultFileMock).not.toHaveBeenCalled();
+		expect(localFileToArrayBufferMock).not.toHaveBeenCalled();
+	});
 });

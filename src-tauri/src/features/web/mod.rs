@@ -8,4 +8,5 @@
 
 pub mod allowlist;
 pub mod commands;
+pub mod html_preview;
 pub mod proxy;

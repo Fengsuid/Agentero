@@ -98,7 +98,7 @@ Host 通过 Tauri event 向前端推送事件。文件系统、任务和菜单�
 `src/lib/core/bindings.ts` 由 [tauri-specta](https://github.com/specta-rs/specta)（rc.25）从 Rust 签名生成，是 Frontend ↔ Host IPC 的类型化契约。**生成物，不要手改**。
 
 - **覆盖范围**
-  - **命令**：desktop 注册的全部 191 个 `#[tauri::command]`（`app/handlers.rs` 的 `common_commands!` + desktop-only extras）逐一 collect 于 `src-tauri/src/app/bindings_test.rs`。iOS-only 的 5 个 bridge client 命令（`bridge_connect` / `bridge_resume` / `bridge_disconnect` / `bridge_rpc` / client 版 `bridge_status`）不进 desktop bindings。
+  - **命令**：desktop 注册的全部 192 个 `#[tauri::command]`（`app/handlers.rs` 的 `common_commands!` + desktop-only extras）逐一 collect 于 `src-tauri/src/app/bindings_test.rs`。iOS-only 的 5 个 bridge client 命令（`bridge_connect` / `bridge_resume` / `bridge_disconnect` / `bridge_rpc` / client 版 `bridge_status`）不进 desktop bindings。
   - **事件**：desktop 侧 emit 的 42 个事件（`job:*`（含 `job:progress` 字节/计数进度）、`agent:*`、`vault:file-changed`、`settings:changed`、`bridge:host-status`/`bridge:pair-request`、`connector:*`、`mcp:*`、`sync:*`、`paper:*` 等），声明于 `src-tauri/src/app/events_contract.rs`（wrapper/mirror + `#[tauri_specta(event_name = "…")]`，事件名与 emit 字面量一致，emit 调用点不改造）。iOS-only bridge client 事件（`bridge:status` / `bridge:progress` / `bridge:pair-pending`）不在其中。
 - **再生成 / 防漂移**
 
@@ -1466,6 +1466,30 @@ Agent：`agent_run_once` / `agent_warm` 在 vault 为 `remote:…` 时经 SSH `b
 ```
 
 - **返回**：`ApiResult<boolean>` —— host 是否被接受（`false` = 非公网 DNS 名）。
+
+### 3.6.3 本地 HTML 预览（`agentero-html` scheme）
+
+Vault 里的 `.html` / `.htm` 由 `LocalHtmlViewer` 在沙箱 iframe 中打开。远程论文页仍走 `agentero-web`。scheme 在 `app/mod.rs` 注册，实现在 `features/web/html_preview.rs`。
+
+- iframe `sandbox` 只有 `allow-scripts`。不带 `allow-same-origin`，页面源是不透明的，脚本碰不到主窗口，也调不了 Tauri IPC。
+- 地址是 `agentero-html://localhost/t/<token>/<文件名>`。Windows WebView2 上是 `http://agentero-html.localhost/t/<token>/<文件名>`。`token` 由 `html_preview_grant` 签发，对应这个文件所在目录。相对路径的图片、样式留在该目录内；`..`、目录外符号链接、其他 host 都拒绝。
+- 响应自带 CSP，不继承主 webview 的策略：`script-src 'unsafe-inline'`，`connect-src 'none'`，图片只允许 `data:` / `blob:` 和本 scheme。样式和字体额外允许 Google Fonts。
+- Vault 最后一个窗口释放时，该 Vault 的 token 一并撤销。
+- 不注入划词桥，不在预览里编辑源码。笔记里的内嵌 HTML 仍走 DOMPurify。
+
+#### `html_preview_grant`
+
+打开本地 HTML 前签发目录 token。文件必须是已 hold 的 Vault 内的 `.html` / `.htm`。
+
+- **参数**（invoke 字段名 `args`）：
+
+```ts
+{
+  path: string; // 绝对路径
+}
+```
+
+- **返回**：`ApiResult<{ token: string; name: string }>`。`name` 是文件名，前端把它放在预览 URL 的最后一段，这样相对资源能解析到同目录。
 
 ### 3.7 Agent 工作流（ACP Client + BYOA）
 

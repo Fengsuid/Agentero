@@ -614,6 +614,13 @@ export const commands = {
 	 */
 	webProxyAllowHost: (args: WebProxyAllowHostArgs) => typedError<ApiResult<boolean>, string>(__TAURI_INVOKE("web_proxy_allow_host", { args })),
 	/**
+	 *  Mint a preview token for one HTML file inside a vault this window holds.
+	 * 
+	 *  The token names that file's directory. The `agentero-html` scheme serves
+	 *  only paths under it. Closing the vault revokes the token.
+	 */
+	htmlPreviewGrant: (args: HtmlPreviewGrantArgs) => typedError<ApiResult<HtmlPreviewGrant>, string>(__TAURI_INVOKE("html_preview_grant", { args })),
+	/**
 	 *  Detect available LaTeX engines on the system.
 	 *  Returns the engines that can actually compile — latexmk (the orchestrator)
 	 *  and the engine binary must both exist. Engines not present on the host are
@@ -2991,6 +2998,17 @@ export type HostToolDiagnostic_Serialize = {
 };
 
 export type HostToolStatus = "available" | "missing" | "unusable";
+
+/**  Token plus the file name used as the last segment of the preview URL. */
+export type HtmlPreviewGrant = {
+	token: string,
+	name: string,
+};
+
+export type HtmlPreviewGrantArgs = {
+	/**  Absolute path of the `.html` / `.htm` file to preview. */
+	path: string,
+};
 
 export type ImportLocalPdfArgs = {
 	vaultPath: string,

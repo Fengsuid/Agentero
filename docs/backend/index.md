@@ -33,7 +33,7 @@ src-tauri/src/
     vault/      # commands、watcher（trash/rename/doctor 的 commands 留守）
     paper/      # catalog commands、import 壳（job_runners/remote_ops/recognize）、
                 # analyze/layout、body_engines（云端 parse 引擎）、zotero db、discovery 站点代理
-    web/        # agentero-web 通用网页代理（allowlist + web_proxy_allow_host，网页论文 iframe 划词用）
+    web/        # agentero-web 通用网页代理（allowlist + web_proxy_allow_host，网页论文 iframe 划词用）；agentero-html 本地 HTML 预览
     pdf/        # export
     markdown/   # wiki commands、search
     system/     # settings、builtin（构建期内置 provider 凭证）、desktop_apps（本地桌面应用检测）

@@ -75,7 +75,25 @@ NAV_BRIDGE 同款 vanilla ES5 IIFE,只装配顶层 frame。经 `parent.postMessa
 - **跨 host 重定向**:重定向目标 host 必须也在 allowlist(如 www → 裸域),否则该请求报错——SSRF 边界优先。
 - 剪贴板:首选应用侧 `copyTextToClipboard`,被拒时桥内 `execCommand("copy")` 已先行复制。
 
+## 本地 HTML 文件
+
+Vault 中的 `.html` / `.htm`（论文目录下的子文件、`notes/` 里的图）由 `LocalHtmlViewer`（`src/components/viewer/local-html-viewer.tsx`）预览。远程论文页仍走上面的 `HtmlViewer`。
+
+```text
+打开 logic.html
+  → html_preview_grant(绝对路径) → { token, name }
+  → iframe src: agentero-html://localhost/t/<token>/<name>?v=<htmlKey>
+  → Host 只读该文件所在目录（含子目录）
+```
+
+Windows 上地址是 `http://agentero-html.localhost/t/...`。`sandbox="allow-scripts"`。磁盘上的同一文件变更会增加 `htmlKey`，iframe 重新加载，不必把全文读进 React state。
+
+适合 Skill 写出的单文件图（内联 SVG / CSS / 脚本）。同目录的 `./fig.svg` 可以显示。远程脚本、`fetch`、表单、弹窗和跳出该目录的路径都不放行。字体允许 Google Fonts；要完全离线，生成时改用系统字体。
+
+划词、翻译、加入对话不接在这个 iframe 上。源码编辑也不在预览里。
+
 ## 相关
 
 - 广场各站专属代理(固定 origin,不做任意 host):`docs/development/plaza.md`
 - PDF 划词(持久化 marks 的对照实现):[pdf.md](pdf.md)
+- Host 契约：[../backend/api.md](../backend/api.md) §3.6.3

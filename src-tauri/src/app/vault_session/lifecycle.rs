@@ -87,4 +87,6 @@ pub(crate) async fn release_vault_resources(app: &tauri::AppHandle, vault: &std:
 
     app.state::<CapsCache>().clear();
     crate::features::paper::catalog::evict_catalog_conn(vault);
+    app.state::<crate::features::web::html_preview::HtmlPreviewGrants>()
+        .revoke_vault(vault);
 }

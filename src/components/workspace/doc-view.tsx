@@ -5,6 +5,7 @@ import { PapersLibrary } from "@/components/library/papers-library";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PdfViewerHandle } from "@/components/viewer";
 import { HtmlViewer, ImageViewer } from "@/components/viewer";
+import { LocalHtmlViewer } from "@/components/viewer/local-html-viewer";
 import { RecycleBinView } from "@/components/workspace/recycle-bin-view";
 import { useSettings } from "@/hooks/use-app-stores";
 import type { PaperLibraryRow, PaperMetadata } from "@/lib/paper";
@@ -16,7 +17,11 @@ import type { LibraryColumnPref } from "@/lib/settings";
 import { isMarkdownPath, paperRelFromNotes } from "@/lib/vault";
 import type { WikiRenameHeadingRequest } from "@/lib/wiki";
 import { type DocTab, tabIsPaperNotes } from "@/lib/workspace/tabs";
-import { isPlainPdfPath, viewerModeSpec } from "@/lib/workspace/viewer";
+import {
+	isHtmlPath,
+	isPlainPdfPath,
+	viewerModeSpec,
+} from "@/lib/workspace/viewer";
 
 // Heavyweight viewers are lazy-loaded so the EmbedPDF (PDFium) and Plate
 // editor bundles stay out of the initial chunk and are fetched on first use.
@@ -539,9 +544,22 @@ export const DocView = memo(function DocView({
 			</div>
 		);
 	}
-	// HTML pages are remote documents. Do not create their iframe (and therefore
-	// do not start a network request) until the panel is actually activated.
+	// HTML pages. Do not create their iframe (and therefore do not start a
+	// request) until the panel is actually activated. A `.html` file in the
+	// vault is a local preview; a paper body with `htmlUrl` stays remote.
 	if (!active) return null;
+	if (isHtmlPath(tab.path)) {
+		return (
+			<div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+				<LocalHtmlViewer
+					path={tab.path}
+					reloadKey={tab.htmlKey}
+					title={tab.title}
+					className="h-full w-full"
+				/>
+			</div>
+		);
+	}
 	return (
 		<div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
 			<HtmlViewer

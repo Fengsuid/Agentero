@@ -1,0 +1,117 @@
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { commands } from "@/lib/core/bindings";
+import { callApiResult } from "@/lib/core/ipc";
+import { notifyError } from "@/lib/core/notify";
+import { cn } from "@/lib/core/utils";
+import {
+	LOCAL_HTML_SANDBOX,
+	localHtmlPreviewUrl,
+} from "@/lib/web-view/html-preview-url";
+
+type LocalHtmlViewerProps = {
+	/** Absolute vault path of the `.html` file. */
+	path: string;
+	/** Bumped when the file changes on disk so the frame refetches. */
+	reloadKey: number;
+	title?: string;
+	className?: string;
+};
+
+type Grant = { path: string; token: string; name: string };
+
+/**
+ * Sandboxed preview of a vault HTML file.
+ *
+ * The frame loads `agentero-html://`, not `srcdoc`, and its sandbox is only
+ * `allow-scripts`. Remote paper pages stay on `HtmlViewer`.
+ */
+export function LocalHtmlViewer({
+	path,
+	reloadKey,
+	title,
+	className,
+}: LocalHtmlViewerProps) {
+	const { t } = useTranslation("viewer");
+	const iframeRef = useRef<HTMLIFrameElement | null>(null);
+	const grantRef = useRef<Grant | null>(null);
+	const [src, setSrc] = useState<string | null>(null);
+	const [failed, setFailed] = useState(false);
+	/** While HTML5 DnD is active, disable iframe hit-testing so dragover
+	 * reaches dockview drop targets (a sandboxed iframe swallows drag events). */
+	const [dragShield, setDragShield] = useState(false);
+
+	useEffect(() => {
+		const arm = () => setDragShield(true);
+		const disarm = () => setDragShield(false);
+		window.addEventListener("dragstart", arm, true);
+		window.addEventListener("dragend", disarm, true);
+		window.addEventListener("drop", disarm, true);
+		return () => {
+			window.removeEventListener("dragstart", arm, true);
+			window.removeEventListener("dragend", disarm, true);
+			window.removeEventListener("drop", disarm, true);
+		};
+	}, []);
+
+	useEffect(() => {
+		let cancelled = false;
+		const cached = grantRef.current;
+		const sameFile = cached?.path === path ? cached : null;
+		if (!sameFile) setSrc(null);
+		setFailed(false);
+		void (async () => {
+			try {
+				const grant =
+					sameFile ??
+					(await callApiResult(() => commands.htmlPreviewGrant({ path })));
+				if (cancelled) return;
+				grantRef.current = { path, token: grant.token, name: grant.name };
+				setSrc(localHtmlPreviewUrl(grant.token, grant.name, reloadKey));
+			} catch {
+				if (cancelled) return;
+				grantRef.current = null;
+				setSrc(null);
+				setFailed(true);
+				notifyError(t("html.localFailed"));
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [path, reloadKey, t]);
+
+	if (failed || !src) {
+		return (
+			<div
+				className={cn(
+					"flex h-full items-center justify-center p-6 text-center text-muted-foreground text-sm",
+					className,
+				)}
+			>
+				{failed ? t("html.localFailed") : null}
+			</div>
+		);
+	}
+
+	return (
+		<div
+			className={cn(
+				"relative h-full min-h-0 w-full min-w-0 overflow-hidden bg-background",
+				className,
+			)}
+		>
+			<iframe
+				title={title || t("html.localTitle")}
+				src={src}
+				sandbox={LOCAL_HTML_SANDBOX}
+				referrerPolicy="no-referrer"
+				ref={iframeRef}
+				className={cn(
+					"absolute inset-0 block h-full w-full border-0 bg-background",
+					dragShield && "pointer-events-none",
+				)}
+			/>
+		</div>
+	);
+}

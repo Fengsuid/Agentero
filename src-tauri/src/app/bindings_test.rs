@@ -239,6 +239,7 @@ pub(crate) fn export_typescript_bindings() {
             crate::app::finder_service::commands::finder_service_uninstall::<tauri::Wry>,
             crate::features::pdf::export::commands::export_system_cjk_font,
             crate::features::web::commands::web_proxy_allow_host,
+            crate::features::web::commands::html_preview_grant,
             crate::features::compile::detect_latex_engines,
             crate::features::rtex::rtex_status,
             crate::features::rtex::rtex_start,

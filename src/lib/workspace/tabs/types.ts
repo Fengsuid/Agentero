@@ -43,6 +43,8 @@ export type DocTab = {
 	excalidrawKey: number;
 	/** Bump to reload the plain-text editor's content in place from `textSeed`. */
 	textKey: number;
+	/** Bump to reload a local HTML preview after the file changes on disk. */
+	htmlKey: number;
 	/** Bump to reload the NOTES editor's content in place from `notesSeed`. */
 	notesKey: number;
 	/** One-shot, monotonic intent consumed by the mounted Markdown editor. */

@@ -450,10 +450,9 @@ export async function loadTabResources(
 				break;
 			}
 			case "html": {
-				// Paper HTML is a body-only remote document; a nested .html file
-				// inside the paper folder has no local preview URL.
-				// markdownSeed is consumed only by markdown mode; the old loader
-				// read it here too.
+				// Local `.html` is served by the `agentero-html` scheme from
+				// `tab.path`. The paper's remote `htmlUrl` stays on the paper
+				// body tab and is not reused as this file's preview.
 				break;
 			}
 			case "text": {
@@ -537,7 +536,7 @@ export async function loadTabResources(
 			}
 		}
 		case "html": {
-			// Local HTML still has no sandboxed file:// preview (remote only for paper HTML).
+			// Local `.html` is previewed from `path` via `agentero-html`.
 			return base;
 		}
 		case "markdown": {

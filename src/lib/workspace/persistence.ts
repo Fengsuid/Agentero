@@ -25,7 +25,7 @@ import {
 	seedTabs,
 	syncTabSeedsForPath,
 } from "./tabs";
-import { viewerModeSpec } from "./viewer";
+import { isHtmlPath, viewerModeSpec } from "./viewer";
 
 /** Collect vault-relative paths with unsaved edits (rename preflight). */
 export function dirtyVaultPaths(root: string): string[] {
@@ -161,6 +161,24 @@ export async function applyDiskChange(
 ): Promise<void> {
 	const norm = normalizeTabPath(absPath);
 	const openTabs = sink.getTabs();
+	if (
+		openTabs.some(
+			(tab) =>
+				tab.mode === "html" &&
+				isHtmlPath(tab.path) &&
+				normalizeTabPath(tab.path) === norm,
+		)
+	) {
+		sink.updateTabs((prev) =>
+			prev.map((tab) =>
+				tab.mode === "html" &&
+				isHtmlPath(tab.path) &&
+				normalizeTabPath(tab.path) === norm
+					? { ...tab, htmlKey: tab.htmlKey + 1 }
+					: tab,
+			),
+		);
+	}
 	const kindOwners = diskChangeKinds.map((kind) => ({
 		kind,
 		owners: openTabs.filter((tab) => kind.owns(tab, norm)),

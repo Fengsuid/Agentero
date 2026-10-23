@@ -163,6 +163,7 @@ export function createPlaceholderTab(
 		notesKey: 0,
 		excalidrawKey: 0,
 		textKey: 0,
+		htmlKey: 0,
 		loaded: false,
 	};
 }

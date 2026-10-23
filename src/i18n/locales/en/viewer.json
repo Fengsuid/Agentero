@@ -238,7 +238,9 @@
 	"html": {
 		"empty": "No paper available.",
 		"sandboxTitle": "HTML paper sandbox",
-		"denied": "This page's host cannot be loaded through the built-in proxy."
+		"denied": "This page's host cannot be loaded through the built-in proxy.",
+		"localTitle": "HTML preview",
+		"localFailed": "Could not preview this HTML file."
 	},
 	"image": {
 		"empty": "No image available.",

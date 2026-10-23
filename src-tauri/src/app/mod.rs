@@ -91,6 +91,13 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("agentero-web", |_ctx, request, responder| {
             crate::features::web::proxy::handle(request, responder);
         })
+        .register_asynchronous_uri_scheme_protocol("agentero-html", |ctx, request, responder| {
+            crate::features::web::html_preview::handle(
+                ctx.app_handle().clone(),
+                request,
+                responder,
+            );
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -143,7 +150,8 @@ pub fn run() {
         .manage(ExternalRenameRepairStore::new())
         .manage(crate::integration::sync::SyncService::default())
         .manage(crate::app::open_request::PendingVaultOpen::new())
-        .manage(crate::app::open_request::PendingUiRequest::new());
+        .manage(crate::app::open_request::PendingUiRequest::new())
+        .manage(crate::features::web::html_preview::HtmlPreviewGrants::default());
 
     #[cfg(not(target_os = "ios"))]
     {

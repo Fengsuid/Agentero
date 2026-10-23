@@ -106,7 +106,8 @@ export type ViewerModeSpec = {
 	 * - "pdf": PDF bytes (local file, blob: URL or remote URL); translation
 	 *   panes clone the source pane's bytes and reload from them.
 	 * - "markdown": Markdown seed read from disk.
-	 * - "html": remote HTML URL from paper assets (local HTML has no preview).
+	 * - "html": remote paper HTML URL, or a local `.html` file served by
+	 *   `agentero-html` (the loader does not inline the file).
 	 * - "image": `blob:` URL from local image bytes.
 	 * - "excalidraw": whiteboard JSON seed.
 	 * - "text": raw text seed (CodeMirror catch-all).
