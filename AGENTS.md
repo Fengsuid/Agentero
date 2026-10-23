@@ -2,7 +2,7 @@
 
 ## 项目概览
 
-Agentero 是一个基于 Tauri 2 + React 19 的本地优先科研工作台。Vault 中笔记与源文件以 Markdown/文件为准，论文结构化 metadata 以 `.agentero/catalog.sqlite` 为准。离开应用后数据仍可被外部工具读取。
+Agentero 是一个基于 Tauri 2 + React 19 的本地优先科研工作台，产品是桌面端应用。Vault 中笔记与源文件以 Markdown/文件为准，论文结构化 metadata 以 `.agentero/catalog.sqlite` 为准。离开应用后数据仍可被外部工具读取。
 
 架构总览：[docs/architecture.md](docs/architecture.md)
 
@@ -35,27 +35,49 @@ Agentero 是一个基于 Tauri 2 + React 19 的本地优先科研工作台。Vau
 - 如果库当中有对应的 issue，则在提交信息中引用（如 `Fix #123`）；解决了该 issue 则关闭；部分解决则在 issue 区评论。
 - 解决 Issue 之后，把解决的方法评论在 issue 中
 
+## PR
+
+- 不要把截图、GIF、录屏提交进仓库，也不要放进 PR diff 或 PR 描述正文。不要用 `gh pr create --attach` / `gh pr edit --attach` 把图片写进 PR 正文。
+- 需要附图时，先创建不含图片的 PR，再在该 PR 的评论区上传。`gh` ≥ 2.99.0 的 `gh pr comment --attach` 与在评论框拖入图片相同：文件托管在 GitHub（`user-attachments`），不进入 git 历史。
+
+```bash
+gh pr comment <number> --body "之前 / 之后" \
+  --attach './before.png#之前' \
+  --attach './after.png#之后'
+```
+
+- UI / 功能改动仍需前后对比；没有界面变化时在评论里写「无」，不要附图片。`feat` 的 Demo 同样用评论区 `--attach` 上传视频或 GIF。
+- 本机 `gh` 低于 2.99.0 时，打开该 PR 在网页评论框上传，不要因此把文件提交进仓库。
+
 ## 常用命令
+
+日常开发、界面验证和打包都走桌面端。
+
+桌面端：
 
 ```bash
 pnpm install
-pnpm dev
-pnpm tauri dev
-pnpm build
-pnpm lint
-pnpm format
-pnpm tauri build
+pnpm tauri dev      # 启动桌面应用（前端 + Rust Host）
+pnpm tauri build    # 打包桌面安装包
 ```
 
+检查与格式化：
+
 ```bash
-# Headless CLI 与共享基础 crate（仓库根 workspace）
+pnpm lint
+pnpm format
+```
+
+Headless CLI 与共享基础 crate（仓库根 workspace）：
+
+```bash
 cargo build -p agentero-cli
 cargo run -p agentero-cli -- vault list --json
 cargo test -p agentero-cli
 cargo test -p agentero-core   # tauri 无关基础层（crates/agentero-core）
 ```
 
-完成实现前运行最小必要验证。UI 改动优先启动应用检查对应流程。
+完成实现前运行最小必要验证。UI 改动用 `pnpm tauri dev` 启动桌面应用，检查对应流程。
 
 ## 文档地图
 
