@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useState } from "react";
+import { type Ref, useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	Tooltip,
@@ -29,16 +29,13 @@ export const HIGHLIGHT_COLOR_STACK_COLLAPSED_W =
 	BTN + (COUNT - 1) * COLLAPSED_STEP;
 export const HIGHLIGHT_COLOR_STACK_EXPANDED_W =
 	BTN + (COUNT - 1) * EXPANDED_STEP;
-/** How far the stack grows to the left when expanded. */
-export const HIGHLIGHT_COLOR_STACK_WIDTH_DELTA =
-	HIGHLIGHT_COLOR_STACK_EXPANDED_W - HIGHLIGHT_COLOR_STACK_COLLAPSED_W;
-
 const SLOT_H = BTN;
 
 const SPRING = { type: "spring" as const, bounce: 0.2, duration: 0.32 };
 const SNAP = { type: "tween" as const, duration: 0 };
 
 type HighlightColorStackProps = {
+	ref?: Ref<HTMLFieldSetElement>;
 	onSelect: (color: HighlightColor) => void;
 	/** Currently active color (annotation recolor menu). */
 	activeColor?: HighlightColor;
@@ -54,6 +51,7 @@ type HighlightColorStackProps = {
  * toolbar by its right edge so sibling actions do not move.
  */
 export function HighlightColorStack({
+	ref,
 	onSelect,
 	activeColor,
 	tooltipSide = "top",
@@ -76,6 +74,7 @@ export function HighlightColorStack({
 
 	return (
 		<motion.fieldset
+			ref={ref}
 			className={cn("relative m-0 min-w-0 shrink-0 border-0 p-0", className)}
 			initial={false}
 			animate={{ width }}

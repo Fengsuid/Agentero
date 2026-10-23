@@ -1,5 +1,11 @@
 import { Check, Copy, Languages } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,10 +15,11 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-	HIGHLIGHT_COLOR_STACK_WIDTH_DELTA,
+	HIGHLIGHT_COLOR_STACK_EXPANDED_W,
 	HighlightColorStack,
 } from "@/components/viewer/pdf/cards/highlight-color-stack";
 import type { ScreenPoint } from "@/components/viewer/pdf/types";
+import { clamp } from "@/lib/core/math";
 import { cn } from "@/lib/core/utils";
 import type { HighlightColor } from "@/lib/pdf/highlight/palette";
 import type { MenuContext } from "@/lib/shell/commands/menu-contributions";
@@ -45,7 +52,7 @@ type SelectionMenuProps = {
 	contributionContext?: MenuContext;
 };
 
-const BAR_H = 32;
+const EDGE = 12;
 const COPIED_FLASH_MS = 1500;
 
 function SelectionCopyButton({
@@ -141,46 +148,79 @@ export function SelectionMenu({
 	const contributions = contributionContext
 		? visibleMenuContributions("pdf.selection", contributionContext)
 		: [];
+	const menuRef = useRef<HTMLDivElement>(null);
+	const dividerRef = useRef<HTMLDivElement>(null);
+	const colorsRef = useRef<HTMLFieldSetElement>(null);
+	const [position, setPosition] = useState<{
+		right: number;
+		top: number;
+		dimmed: boolean;
+	} | null>(null);
 
-	const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
-	const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-	// Approximate collapsed width for centering; flex content sizes the real bar.
-	// Pin with CSS `right` so stack width changes grow left without moving actions.
-	// Zero contributions keep the built-in width.
-	const barW =
-		(showTranslate ? 280 : 200) +
-		(onCopy ? 32 : 0) +
-		(contributions.length > 0 ? contributions.length * 72 : 0);
-	const expandPad = showHighlight ? HIGHLIGHT_COLOR_STACK_WIDTH_DELTA : 0;
-	let left = screen.x - barW / 2;
-	// Leave room on the left so the color stack can expand without clipping.
-	left = Math.min(Math.max(12 + expandPad, left), vw - barW - 12);
-	const right = vw - (left + barW);
-	// Prefer just above the selection; flip below if near the top edge.
-	let top = screen.y - BAR_H - 10;
-	let overContent = false;
-	if (top < 12) {
-		top = Math.min(vh - BAR_H - 12, screen.y + 18);
-		// Menu sits below the selection and may cover body text.
-		overContent = true;
-	}
-	// Keep the toolbar on-screen when the selection scrolls out of view; dim it
-	// so it does not look glued to an off-screen anchor.
-	const clampedTop = Math.max(12, Math.min(vh - BAR_H - 12, top));
-	const scrolledAway = clampedTop !== top;
-	top = clampedTop;
-	const dimmed = overContent || scrolledAway;
+	useLayoutEffect(() => {
+		const menu = menuRef.current;
+		if (!menu) return;
+		const place = () => {
+			const rect = menu.getBoundingClientRect();
+			const divider = showHighlight
+				? dividerRef.current?.getBoundingClientRect()
+				: undefined;
+			const anchor = divider
+				? divider.left + divider.width / 2
+				: rect.left + rect.width / 2;
+			// Measure the action side, so labels and plugin actions need no estimates.
+			// Keep `right` fixed while the color stack expands to the left.
+			const expandedWidth =
+				rect.width +
+				(colorsRef.current
+					? HIGHLIGHT_COLOR_STACK_EXPANDED_W -
+						colorsRef.current.getBoundingClientRect().width
+					: 0);
+			const right = clamp(
+				window.innerWidth - screen.x - (rect.right - anchor),
+				EDGE,
+				Math.max(EDGE, window.innerWidth - expandedWidth - EDGE),
+			);
+			// Prefer above the selection, flipping below near the top edge.
+			const above = screen.y - rect.height - 10;
+			const overContent = above < EDGE;
+			const top = clamp(
+				overContent ? screen.y + 18 : above,
+				EDGE,
+				Math.max(EDGE, window.innerHeight - rect.height - EDGE),
+			);
+			const dimmed = overContent || top !== above;
+			setPosition((prev) =>
+				prev?.right === right && prev.top === top && prev.dimmed === dimmed
+					? prev
+					: { right, top, dimmed },
+			);
+		};
+		place();
+		const observer = new ResizeObserver(place);
+		observer.observe(menu);
+		window.addEventListener("resize", place);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", place);
+		};
+	}, [screen.x, screen.y, showHighlight]);
 
 	return (
 		<div
+			ref={menuRef}
 			data-pdf-chrome
 			className={cn(
 				"fixed z-50 flex h-8 items-center gap-0.5 rounded-md border border-border/80 bg-background px-1 shadow-2xl ring-1 ring-black/5 transition-[background-color,opacity] duration-150 dark:ring-white/10",
 				// Dim when covering body text or when the selection scrolled away.
-				dimmed &&
+				position?.dimmed &&
 					"bg-background/80 opacity-70 backdrop-blur-sm hover:bg-background hover:opacity-100",
 			)}
-			style={{ top, right }}
+			style={{
+				top: position?.top ?? 0,
+				right: position?.right ?? 0,
+				visibility: position ? undefined : "hidden",
+			}}
 			role="toolbar"
 			aria-label={t("selection.menuLabel")}
 			onMouseDown={(e) => e.stopPropagation()}
@@ -188,8 +228,11 @@ export function SelectionMenu({
 			<TooltipProvider delayDuration={200}>
 				{showHighlight ? (
 					<>
-						<HighlightColorStack onSelect={onHighlight} />
-						<div className="mx-0.5 h-4 w-px shrink-0 bg-border" />
+						<HighlightColorStack ref={colorsRef} onSelect={onHighlight} />
+						<div
+							ref={dividerRef}
+							className="mx-0.5 h-4 w-px shrink-0 bg-border"
+						/>
 					</>
 				) : null}
 				{showTranslate ? (
