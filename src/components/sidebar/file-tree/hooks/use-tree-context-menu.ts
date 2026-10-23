@@ -32,7 +32,7 @@ import { openInTerminal, revealInFileManager } from "@/lib/vault/reveal";
 import { openTexPdf } from "@/lib/workspace/actions";
 import { isTexPath } from "@/lib/workspace/viewer";
 import type { TreeContextMenuPortalProps } from "../tree-context-menu";
-import { pathKey } from "../tree-helpers";
+import { pathKey, VAULT_ROOT_LABEL_KEY, vaultRootFace } from "../tree-helpers";
 import type {
 	TreeContextMenu,
 	TreeCreateDraft,
@@ -232,6 +232,7 @@ export function useTreeContextMenu({
 		!cutPathKeys.has(targetKey) &&
 		!cutPaths.some((p) => targetKey.startsWith(`${pathKey(p)}/`));
 
+	const rootFace = menuNode ? vaultRootFace(vaultPath, menuNode.path) : null;
 	const menuProps: TreeContextMenuPortalProps = {
 		menu,
 		menuRef,
@@ -243,7 +244,7 @@ export function useTreeContextMenu({
 			paperMetaByRelPath,
 		),
 		menuCount: targets.length,
-		menuNodeName: menuNode?.name,
+		menuNodeName: rootFace ? t(VAULT_ROOT_LABEL_KEY[rootFace]) : menuNode?.name,
 		isPaperMenu,
 		isLibraryMenu,
 		libraryExportBusy,

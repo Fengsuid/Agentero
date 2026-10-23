@@ -1,3 +1,4 @@
+import { toVaultRelative } from "@/lib/core/path";
 import {
 	isPaperDirectory,
 	isPapersRoot,
@@ -13,6 +14,31 @@ import { isZoteroCollectionReferencePath } from "./zotero-collection-references"
 
 /** Case-insensitive tree-path key (same normalization as vault path keys). */
 export const pathKey = normalizePathKey;
+
+/**
+ * Product folders at the vault root. The sidebar shows an icon and a
+ * translated label; the directory name on disk stays `notes` / `thesis` /
+ * `data`. A same-named folder anywhere deeper keeps its real name.
+ */
+export const VAULT_ROOT_FACES = ["notes", "thesis", "data"] as const;
+export type VaultRootFace = (typeof VAULT_ROOT_FACES)[number];
+
+const VAULT_ROOT_FACE_SET = new Set<string>(VAULT_ROOT_FACES);
+
+export const VAULT_ROOT_LABEL_KEY = {
+	notes: "fileTree.vaultRoot.notes",
+	thesis: "fileTree.vaultRoot.thesis",
+	data: "fileTree.vaultRoot.data",
+} as const;
+
+export function vaultRootFace(
+	vaultPath: string | null | undefined,
+	path: string,
+): VaultRootFace | null {
+	if (!vaultPath) return null;
+	const rel = toVaultRelative(vaultPath, path).toLowerCase();
+	return VAULT_ROOT_FACE_SET.has(rel) ? (rel as VaultRootFace) : null;
+}
 
 /** Paper folders that need Download (no PDF / no source / no PAPER.md). */
 export function collectPapersNeedingAssets(nodes: FileNode[]): FileNode[] {

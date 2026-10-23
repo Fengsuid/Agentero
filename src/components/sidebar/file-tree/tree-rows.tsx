@@ -1,10 +1,12 @@
 import {
 	ChevronRight,
+	Database,
 	Download,
 	Globe,
 	Library,
 	Link2,
 	Loader2,
+	Notebook,
 	NotebookPen,
 	Play,
 	ScrollText,
@@ -40,7 +42,12 @@ import {
 } from "@/lib/plaza";
 import type { FileNode } from "@/lib/vault";
 import type { TexCompileActions as TexCompileHookActions } from "./hooks/use-tex-compile";
-import { DOWNLOAD_REASON_KEYS } from "./tree-helpers";
+import {
+	DOWNLOAD_REASON_KEYS,
+	VAULT_ROOT_LABEL_KEY,
+	type VaultRootFace,
+	vaultRootFace,
+} from "./tree-helpers";
 
 type PaperTreeRowProps = {
 	node: FileNode;
@@ -224,7 +231,10 @@ export function NodeTreeRow({
 	const { t } = useTranslation("sidebar");
 	if (node.kind === "directory") {
 		// `papers/` doubles as the library entry: library icon + title.
+		// Vault-root notes/thesis/data get the same treatment: icon + label,
+		// disk name unchanged.
 		const isLibraryRoot = isPapersRoot(node.path);
+		const rootFace = isLibraryRoot ? null : vaultRootFace(vaultPath, node.path);
 		return (
 			<div
 				className={cn(
@@ -232,14 +242,23 @@ export function NodeTreeRow({
 					isCut && "opacity-50",
 				)}
 				{...(isLibraryRoot ? { "data-library-row": "" } : {})}
+				{...(rootFace ? { "data-vault-root": rootFace } : {})}
 			>
 				<div className="min-w-0 flex-1">
 					<FileTreeFolderRow
 						path={node.path}
-						name={isLibraryRoot ? t("papersLibrary.title") : node.name}
+						name={
+							isLibraryRoot
+								? t("papersLibrary.title")
+								: rootFace
+									? t(VAULT_ROOT_LABEL_KEY[rootFace])
+									: node.name
+						}
 						icon={
 							isLibraryRoot ? (
 								<Library className="size-4 text-muted-foreground" />
+							) : rootFace ? (
+								<VaultRootIcon face={rootFace} />
 							) : undefined
 						}
 					/>
@@ -280,6 +299,12 @@ export function NodeTreeRow({
 			) : null}
 		</FileTreeFile>
 	);
+}
+
+function VaultRootIcon({ face }: { face: VaultRootFace }) {
+	const Icon =
+		face === "notes" ? Notebook : face === "thesis" ? ScrollText : Database;
+	return <Icon className="size-4 text-muted-foreground" aria-hidden />;
 }
 
 /** Play button for a .tex row. Engine, live preview, and clean live in the LaTeX panel. */

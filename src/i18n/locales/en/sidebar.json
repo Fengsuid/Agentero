@@ -88,7 +88,12 @@
 		"liveFailed": "Live preview failed",
 		"liveFirstPage": "Waiting for the first page…",
 		"liveRetry": "Retry",
-		"liveCompile": "Live preview"
+		"liveCompile": "Live preview",
+		"vaultRoot": {
+			"notes": "Notes",
+			"thesis": "Thesis",
+			"data": "Data"
+		}
 	},
 	"importLocalPdf": {
 		"dropNoPath": "Could not read the dropped PDF. Try the magic wand → Import PDF, or drop from Finder again."

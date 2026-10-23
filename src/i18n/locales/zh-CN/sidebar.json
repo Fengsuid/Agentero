@@ -88,7 +88,12 @@
 		"liveFailed": "实时预览失败",
 		"liveFirstPage": "正在等待第一页…",
 		"liveRetry": "重试",
-		"liveCompile": "实时预览"
+		"liveCompile": "实时预览",
+		"vaultRoot": {
+			"notes": "笔记",
+			"thesis": "文稿",
+			"data": "数据"
+		}
 	},
 	"importLocalPdf": {
 		"dropNoPath": "无法读取拖入的 PDF。请改用魔棒 → 导入 PDF，或从 Finder 再拖一次。"
